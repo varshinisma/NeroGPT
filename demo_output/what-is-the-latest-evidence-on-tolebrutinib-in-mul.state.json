@@ -1,0 +1,316 @@
+{
+  "query": "What is the latest evidence on tolebrutinib in multiple sclerosis?",
+  "answer_status": "FINAL",
+  "timestamps": {
+    "request_started": "2026-10-06T15:11:24",
+    "plan_done_s": 4.6,
+    "retrieval_done_s": 10.0,
+    "answer_done_s": 17.3,
+    "final_s": 17.3
+  },
+  "intent": "latest_findings",
+  "plan": {
+    "is_clinical": true,
+    "intent": "latest_findings",
+    "condition": "multiple sclerosis",
+    "drugs": [
+      "tolebrutinib"
+    ],
+    "pubmed_query": "tolebrutinib[tiab] AND \"multiple sclerosis\"[tiab] AND (clinical trial[pt] OR review[pt] OR meta-analysis[pt])",
+    "trial_condition": "multiple sclerosis",
+    "trial_intervention": "tolebrutinib"
+  },
+  "retrieval_seconds_per_source": {
+    "pubmed_recent": 3.4,
+    "pubmed_quality": 3.4,
+    "trials": 1.4,
+    "web_approvals": 5.0,
+    "web_standard": 5.4
+  },
+  "evidence": {
+    "papers": [
+      {
+        "pmid": "42546561",
+        "doi": "10.1016/j.msard.2026.107404",
+        "year": "2026",
+        "date": "2026 Sep",
+        "journal": "Multiple sclerosis and related disorders",
+        "authors": [
+          "Maxwell CR",
+          "Turner TJ",
+          "Wallstroem E"
+        ],
+        "title": "Tolebrutinib liver safety: A detailed overview.",
+        "type": [
+          "Review"
+        ],
+        "abstract": "Tolebrutinib is an oral brain-penetrant Bruton's tyrosine kinase inhibitor thought to modulate persi"
+      },
+      {
+        "pmid": "42126690",
+        "doi": "10.1007/s40265-026-02324-y",
+        "year": "2026",
+        "date": "2026 Jul",
+        "journal": "Drugs",
+        "authors": [
+          "Lambe J",
+          "Fox RJ"
+        ],
+        "title": "Bruton's Tyrosine Kinase Inhibitors in Multiple Sclerosis.",
+        "type": [
+          "Review"
+        ],
+        "abstract": "Multiple sclerosis (MS) is a chronic, inflammatory disorder of the central nervous system (CNS) char"
+      },
+      {
+        "pmid": "42352643",
+        "doi": "10.3390/brainsci16060634",
+        "year": "2026",
+        "date": "2026 Jun 12",
+        "journal": "Brain sciences",
+        "authors": [
+          "Raj A",
+          "Patel V",
+          "Dang M"
+        ],
+        "title": "Emerging Role of BTK Inhibitors in Multiple Sclerosis: From Immunobiology to Clinical Translation.",
+        "type": [
+          "Review"
+        ],
+        "abstract": "BACKGROUND: Multiple sclerosis (MS), an autoimmune disease, involves peripheral immune activation fo"
+      },
+      {
+        "pmid": "42075951",
+        "doi": "10.3390/molecules31081272",
+        "year": "2026",
+        "date": "2026 Apr 12",
+        "journal": "Molecules (Basel, Switzerland)",
+        "authors": [
+          "Ye Q",
+          "Ma S"
+        ],
+        "title": "Bruton's Tyrosine Kinase Inhibitors in Multiple Sclerosis: Mechanistic Considerations Across Relapsing and Progressive Disease.",
+        "type": [
+          "Review"
+        ],
+        "abstract": "Multiple sclerosis (MS) reflects a dynamic interplay between peripheral immune activation and compar"
+      },
+      {
+        "pmid": "41518815",
+        "doi": "10.1016/j.msard.2026.106974",
+        "year": "2026",
+        "date": "2026 Mar",
+        "journal": "Multiple sclerosis and related disorders",
+        "authors": [
+          "Sobral MVS",
+          "de Oliveira HM",
+          "Neto APM"
+        ],
+        "title": "Efficacy and safety of Bruton's tyrosine kinase inhibitors compared to Teriflunomide in relapsing multiple sclerosis: A systematic review and meta-analysis.",
+        "type": [
+          "Systematic Review",
+          "Meta-Analysis",
+          "Comparative Study"
+        ],
+        "abstract": "INTRODUCTION: Traditional disease-modifying therapies (DMTs) reduce relapse frequency in relapsing-r"
+      },
+      {
+        "pmid": "40202696",
+        "doi": "10.1056/NEJMoa2415988",
+        "year": "2025",
+        "date": "2025 May 15",
+        "journal": "The New England journal of medicine",
+        "authors": [
+          "Fox RJ",
+          "Bar-Or A",
+          "Traboulsee A"
+        ],
+        "title": "Tolebrutinib in Nonrelapsing Secondary Progressive Multiple Sclerosis.",
+        "type": [
+          "Randomized Controlled Trial",
+          "Clinical Trial, Phase III",
+          "Multicenter Study"
+        ],
+        "abstract": "BACKGROUND: Throughout the course of multiple sclerosis, gradually progressive neurologic impairment"
+      },
+      {
+        "pmid": "40202623",
+        "doi": "10.1056/NEJMoa2415985",
+        "year": "2025",
+        "date": "2025 May 15",
+        "journal": "The New England journal of medicine",
+        "authors": [
+          "Oh J",
+          "Arnold DL",
+          "Cree BAC"
+        ],
+        "title": "Tolebrutinib versus Teriflunomide in Relapsing Multiple Sclerosis.",
+        "type": [
+          "Randomized Controlled Trial",
+          "Clinical Trial, Phase III",
+          "Comparative Study"
+        ],
+        "abstract": "BACKGROUND: Tolebrutinib is an oral, brain-penetrant, and bioactive Bruton's tyrosine kinase inhibit"
+      },
+      {
+        "pmid": "41015666",
+        "doi": "10.1016/j.disamonth.2025.102012",
+        "year": "2025",
+        "date": "2025 Nov",
+        "journal": "Disease-a-month : DM",
+        "authors": [
+          "Prajjwal P",
+          "Patel PV",
+          "Patel ZV"
+        ],
+        "title": "Multiple sclerosis updates and the safety and efficacy of Bruton tyrosine kinase inhibitors in it: A systematic review.",
+        "type": [
+          "Systematic Review"
+        ],
+        "abstract": "BACKGROUND: Multiple sclerosis (MS) is a chronic neurodegenerative and autoimmune disease characteri"
+      }
+    ],
+    "trials": [
+      {
+        "nct_id": "NCT06372145",
+        "title": "A Study to Investigate Long-term Safety and Tolerability of Tolebrutinib in Participants With Multiple Sclerosis.",
+        "phase": [
+          "PHASE3"
+        ],
+        "recruitment_status": "ACTIVE_NOT_RECRUITING",
+        "last_update": "2026-08-17",
+        "interventions": [
+          "Tolebrutinib",
+          "Placebo",
+          "Teriflunomide"
+        ],
+        "primary_endpoint": "Number of Participants with Adverse Events (AEs) and Serious Adverse Events (SAEs), Adverse Events of Special Interest (AESIs) and AEs leading to permanent study intervention discontinuation",
+        "results_posted": false,
+        "why_stopped": null
+      },
+      {
+        "nct_id": "NCT04458051",
+        "title": "Primary Progressive Multiple Sclerosis (PPMS) Study of Bruton's Tyrosine Kinase (BTK) Inhibitor Tolebrutinib (SAR442168) (PERSEUS)",
+        "phase": [
+          "PHASE3"
+        ],
+        "recruitment_status": "COMPLETED",
+        "last_update": "2026-01-07",
+        "interventions": [
+          "Tolebrutinib",
+          "Placebo"
+        ],
+        "primary_endpoint": "6-month composite Confirmed Disability Progression (cCDP)",
+        "results_posted": false,
+        "why_stopped": null
+      },
+      {
+        "nct_id": "NCT03996291",
+        "title": "Long Term Safety and Efficacy Study of Tolebrutinib (SAR442168) in Participants With Relapsing Multiple Sclerosis",
+        "phase": [
+          "PHASE2"
+        ],
+        "recruitment_status": "COMPLETED",
+        "last_update": "2025-10-23",
+        "interventions": [
+          "Tolebrutinib"
+        ],
+        "primary_endpoint": "Number of Participants With Treatment-emergent Adverse Events (TEAEs) and Treatment-emergent Serious Adverse Events (TESAEs)",
+        "results_posted": true,
+        "why_stopped": null
+      },
+      {
+        "nct_id": "NCT06064539",
+        "title": "Study of Drug-drug Interaction of the Effects of Gemfibrozil and Rifampicin on SAR442168 in Healthy Adult Subjects",
+        "phase": [
+          "PHASE1"
+        ],
+        "recruitment_status": "COMPLETED",
+        "last_update": "2025-09-17",
+        "interventions": [
+          "Tolebrutinib",
+          "gemfibrozil",
+          "rifampicin"
+        ],
+        "primary_endpoint": "Pharmacokinetics: AUClast of SAR442168",
+        "results_posted": false,
+        "why_stopped": null
+      },
+      {
+        "nct_id": "NCT04410978",
+        "title": "Relapsing Forms of Multiple Sclerosis (RMS) Study of Bruton's Tyrosine Kinase (BTK) Inhibitor Tolebrutinib (SAR442168) (GEMINI 1)",
+        "phase": [
+          "PHASE3"
+        ],
+        "recruitment_status": "COMPLETED",
+        "last_update": "2025-07-02",
+        "interventions": [
+          "Tolebrutinib",
+          "Teriflunomide",
+          "Placebo to match Tolebrutinib",
+          "Placebo to match Teriflunomide"
+        ],
+        "primary_endpoint": "Annualized Relapse Rate (ARR) as Assessed by Confirmed Protocol-defined Adjudicated Relapses",
+        "results_posted": true,
+        "why_stopped": null
+      },
+      {
+        "nct_id": "NCT04410991",
+        "title": "Relapsing Forms of Multiple Sclerosis (RMS) Study of Bruton's Tyrosine Kinase (BTK) Inhibitor Tolebrutinib (SAR442168) (GEMINI 2)",
+        "phase": [
+          "PHASE3"
+        ],
+        "recruitment_status": "COMPLETED",
+        "last_update": "2025-07-02",
+        "interventions": [
+          "Tolebrutinib",
+          "Teriflunomide HMR1726",
+          "Placebo to match Tolebrutinib",
+          "Placebo to match Teriflunomide"
+        ],
+        "primary_endpoint": "Annualized Relapse Rate (ARR) as Assessed by Confirmed Protocol-defined Adjudicated Relapses",
+        "results_posted": true,
+        "why_stopped": null
+      }
+    ],
+    "web": [
+      {
+        "source": "web_approvals",
+        "title": "Latest MS drugs approved in 2025-2026: Cenrifki (tolebrutinib ...",
+        "url": "https://www.msboracsaborac.com/en/blog/latest-ms-drugs-approved-2025-2026-cenrifki-tolebrutinib-pediatric",
+        "snippet": "A round-up of the newest MS approvals: EU greenlights Cenrifki (tolebrutinib) — the first disability-targeting drug for non-relapsing secondary progressive MS — FDA expands Ocrevus to children 10+, a new generic glatiramer arrives, and we e"
+      },
+      {
+        "source": "web_approvals",
+        "title": "What's New in MS Research - May 2026 - MSAA",
+        "url": "https://mymsaa.org/news/whats-new-in-ms-research-may-2026/",
+        "snippet": "FDA approves Ocrevus ® for pediatric relapsing-remitting MS The Food and Drug Administration (FDA) this month (May 2026) approved Ocrevus ® (ocrelizumab) for the treatment of relapsing-remitting MS in children and adolescents age 10 and old"
+      },
+      {
+        "source": "web_approvals",
+        "title": "Tolebrutinib: Critical 2026 FDA Update for MS | Medaptly",
+        "url": "https://www.medaptly.com/news/neurology/tolebrutinib-hercules-fda-2026/",
+        "snippet": "Tolebrutinib for Progressive MS: HERCULES Data, FDA Rejection, and EU Recommendation Tolebrutinib received an FDA complete response letter in December 2025 and a positive EU CHMP opinion in April 2026. Here is what neurology clinicians shou"
+      },
+      {
+        "source": "web_approvals",
+        "title": "Roche's fenebrutinib is the first BTK inhibitor to receive U.S. FDA ...",
+        "url": "https://www.roche.com/media/releases/med-cor-2026-09-30",
+        "snippet": "Basel, 30 September 2026 - Roche (SIX: RO, ROP; OTCQX: RHHBY) announced today that the United States Food and Drug Administration (FDA) has accepted the company's New Drug Application (NDA) under priority review for fenebrutinib, an investi"
+      }
+    ],
+    "retrieval_errors": {
+      "web_standard": "Web search failed: No results found."
+    }
+  },
+  "qc": {
+    "status": "PASS",
+    "issues": [],
+    "cited_pmids": 7,
+    "cited_trials": 5,
+    "cited_dois": 0,
+    "repaired": [
+      "redacted: 30 %"
+    ]
+  }
+}

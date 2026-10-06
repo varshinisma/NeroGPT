@@ -28,7 +28,7 @@ form.addEventListener('submit', async (event) => {
   messages.push({ role: 'user', content: text });
   addMessage('user', text);
   prompt.value = '';
-  const pending = addMessage('assistant', 'Searching the web…');
+  const pending = addMessage('assistant', 'Searching PubMed, ClinicalTrials.gov and the web… (about 20 seconds)');
   form.querySelector('button').disabled = true;
   try {
     const response = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages, conversation_id: conversationId }) });

@@ -2,15 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Web Search Agent</title><link rel="stylesheet" href="style.css">
+  <title>NeuroGPT Clinical Research Agent</title><link rel="stylesheet" href="style.css">
 </head>
 <body>
   <main>
-    <section class="hero"><span class="dot"></span><p>AGNO WEB SEARCH AGENT</p><h1>Ask the web.</h1><div class="hint">Live research powered by Agno web search.</div></section>
+    <section class="hero"><span class="dot"></span><p>NEUROGPT CLINICAL RESEARCH AGENT</p><h1>Ask a clinical question.</h1><div class="hint">Recent evidence from PubMed, ClinicalTrials.gov and the web, with years and citations.</div></section>
     <section id="chat" aria-live="polite">
-      <article class="message assistant">Hi — I can search the web and help with research or coding questions.</article>
+      <article class="message assistant">Hi — ask me a clinical research question (for example: latest evidence on tolebrutinib in multiple sclerosis). I search PubMed, ClinicalTrials.gov and the web, then verify citations. Answers take about 20 seconds.</article>
     </section>
-    <form id="composer"><textarea id="prompt" placeholder="Ask a research or coding question…" rows="1" required></textarea><button aria-label="Send">↑</button></form>
+    <form id="composer"><textarea id="prompt" placeholder="Ask a clinical research question…" rows="1" required></textarea><button aria-label="Send">↑</button></form>
   </main>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"></script>

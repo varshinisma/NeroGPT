@@ -1,0 +1,143 @@
+{
+  "_note": "Topics searched for the 'Established care' section. Only authoritative guideline pages from these domains are ever used; nothing here is written by a model. 'default' applies to every condition; an entry in 'overrides' replaces it when one of its 'match' words is in the question.",
+  "excluded_hosts": [
+    "ncbi.nlm.nih.gov",
+    "pmc.ncbi.nlm.nih.gov",
+    "pubmed.ncbi.nlm.nih.gov"
+  ],
+  "_excluded_note": "PubMed and PMC host ordinary journal articles, not guidelines, so they never count as a guideline source.",
+  "authoritative_domains": {
+    "aap.org": "American Academy of Pediatrics",
+    "publications.aap.org": "American Academy of Pediatrics",
+    "healthychildren.org": "American Academy of Pediatrics",
+    "nice.org.uk": "NICE (UK)",
+    "cdc.gov": "US Centers for Disease Control and Prevention",
+    "who.int": "World Health Organization",
+    "nimh.nih.gov": "US National Institute of Mental Health",
+    "ninds.nih.gov": "US National Institute of Neurological Disorders and Stroke",
+    "nichd.nih.gov": "US National Institute of Child Health and Human Development",
+    "nih.gov": "US National Institutes of Health",
+    "ahrq.gov": "US Agency for Healthcare Research and Quality",
+    "aacap.org": "American Academy of Child and Adolescent Psychiatry",
+    "psychiatry.org": "American Psychiatric Association",
+    "aan.com": "American Academy of Neurology",
+    "asha.org": "American Speech-Language-Hearing Association",
+    "aota.org": "American Occupational Therapy Association",
+    "sign.ac.uk": "Scottish Intercollegiate Guidelines Network",
+    "nhs.uk": "NHS (UK)",
+    "rcpsych.ac.uk": "Royal College of Psychiatrists",
+    "rcpch.ac.uk": "Royal College of Paediatrics and Child Health",
+    "ed.gov": "US Department of Education",
+    "ilae.org": "International League Against Epilepsy",
+    "idsociety.org": "Infectious Diseases Society of America",
+    "heart.org": "American Heart Association",
+    "diabetes.org": "American Diabetes Association",
+    "cancer.gov": "US National Cancer Institute",
+    "icmr.gov.in": "Indian Council of Medical Research",
+    "mohfw.gov.in": "Ministry of Health and Family Welfare, India",
+    "cadth.ca": "CADTH (Canada)"
+  },
+  "default": {
+    "topics": [
+      {
+        "id": "assessment",
+        "label": "Diagnosis and assessment",
+        "query": "diagnosis and assessment"
+      },
+      {
+        "id": "medications",
+        "label": "Medications used in practice",
+        "query": "medications used to treat symptoms in children, which drugs are prescribed"
+      },
+      {
+        "id": "first_line",
+        "label": "First-line treatment and management",
+        "query": "first-line treatment management recommendations"
+      },
+      {
+        "id": "monitoring",
+        "label": "Monitoring and follow-up",
+        "query": "monitoring and follow-up"
+      },
+      {
+        "id": "comorbid",
+        "label": "Co-occurring conditions",
+        "query": "co-occurring conditions management"
+      },
+      {
+        "id": "supportive",
+        "label": "Supportive care and rehabilitation",
+        "query": "supportive care rehabilitation"
+      }
+    ]
+  },
+  "overrides": {
+    "neurodevelopmental": {
+      "match": [
+        "autis",
+        "asd",
+        "adhd",
+        "neurodevelopment",
+        "developmental delay",
+        "developmental disorder"
+      ],
+      "topics": [
+        {
+          "id": "assessment",
+          "label": "Developmental assessment",
+          "query": "developmental assessment diagnosis"
+        },
+        {
+          "id": "medications",
+          "label": "Medications used in practice",
+          "query": "medications used to treat symptoms in children, which drugs are prescribed"
+        },
+        {
+          "id": "speech",
+          "label": "Speech-language therapy",
+          "query": "speech-language therapy communication intervention"
+        },
+        {
+          "id": "ot",
+          "label": "Occupational therapy",
+          "query": "occupational therapy sensory"
+        },
+        {
+          "id": "behavioural",
+          "label": "Behavioural and developmental interventions",
+          "query": "behavioral developmental interventions"
+        },
+        {
+          "id": "school",
+          "label": "School and educational support",
+          "query": "school educational support IEP"
+        },
+        {
+          "id": "sleep",
+          "label": "Co-occurring: sleep problems",
+          "query": "sleep problems management"
+        },
+        {
+          "id": "anxiety",
+          "label": "Co-occurring: anxiety",
+          "query": "anxiety management"
+        },
+        {
+          "id": "adhd",
+          "label": "Co-occurring: ADHD",
+          "query": "ADHD co-occurring management"
+        },
+        {
+          "id": "gi",
+          "label": "Co-occurring: gastrointestinal problems",
+          "query": "gastrointestinal problems management"
+        },
+        {
+          "id": "feeding",
+          "label": "Co-occurring: feeding problems",
+          "query": "feeding problems management"
+        }
+      ]
+    }
+  }
+}

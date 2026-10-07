@@ -4,3 +4,4 @@ mistralai
 python-dotenv
 ddgs
 tavily-python
+reportlab

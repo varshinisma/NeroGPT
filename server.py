@@ -127,19 +127,19 @@ def load_skill(skill_name: str) -> str:
     return text
 
 
-def build_model():
-    """Create the chat model selected by MODEL_PROVIDER (groq or mistral)."""
+def build_model(max_tokens: int | None = None):
+    """Create the chat model selected by MODEL_PROVIDER (groq or mistral). max_tokens caps the output size."""
     provider = os.getenv("MODEL_PROVIDER", "groq").lower()
     if provider == "groq":
         if not os.getenv("GROQ_API_KEY"):
             raise RuntimeError("Set GROQ_API_KEY in .env before starting the server.")
         from agno.models.groq import Groq
-        return Groq(id=os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"))
+        return Groq(id=os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"), max_tokens=max_tokens)
     if provider == "mistral":
         if not os.getenv("MISTRAL_API_KEY"):
             raise RuntimeError("Set MISTRAL_API_KEY in .env before starting the server.")
         from agno.models.mistral import MistralChat
-        return MistralChat(id=os.getenv("MISTRAL_MODEL", "mistral-small-latest"))
+        return MistralChat(id=os.getenv("MISTRAL_MODEL", "mistral-small-latest"), max_tokens=max_tokens)
     raise RuntimeError("MODEL_PROVIDER must be groq or mistral.")
 
 
@@ -203,6 +203,28 @@ def call_agent(messages: list[dict]) -> str:
         return f"Agent error: {error}"
 
 
+def run_streaming_pipeline(messages: list[dict]) -> str:
+    """Run the streaming pipeline to the end and return the final report (non-streaming clients). Also saves the md/state/PDF like a normal run."""
+    from qa_stream import save_outputs, stream_answer
+    question = next((m.get("content", "") for m in reversed(messages) if m.get("role") == "user"), "").strip()
+    final = None
+    for event in stream_answer(question):
+        if event["type"] == "final":
+            final = event
+        elif event["type"] == "error":
+            return f"Error: {event.get('message')}"
+    if not final:
+        return "No answer was produced."
+    save_outputs(question, final)
+    return final["markdown"]
+
+
+def scrub_messages(messages: list[dict]) -> list[dict]:
+    """Remove personal identifiers from every user message before it is searched, sent to a model, or saved."""
+    import phi
+    return [{**m, "content": phi.scrub(str(m.get("content", ""))).text} if m.get("role") == "user" else m for m in messages]
+
+
 def save_conversation(messages: list[dict], answer: str, conversation_id: str) -> Path:
     """Update one Markdown file with the complete conversation so far."""
     HISTORY_DIR.mkdir(exist_ok=True)
@@ -226,7 +248,56 @@ def save_conversation(messages: list[dict], answer: str, conversation_id: str) -
 
 
 class AgentHandler(SimpleHTTPRequestHandler):
+    def end_headers(self) -> None:
+        self.send_header("Cache-Control", "no-store")      # the browser must never reuse an old page or script after the code changes
+        super().end_headers()
+
+    def stream_chat(self) -> None:
+        """Server-sent progress as NDJSON: INITIAL answer within seconds, then the enrichment stages (see qa_stream.py)."""
+        try:
+            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+            messages = scrub_messages(body.get("messages", []))   # history stores the SCRUBBED text, never the original
+            question = next((m.get("content", "") for m in reversed(messages) if m.get("role") == "user"), "").strip()
+            if not question:
+                raise ValueError("A message is required.")
+        except (json.JSONDecodeError, ValueError) as error:
+            self.send_error(HTTPStatus.BAD_REQUEST, str(error))
+            return
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+
+        def send(event: dict) -> None:
+            self.wfile.write((json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8"))
+            self.wfile.flush()
+
+        from qa_stream import save_outputs, stream_answer
+        final = None
+        try:
+            for event in stream_answer(question):
+                if event["type"] == "final":
+                    final = event
+                    send({k: v for k, v in event.items() if k != "state"})  # the full ResearchState stays on the server
+                else:
+                    send(event)
+            if final:
+                paths = save_outputs(question, final)  # every run also saves the answer and a PDF
+                send({"type": "pdf", "name": paths["pdf"].name if paths["pdf"] else None})
+                save_conversation(messages, final["markdown"], str(body.get("conversation_id", "")))
+        except (BrokenPipeError, ConnectionResetError):
+            return
+        except Exception as error:
+            try:
+                send({"type": "error", "message": str(error)[:300]})
+            except OSError:
+                pass
+
     def do_POST(self) -> None:
+        if self.path == "/api/chat-stream":
+            self.stream_chat()
+            return
         if self.path != "/api/chat":
             self.send_error(HTTPStatus.NOT_FOUND)
             return
@@ -236,7 +307,8 @@ class AgentHandler(SimpleHTTPRequestHandler):
             messages = body.get("messages", [])
             if not isinstance(messages, list) or not messages:
                 raise ValueError("A message is required.")
-            answer = call_agent(messages)
+            messages = scrub_messages(messages)
+            answer = run_streaming_pipeline(messages)    # an old browser tab that still calls /api/chat gets the SAME pipeline and report as /api/chat-stream
             save_conversation(messages, answer, str(body.get("conversation_id", "")))
             response = json.dumps({"answer": answer}).encode()
             self.send_response(HTTPStatus.OK)
@@ -248,7 +320,41 @@ class AgentHandler(SimpleHTTPRequestHandler):
             self.send_error(HTTPStatus.BAD_REQUEST, str(error))
 
 
+def make_server() -> ThreadingHTTPServer:
+    """Listen on IPv4 AND IPv6: 'localhost' resolves to ::1 first on Windows, and an IPv4-only server made every request wait ~2 s."""
+    import socket
+
+    class DualStackServer(ThreadingHTTPServer):
+        address_family = socket.AF_INET6
+        allow_reuse_address = False      # on Windows address reuse lets a SECOND server bind the same port silently (old code kept answering)
+
+        def server_bind(self) -> None:
+            self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+            if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+                self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            super().server_bind()
+
+    def port_busy(error: OSError) -> bool:
+        return error.errno in (98, 10048, 10013) or "address" in str(error).lower() and "use" in str(error).lower()
+
+    try:
+        return DualStackServer(("::", 8000), AgentHandler)
+    except OSError as error:
+        if port_busy(error):
+            raise SystemExit("Port 8000 is already in use: another server is running. Stop it first (Ctrl+C in its terminal) so only ONE server answers.")
+        class V4Server(ThreadingHTTPServer):      # no IPv6 on this machine
+            allow_reuse_address = False
+        return V4Server(("127.0.0.1", 8000), AgentHandler)
+
+
 if __name__ == "__main__":
     os.chdir(ROOT)
-    print("Agno web-search agent running at http://localhost:8000")
-    ThreadingHTTPServer(("127.0.0.1", 8000), AgentHandler).serve_forever()
+    import threading
+    from qa_stream import warm_up
+    threading.Thread(target=warm_up, daemon=True).start()  # open model + data-source connections before the first question
+    httpd = make_server()                                   # refuses to start if another server already holds the port
+    print("NeuroGPT running at http://localhost:8000  (streaming Q/A at /api/chat-stream)")
+    if not os.environ.get("NEUROGPT_NO_BROWSER"):      # opens your default browser by itself; set NEUROGPT_NO_BROWSER=1 to stop that
+        import webbrowser
+        threading.Timer(1.0, lambda: webbrowser.open("http://localhost:8000")).start()
+    httpd.serve_forever()

@@ -295,6 +295,20 @@ def main() -> None:
     slug = re.sub(r"[^a-z0-9]+", "-", query.lower())[:50].strip("-")
     (out / f"{slug}.md").write_text(f"# {query}\n\n{result['answer']}\n", encoding="utf-8")
     (out / f"{slug}.state.json").write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
+    save_pdf(query, result["answer"], out, slug)
+
+
+def save_pdf(query: str, answer: str, out: Path, slug: str) -> Path | None:
+    """After every run: also save the answer as a PDF (a PDF problem never loses the answer)."""
+    try:
+        from pdf_export import markdown_to_pdf
+        pdf = out / f"{slug}.pdf"  # one fixed file per question: a new run overwrites it, no new file each time
+        markdown_to_pdf(answer, str(pdf), query)
+        print(f"\nPDF saved: {pdf}")
+        return pdf
+    except Exception as error:
+        print(f"\nPDF could not be created: {error}")
+        return None
 
 
 if __name__ == "__main__":

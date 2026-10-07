@@ -207,11 +207,11 @@ class EstablishedCare(unittest.TestCase):
         self.assertIn("first_line", other)
 
     def test_only_allow_listed_organisations_are_used_with_verbatim_excerpt(self):
-        res = guidelines.find_guidelines("How to treat autism in children?", ["autism"], fake_search({"speech": [OFFSITE, GOOD]}))
+        res = guidelines.find_guidelines("How to treat autism in children?", ["autism"], fake_search({"medications": [OFFSITE, GOOD]}))
         rows = {r["topic"]: r for r in res["results"]}
-        self.assertEqual(rows["speech"]["organisation"], "NICE (UK)")
-        self.assertEqual(rows["speech"]["year"], "2021")
-        self.assertIn(rows["speech"]["excerpt"], GOOD["snippet"])       # verbatim (here: the whole snippet)
+        self.assertEqual(rows["medications"]["organisation"], "NICE (UK)")
+        self.assertEqual(rows["medications"]["year"], "2021")
+        self.assertIn(rows["medications"]["excerpt"], GOOD["snippet"])       # verbatim (here: the whole snippet)
         self.assertTrue(rows["sleep"].get("none"))                       # nothing retrieved for this topic
         md = guidelines.established_care_markdown(res["results"], True)
         self.assertIn("No guideline retrieved", md)
@@ -219,7 +219,7 @@ class EstablishedCare(unittest.TestCase):
 
     def test_off_topic_guideline_is_not_used(self):
         wrong = {"title": "Hypertension guideline", "url": "https://www.nice.org.uk/guidance/ng136", "snippet": "This guideline covers diagnosing and managing hypertension in adults."}
-        res = guidelines.find_guidelines("How to treat autism in children?", ["autism"], fake_search({"speech": [wrong]}))
+        res = guidelines.find_guidelines("How to treat autism in children?", ["autism"], fake_search({"medications": [wrong]}))
         self.assertTrue(all(not r.get("title") for r in res["results"]))
 
     def test_failed_search_is_reported_unavailable_not_none(self):
@@ -368,19 +368,19 @@ class UsedInPractice(unittest.TestCase):
 
     def test_markdown_has_no_dose_and_names_the_source(self):
         rows = landscape.used_in_practice_rows([{"drug": "melatonin", "source": "111111"}], self.SOURCES, make_state())
-        md = landscape.used_in_practice_markdown(rows)
+        md = landscape.landscape_markdown(make_state(), rows, [])
         self.assertIn("PMID 111111", md)
-        self.assertIn("Not FDA-labelled for this condition", md)
-        self.assertIn("Used for (as the source states)", md)
-        self.assertIn("sleep problems", md)
+        self.assertIn("sleep problems", md)      # the other-drugs table has only drug, indication and key evidence: no dose column, so none can be invented
         self.assertNotRegex(md, r"\d+\s?mg")
-        self.assertIn("None verified in this run", landscape.used_in_practice_markdown([]))
+        empty = make_state()
+        empty["regulatory"] = []
+        self.assertIn("None retrieved", landscape.landscape_markdown(empty, [], []))
 
     def test_a_row_passes_the_verifier(self):
         s = make_state()
         s["papers"]["111111"]["abstract"] = self.SOURCES["111111"][0]
         rows = landscape.used_in_practice_rows([{"drug": "melatonin", "source": "111111"}], self.SOURCES, s)
-        text = BASE + landscape.used_in_practice_markdown(rows) + "\n"
+        text = BASE + landscape.landscape_markdown(s, rows, []) + "\n"
         self.assertEqual([i for i in verification.find_issues(text, s) if i["severity"] in ("high", "medium")], [])
 
 
@@ -453,7 +453,7 @@ class CompleteText(unittest.TestCase):
         s = make_state()
         statement = "Risperidone tablets are indicated for the treatment of irritability associated with autistic disorder, including symptoms of aggression towards others."
         s["regulatory"][0]["indication_statement"] = statement
-        md = landscape.regulatory_markdown(s)
+        md = landscape.landscape_markdown(s, [], [])
         self.assertIn(statement, md)
         self.assertNotIn("...", md)
 
@@ -497,19 +497,16 @@ class TrialDrugRows(unittest.TestCase):
         self.assertNotIn("risperidone", names)
         self.assertNotIn("sertraline", names)
 
-    def test_trial_rows_are_labelled_as_being_tested_and_link_to_the_registry(self):
-        md = landscape.used_in_practice_markdown([], landscape.trial_drug_rows(self.state(), set()))
-        self.assertIn("### 2.3 Drugs being tested in clinical trials (not established treatments)", md)
-        self.assertIn("[NCT01](https://clinicaltrials.gov/study/NCT01)", md)
-        self.assertIn("Phase 3", md)
-        self.assertIn("Condition X", md)
-        self.assertNotIn("None found", md.split("### 2.3")[1])      # the trial table is not empty
-        self.assertIn("A registry entry does not show that a drug works", md)
+    def test_trial_drugs_are_not_listed_in_the_landscape_tables(self):
+        rows = landscape.trial_drug_rows(self.state(), set())
+        self.assertTrue(rows)
+        md = landscape.landscape_markdown(self.state(), [], rows)
+        self.assertNotIn(rows[0]["drug"], md.split("### Other drugs")[1].split("### Recently approved")[0])      # trials appear only in the Clinical trials section
 
     def test_trial_rows_pass_the_verifier(self):
         s = self.state()
         s["trials_by_id"]["NCT01"].update({"title": "T", "interventions": ["Lumateperone"]})
-        md = landscape.used_in_practice_markdown([], landscape.trial_drug_rows(s, set()))
+        md = landscape.landscape_markdown(s, [], landscape.trial_drug_rows(s, set()))
         issues = [i for i in verification.find_issues(BASE + md + "\n", s) if i["severity"] in ("high", "medium") and i["kind"] != "unretrieved_nct"]
         self.assertEqual(issues, [])
 
@@ -535,12 +532,14 @@ class ClickableLinks(unittest.TestCase):
     def test_the_used_in_practice_table_has_no_per_drug_label_column_but_safety_alerts_keep_the_label_link(self):
         rows = [{"drug": "Quetiapine", "excerpt": "Quetiapine is commonly used.", "label": "[A review](https://x.org/r)", "fda_label": "https://dailymed.nlm.nih.gov/q",
                  "purpose": "irritability", "population": "children"}]
-        md = landscape.used_in_practice_markdown(rows, [{"drug": "NTI164", "nct": "NCT07257939", "phase": "3", "status": "RECRUITING", "updated": "2026-09-30",
-                                                           "url": "https://clinicaltrials.gov/study/NCT07257939", "fda_label": None, "conditions": "Autism", "primary": "ABC score", "ages": "from 6 Years"}])
+        s = make_state()
+        s["drug_labels"] = [{"drug": "Quetiapine", "url": "https://dailymed.nlm.nih.gov/q", "boxed_warning": "Increased mortality in elderly patients."}]
+        md = landscape.landscape_markdown(s, rows, [{"drug": "NTI164", "nct": "NCT07257939", "phase": "Phase 3", "status": "Recruiting", "updated": "2026-09-30",
+                                                      "url": "https://clinicaltrials.gov/study/NCT07257939", "fda_label": None, "conditions": "Autism", "primary": "ABC score", "ages": "from 6 Years"}])
+        self.assertIn("| Drug | Category | Indication | Dose / route (if sourced) | Approval status / date | Key evidence |", md)      # the specification's six columns
         self.assertNotIn("FDA label of this drug", md)
-        self.assertNotIn("dailymed", md.lower())
-        header = md.split("\n\n")[-1].splitlines()[0] if "\n\n*Rows" not in md else md.split("\n\n*Rows")[0].split("\n\n")[-1].splitlines()[0]
-        self.assertEqual(header.count("|"), 7)      # six columns
+        used_part = md.split("### Safety warnings")[0]
+        self.assertNotIn("dailymed.nlm.nih.gov/q", used_part)
         safety = landscape.safety_alerts_markdown([{"drug": "Quetiapine", "url": "https://dailymed.nlm.nih.gov/q", "boxed_warning": "Increased mortality in elderly patients."}])
         self.assertIn("https://dailymed.nlm.nih.gov/q", safety)      # where the boxed warning came from
 
@@ -672,8 +671,8 @@ class ProfessionalPresentation(unittest.TestCase):
         self.assertIn("Exercise helped [1]. Nutraceuticals trended [2]; exercise again [1].", out)
         self.assertIn("| Exercise | [1] |", out)
         self.assertIn("| Source | [2] |", out)
-        self.assertNotIn("(Smith et al.", out.split("## References")[0])
-        refs = out.split("## References")[1]
+        self.assertNotIn("(Smith et al.", out.split("## Sources")[0])
+        refs = out.split("## Sources")[1]
         self.assertIn("1. Smith J, Lee K, Wu H, et al. Exercise for condition X *Test Journal*", refs)
         self.assertIn("[PMID 111111](https://pubmed.ncbi.nlm.nih.gov/111111/)", refs)
         self.assertNotIn("et al..", refs)
@@ -719,7 +718,7 @@ class ProfessionalPresentation(unittest.TestCase):
         s["source_status"] = {"pubmed_drugs": {"retrieval_status": "partial", "evidence_status": "unavailable", "error": "timed out after 25s (partial)"},
                               "guidelines_deep": {"retrieval_status": "failed", "evidence_status": "unavailable", "error": "x"}}
         md = landscape.limitations_markdown(s, [], [])
-        self.assertIn("### Limitations of this report", md)
+        self.assertIn("## Evidence limitations", md)
         self.assertIn("The PubMed / Europe PMC search timed out", md)
         self.assertIn("guideline-organisation search", md)
         for internal in ("pubmed_drugs", "guidelines_deep", "retrieval partial", "`"):
@@ -778,3 +777,258 @@ class SafetyGrouping(unittest.TestCase):
         self.assertEqual(len(rows), 2)      # the two antipsychotics together, sertraline alone
         self.assertIn("[Ziprasidone](https://dailymed.nlm.nih.gov/z), [Paliperidone](https://dailymed.nlm.nih.gov/p)", md)
         self.assertEqual(md.count("INCREASED MORTALITY"), 1)
+
+
+
+class DoseAndRoute(unittest.TestCase):
+    LABEL = ("2 DOSAGE AND ADMINISTRATION Recommended dosage Schizophrenia (2.1) 10 mg/day. Irritability associated with autistic disorder - pediatric patients (2.4) 2 mg/day 5 to 10 mg/day 15 mg/day "
+             "2.1 Schizophrenia Adults The recommended starting dose is 10 or 15 mg/day. "
+             "2.4 Irritability Associated with Autistic Disorder Pediatric Patients (6 to 17 years) The recommended dosage range for the treatment of pediatric patients with irritability "
+             "associated with autistic disorder is 5 to 15 mg/day. Dosing should be initiated at 2 mg/day [see Clinical Studies (14.4)] . Adjust at intervals of no less than one week. "
+             "2.5 Tourette's Disorder The recommended starting dose is 2 mg/day.")
+
+    def test_only_the_section_for_this_condition_is_taken_word_for_word(self):
+        import clinical_tools
+        out = clinical_tools.dosage_statement(self.LABEL, ["autis"])
+        self.assertTrue(out.startswith("Pediatric Patients (6 to 17 years) The recommended dosage range"))
+        self.assertIn("5 to 15 mg/day", out)
+        self.assertIn("initiated at 2 mg/day", out)
+        self.assertNotIn("Schizophrenia", out)
+        self.assertNotIn("Tourette", out)      # the next section is not included
+        self.assertNotIn("[see", out)          # label cross-references are not part of the dosing wording
+        self.assertNotIn(" .", out)
+
+    def test_no_dosing_section_for_the_condition_means_no_dose_is_shown(self):
+        import clinical_tools
+        self.assertIsNone(clinical_tools.dosage_statement("2 DOSAGE AND ADMINISTRATION 2.1 Schizophrenia Adults The recommended starting dose is 10 mg/day.", ["autis"]))
+
+    def test_the_table_has_the_dose_and_route_column_with_label_text_or_an_honest_gap(self):
+        s = make_state()
+        s["regulatory"][0].update(route="Oral", dose_statement="Dosing should be initiated at 2 mg/day.")
+        md = landscape.landscape_markdown(s, [], [])
+        self.assertIn("Dose / route (if sourced)", md)
+        self.assertIn("Route: Oral. \"Dosing should be initiated at 2 mg/day.\"", md)
+        s["regulatory"][0].update(dose_statement=None)
+        gap = landscape.landscape_markdown(s, [], [])
+        self.assertIn("No dosing section for this condition was found in the retrieved label text", gap)
+        self.assertNotIn("Not retrieved", gap)      # no empty placeholder cell
+
+    def test_a_label_dose_passes_the_verifier_but_an_invented_one_does_not(self):
+        s = make_state()
+        s["regulatory"][0].update(route="Oral", dose_statement="Dosing should be initiated at 2 mg/day.")
+        good = verification.find_issues(BASE + landscape.landscape_markdown(s, [], []) + "\n", s)
+        self.assertEqual([i for i in good if i["kind"] == "unsupported_number"], [])
+        bad = verification.find_issues(BASE + "Risperidone is given at 7.5 mg twice daily.\n", s)
+        self.assertTrue(any(i["kind"] == "unsupported_number" for i in bad))
+
+
+
+class FollowsTheSpecification(unittest.TestCase):
+    def test_the_landscape_is_two_tables_treatment_drugs_and_other_drugs(self):
+        st = make_state()
+        st["drug_labels"] = []
+        used = [{"drug": "Melatonin", "excerpt": "Melatonin is commonly used.", "label": "[R](https://x.org/r)", "purpose": "sleep problems", "population": "children", "category": "Off-label (described as used in practice)"},
+                {"drug": "Drugzol", "excerpt": "Drugzol is recommended for irritability.", "label": "[AAP](https://aap.org/x)", "purpose": "irritability", "population": "children", "category": "Guideline-recommended"}]
+        trial = [{"drug": "NTI164", "nct": "NCT07", "phase": "Phase 3", "status": "Recruiting", "updated": "2026-09-30", "url": "https://clinicaltrials.gov/study/NCT07", "conditions": "Autism", "primary": "Score", "ages": "6+"}]
+        md = landscape.landscape_markdown(st, used, trial)
+        header = "| Drug | Category | Indication | Dose / route (if sourced) | Approval status / date | Key evidence |"
+        self.assertEqual(md.count(header), 1)      # six columns in the treatment table
+        self.assertEqual(md.count("| Drug | Indication | Key evidence |"), 1)      # only three in the other-drugs table
+        first_heading = "### Drugs used for treatment of this condition"
+        second_heading = "### Other drugs: used for symptoms (not established treatments of this condition)"
+        self.assertLess(md.index(first_heading), md.index(second_heading))
+        treatment, other = md.split(second_heading)[0], md.split(second_heading)[1]
+        self.assertIn("Approved (FDA-labelled", treatment)
+        self.assertIn("Guideline-recommended", treatment)
+        self.assertNotIn("Off-label", treatment.split("*Approved:")[1].split("\n\n", 1)[1])      # no symptom drug in the treatment table
+        self.assertNotIn("Emerging: investigational", treatment)
+        self.assertIn("Melatonin", other)      # symptom-directed and investigational drugs are in the second table, which has no category column
+        self.assertNotIn("NTI164", other)
+        self.assertNotIn("Approved (FDA-labelled", other.split("### Recently approved")[0])
+        order = [md.index(x) for x in ("Approved (FDA-labelled", "Guideline-recommended |", "Melatonin")]
+        self.assertEqual(order, sorted(order))
+        self.assertTrue(md.startswith("## Treatment Drug Landscape"))
+
+    def test_a_guideline_organisation_page_gives_the_guideline_recommended_category(self):
+        text = "Risperidone is recommended for the treatment of irritability in children with autism."
+        rows = landscape.used_in_practice_rows([{"drug": "risperidone", "source": "https://www.aap.org/en/patient-care/autism/x"}],
+                                               {"https://www.aap.org/en/patient-care/autism/x": (text, "[AAP](https://www.aap.org/en/patient-care/autism/x)")}, {"regulatory": []})
+        self.assertEqual(rows[0]["category"], "Guideline-recommended")
+        other = landscape.used_in_practice_rows([{"drug": "risperidone", "source": "https://blog.example.com/x"}],
+                                                {"https://blog.example.com/x": (text, "[Blog](https://blog.example.com/x)")}, {"regulatory": []})
+        self.assertEqual(other[0]["category"], "Off-label (described as used in practice)")
+
+    def test_only_late_phase_drug_trials_are_emerging_drugs(self):
+        s = make_state()
+        s["trials_by_id"] = {
+            "NCT1": {"nct_id": "NCT1", "phase": ["PHASE1"], "recruitment_status": "RECRUITING", "last_update": "2026-09-01", "url": "u", "conditions": ["Condition X"], "title": "t", "drug_interventions": ["Earlydrug"]},
+            "NCT2": {"nct_id": "NCT2", "phase": ["NA"], "recruitment_status": "RECRUITING", "last_update": "2026-09-01", "url": "u", "conditions": ["Condition X"], "title": "t", "drug_interventions": ["Naadrug"]},
+            "NCT3": {"nct_id": "NCT3", "phase": ["PHASE2", "PHASE3"], "recruitment_status": "RECRUITING", "last_update": "2026-09-01", "url": "u", "conditions": ["Condition X"], "title": "t", "drug_interventions": ["Latedrug"]}}
+        self.assertEqual([r["drug"] for r in landscape.trial_drug_rows(s, set())], ["Latedrug"])
+
+    def test_the_fast_answer_adds_the_most_notable_latest_drug_as_investigational(self):
+        s = make_state()
+        s["core_stems"] = ["condi"]
+        s["trials_by_id"] = {
+            "NCT3": {"nct_id": "NCT3", "phase": ["PHASE2"], "recruitment_status": "RECRUITING", "last_update": "2026-08-01", "url": "https://clinicaltrials.gov/study/NCT3", "conditions": ["Condition X"], "title": "t", "drug_interventions": ["Seconddrug"]},
+            "NCT4": {"nct_id": "NCT4", "phase": ["PHASE3"], "recruitment_status": "RECRUITING", "last_update": "2026-09-01", "url": "https://clinicaltrials.gov/study/NCT4", "conditions": ["Condition X"], "title": "t", "drug_interventions": ["Latestdrug"]}}
+        md = landscape.top_drugs_markdown(s)
+        self.assertIn("Top treatment drugs (established first, then the most notable latest drug)", md)
+        self.assertIn("Latestdrug (latest, investigational)", md)
+        self.assertNotIn("Seconddrug", md)      # the more recently updated trial wins
+        self.assertIn("not an approved treatment", md)
+        self.assertLess(md.index("Risperidone"), md.index("Latestdrug"))      # established first
+
+    def test_the_prompt_asks_for_the_documents_order_and_names(self):
+        task = qa_stream.EVIDENCE_TASK
+        positions = [task.index(h) for h in ("## Latest findings", "## Current evidence", "## Key studies", "## Conflicting evidence", "## What remains under investigation")]
+        self.assertEqual(positions, sorted(positions))
+        held = qa_stream.HOLD_FROM
+        self.assertTrue(held.search("## Key studies\n1. x"))      # Key studies, Conflicting evidence and What remains are shown AFTER the drugs and trials
+        self.assertTrue(held.search("## Conflicting evidence\nNone"))
+        self.assertFalse(held.search("## Current evidence\n| a | b |"))
+
+    def test_section_names_follow_the_document(self):
+        self.assertTrue(landscape.trials_markdown(make_state()).startswith("## Clinical trials"))
+        self.assertTrue(landscape.limitations_markdown(make_state(), [], []).startswith("## Evidence limitations"))
+
+
+class LatePhaseRule(unittest.TestCase):
+    def test_phase_one_two_is_not_late_phase(self):
+        self.assertFalse(landscape.is_late_phase({"phase": ["PHASE1", "PHASE2"]}))
+        self.assertFalse(landscape.is_late_phase({"phase": ["PHASE1"]}))
+        self.assertFalse(landscape.is_late_phase({"phase": ["NA"]}))
+        self.assertFalse(landscape.is_late_phase({"phase": []}))
+        self.assertTrue(landscape.is_late_phase({"phase": ["PHASE2", "PHASE3"]}))
+        self.assertTrue(landscape.is_late_phase({"phase": ["PHASE4"]}))
+
+
+class CitationShapes(unittest.TestCase):
+    def test_a_pmid_written_as_a_link_is_numbered_like_any_other_citation(self):
+        import presentation
+        st = make_state()
+        st["papers"]["111111"].update(authors=["Smith J"], title="T", journal="J", date="2026-05-01")
+        text = "| Approach | Reference |\n|---|---|\n| Exercise | (PMID [111111](https://pubmed.ncbi.nlm.nih.gov/111111/)) |\n\nAlso [PMID 111111](https://pubmed.ncbi.nlm.nih.gov/111111/).\n"
+        out, order = presentation.numberize(text, st["papers"])
+        self.assertEqual(order, ["111111"])
+        self.assertIn("| Exercise | [1] |", out)
+        self.assertIn("Also [1].", out)
+
+
+
+class DoseSummary(unittest.TestCase):
+    SOURCE = ("Pediatric Patients (6 to 17 years) The recommended dosage range for the treatment of pediatric patients with irritability associated with autistic disorder is 5 to 15 mg/day. "
+              "Dosing should be initiated at 2 mg/day. The dose should be increased to 5 mg/day, with subsequent increases to 10 or 15 mg/day if needed. "
+              "Dose adjustments of up to 5 mg/day should occur gradually, at intervals of no less than one week.")
+    GOOD = ("For children and adolescents aged 6 to 17 years the recommended range is 5 to 15 mg/day. Treatment starts at 2 mg/day and is raised to 5 mg/day, then to 10 or 15 mg/day if needed. "
+            "Adjustments of up to 5 mg/day are made gradually, at least one week apart.")
+
+    def test_a_faithful_short_summary_is_accepted(self):
+        self.assertTrue(landscape.dose_summary_ok(self.GOOD, self.SOURCE))
+
+    def test_a_summary_with_a_number_that_is_not_in_the_label_is_rejected(self):
+        self.assertFalse(landscape.dose_summary_ok(self.GOOD.replace("5 to 15 mg/day", "5 to 20 mg/day"), self.SOURCE))
+        self.assertFalse(landscape.dose_summary_ok(self.GOOD + " Doses above 30 mg/day are not advised.", self.SOURCE))
+
+    def test_too_long_or_formatted_summaries_are_rejected(self):
+        five = " ".join(f"Sentence number {i} says dose 2 mg/day." for i in range(5))
+        self.assertFalse(landscape.dose_summary_ok(five, self.SOURCE))
+        self.assertFalse(landscape.dose_summary_ok("**" + self.GOOD + "**", self.SOURCE))
+        self.assertFalse(landscape.dose_summary_ok("", self.SOURCE))
+
+    def test_one_point_zero_and_one_are_the_same_number(self):
+        self.assertTrue(landscape.dose_summary_ok("The dose may be raised to 1 mg per day for patients over 20 kg, then reviewed after four days of treatment.",
+                                                  "increase to 1.0 mg per day for patients greater than 20 kg. After a minimum of four days the dose may be reviewed."))
+
+    def test_the_fallback_is_the_labels_own_first_sentences(self):
+        out = landscape.dose_fallback(self.SOURCE, limit=300)
+        self.assertTrue(self.SOURCE.startswith(out))
+        self.assertLessEqual(len(out), 300)
+        self.assertTrue(out.endswith("."))
+
+    def test_the_table_shows_the_summary_not_the_whole_dosing_section(self):
+        s = make_state()
+        s["regulatory"][0].update(route="Oral", dose_statement=self.SOURCE, dose_summary=self.GOOD)
+        md = landscape.landscape_markdown(s, [], [])
+        self.assertIn("Route: Oral. " + self.GOOD, md)
+        self.assertNotIn("Pediatric Patients (6 to 17 years) The recommended dosage range", md)
+        self.assertIn("short summary of the label's dosing section", md)      # the note says it is a summary, checked against the label
+        self.assertEqual([i for i in verification.find_issues(BASE + md + "\n", s) if i["kind"] == "unsupported_number"], [])
+
+
+class DoseSummaryRules(unittest.TestCase):
+    def test_number_words_in_the_label_count_as_numbers(self):
+        source = "After a minimum of four days, the dose may be increased to 0.5 mg per day. Maintain this dose for a minimum of 14 days."
+        self.assertTrue(landscape.dose_summary_ok("After at least 4 days the dose may be raised to 0.5 mg per day, and kept for 14 days before any further change.", source))
+        self.assertFalse(landscape.dose_summary_ok("After at least 5 days the dose may be raised to 0.5 mg per day, and kept for 14 days before any further change.", source))
+
+    def test_a_claim_about_what_the_label_does_not_say_is_rejected(self):
+        source = "Dosing should be initiated at 2 mg/day. The dose should be increased to 5 mg/day, with subsequent increases to 10 or 15 mg/day if needed."
+        ok = "Dosing starts at 2 mg/day and is increased to 5 mg/day, with later steps to 10 or 15 mg/day if needed."
+        self.assertTrue(landscape.dose_summary_ok(ok, source))
+        self.assertFalse(landscape.dose_summary_ok(ok + " The label does not specify a maximum dose.", source))
+        self.assertFalse(landscape.dose_summary_ok(ok + " There is no maximum dose.", source))
+
+
+class DoseSummaryWordingSlips(unittest.TestCase):
+    SOURCE = "Dosing should be initiated at 2 mg/day. The dose should be increased to 5 mg/day, with subsequent increases to 10 or 15 mg/day if needed, at intervals of no less than one week."
+
+    def test_comments_about_the_text_are_rejected(self):
+        ok = "Dosing starts at 2 mg/day, goes to 5 mg/day and then to 10 or 15 mg/day if needed, at least one week apart."
+        self.assertTrue(landscape.dose_summary_ok(ok, self.SOURCE))
+        for slip in (" No weight-specific adjustments are mentioned in the text.", " According to the label this is usual.", " Nothing more is mentioned."):
+            self.assertFalse(landscape.dose_summary_ok(ok + slip, self.SOURCE), slip)
+
+
+class TableRowsAreCheckedToo(unittest.TestCase):
+    def test_overclaim_wording_inside_a_table_row_is_softened(self):
+        s = make_state()
+        text = (BASE + "| Approach | Evidence level | Shows | Reference |\n|---|---|---|---|\n"
+                "| Exercise | Evidence-supported but limited | Exercise improved motor skills (dose-response confirmed). | (PMID 111111) |\n")
+        r = verification.verify_and_repair(text, s)
+        self.assertNotIn("confirmed", r["answer"])
+        self.assertEqual(r["status"], "PASS")
+
+    def test_a_citation_written_as_a_link_is_still_checked(self):
+        s = make_state()
+        row = "| Exercise | Established | Improved motor skills. | (PMID [111111](https://pubmed.ncbi.nlm.nih.gov/111111/)) |"
+        text = BASE + "| Approach | Evidence level | Shows | Reference |\n|---|---|---|---|\n" + row + "\n"
+        fixed = verification.verify_and_repair(text, s)["answer"]
+        self.assertNotIn("| Established |", fixed)      # no guideline among the cited sources: not 'Established'
+        invented = BASE + "| Approach | Evidence level | Shows | Reference |\n|---|---|---|---|\n| X | Emerging | Improved. | (PMID [999999](https://pubmed.ncbi.nlm.nih.gov/999999/)) |\n"
+        self.assertNotIn("999999", verification.verify_and_repair(invented, make_state())["answer"])      # an invented PMID written as a link is removed too (a fresh run: one repair pass each)
+
+
+class StrongestEvidenceFirst(unittest.TestCase):
+    def test_a_systematic_review_comes_before_a_newer_case_report_and_a_newer_trial(self):
+        old_review = study("200001", year="2022", types=("Systematic Review",))
+        new_case = study("200002", year="2026", types=("case-study",))
+        new_rct = study("200003", year="2025", types=("Randomized Controlled Trial",))
+        guideline = study("200004", year="2019", types=("Practice Guideline",))
+        guideline["title"] = "A practice guideline for condition X"
+        papers = {p["pmid"]: p for p in (new_case, new_rct, old_review, guideline)}
+        order = [p["pmid"] for p in qa_stream.ordered_papers(papers, None)]
+        self.assertEqual(order, ["200004", "200001", "200003", "200002"])      # guideline, review, trial, case report
+
+    def test_within_one_design_the_newest_comes_first(self):
+        a, b = study("200011", year="2023", types=("Meta-Analysis",)), study("200012", year="2026", types=("Meta-Analysis",))
+        self.assertEqual([p["pmid"] for p in qa_stream.ordered_papers({"200011": a, "200012": b}, None)], ["200012", "200011"])
+
+    def test_a_record_with_no_stated_design_goes_last(self):
+        unknown = study("200021", year="2026", types=("research-article",))
+        review = study("200022", year="2020", types=("Systematic Review",))
+        self.assertEqual([p["pmid"] for p in qa_stream.ordered_papers({"200021": unknown, "200022": review}, None)], ["200022", "200021"])
+
+
+class OnlyDrugTopicsAreSearched(unittest.TestCase):
+    def test_only_drug_related_guideline_topics_are_searched(self):
+        import guidelines
+        asked = []
+
+        def search(query):
+            asked.append(query)
+            return json.dumps([])
+        res = guidelines.find_guidelines("How to treat autism in children?", ["autism"], search)
+        topics = {r["topic"] for r in res["results"]}
+        self.assertEqual(topics, {"medications", "sleep", "anxiety", "adhd"})
+        self.assertLessEqual(len(asked), 8)      # four topics, each at most one retry: not the eleven searches that took 14 s

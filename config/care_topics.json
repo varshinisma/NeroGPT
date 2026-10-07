@@ -47,12 +47,14 @@
       {
         "id": "medications",
         "label": "Medications used in practice",
-        "query": "medications used to treat symptoms in children, which drugs are prescribed"
+        "query": "medications used to treat symptoms in children, which drugs are prescribed",
+        "drugs": true
       },
       {
         "id": "first_line",
         "label": "First-line treatment and management",
-        "query": "first-line treatment management recommendations"
+        "query": "first-line treatment management recommendations",
+        "drugs": true
       },
       {
         "id": "monitoring",
@@ -90,7 +92,8 @@
         {
           "id": "medications",
           "label": "Medications used in practice",
-          "query": "medications used to treat symptoms in children, which drugs are prescribed"
+          "query": "medications used to treat symptoms in children, which drugs are prescribed",
+          "drugs": true
         },
         {
           "id": "speech",
@@ -115,17 +118,20 @@
         {
           "id": "sleep",
           "label": "Co-occurring: sleep problems",
-          "query": "sleep problems management"
+          "query": "sleep problems management",
+          "drugs": true
         },
         {
           "id": "anxiety",
           "label": "Co-occurring: anxiety",
-          "query": "anxiety management"
+          "query": "anxiety management",
+          "drugs": true
         },
         {
           "id": "adhd",
           "label": "Co-occurring: ADHD",
-          "query": "ADHD co-occurring management"
+          "query": "ADHD co-occurring management",
+          "drugs": true
         },
         {
           "id": "gi",

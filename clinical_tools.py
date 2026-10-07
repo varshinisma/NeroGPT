@@ -314,6 +314,28 @@ def indication_statement(text: str, stems: list[str], generic: str, limit: int =
     return (window[:boundary] if boundary > 80 else window.rsplit(" ", 1)[0]).rstrip(" ,;:•") + " (the label continues)"
 
 
+def dosage_statement(text: str, stems: list[str], limit: int = 1300) -> str | None:
+    """The label's own dosing text FOR THIS CONDITION: the numbered 'Dosage and Administration' section whose title names the condition (for example
+    '2.4 Irritability Associated with Autistic Disorder'), copied unchanged and cut only where a sentence ends. None when the label has no such section
+    (the dose is then not stated for this condition in the retrieved label text)."""
+    t = re.sub(r"\s+", " ", text or "").strip()
+    heads = list(re.finditer(r"(?<![\d.(])2\.\d+\s+(?=[A-Z])", t))
+    for i, h in enumerate(heads):
+        title = re.split(r"\.\s", t[h.end():h.end() + 80])[0]      # the heading itself (never the next section's heading)
+        if not any(s in title.lower() for s in stems):
+            continue
+        end = heads[i + 1].start() if i + 1 < len(heads) else len(t)
+        block = re.sub(r"^[A-Z][^.]{0,100}?\bautis\w*(?:\s+\w+)?\s+", "", t[h.end():end], count=1, flags=re.I).strip()      # drop the section title itself
+        block = re.sub(r"\s+([.,;])", r"\1", re.sub(r"\s*\[see [^\]]*\]\s*", " ", block.lstrip("-\u2013 "))).strip()      # no '[see Clinical Studies (14.4)]' cross-references
+        if len(block) < 40:
+            continue
+        if len(block) <= limit:
+            return block
+        cut = block.rfind(". ", 0, limit)
+        return (block[:cut + 1] if cut > 150 else block[:limit].rsplit(" ", 1)[0]) + " (the label continues)"
+    return None
+
+
 def _fda_record(generic: str, stems: list[str]) -> dict | None:
     data = _fda_get({"search": f'openfda.generic_name.exact:"{generic}"', "limit": 1})
     if not data or not data.get("results"):
@@ -335,6 +357,8 @@ def _fda_record(generic: str, stems: list[str]) -> dict | None:
     return {"generic": generic.title(), "brands": (label.get("openfda", {}).get("brand_name") or [])[:3], "jurisdiction": "FDA",
             "indication_excerpt": excerpt.strip(), "matches_condition": hit >= 0,
             "indication_statement": indication_statement(text, stems, generic) if hit >= 0 else None,
+            "dose_statement": dosage_statement(" ".join(label.get("dosage_and_administration") or []), stems) if hit >= 0 else None,
+            "route": ", ".join(r.title() for r in (label.get("openfda", {}).get("route") or []))[:80] or None,
             "label_date": f"{when[:4]}-{when[4:6]}-{when[6:8]}" if len(when) == 8 else None, "set_id": set_id,
             "url": f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={set_id}" if set_id else None, "source_id": f"fda:{set_id}"}
 

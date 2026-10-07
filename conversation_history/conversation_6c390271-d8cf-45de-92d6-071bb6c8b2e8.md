@@ -1,17 +1,27 @@
-# How to treat autism in children?
+# Agent conversation
+
+**Last updated:** 2026-10-07 17:10:17
+
+## User
+
+How to treat autism in children?
+
+---
+
+## Assistant
 
 **Evidence searched on 2026-10-07** (PubMed, ClinicalTrials.gov, FDA drug labels, web)
 
 ## Clinical summary
 
 **Bottom line**
-The retrieved evidence supports **exercise interventions (e.g., dance, structured walking) to improve motor skills** in children with autism spectrum disorder (ASD), with dose-response effects reported for overall and gross motor function. **No direct evidence** was found for treatments targeting core ASD symptoms (e.g., social communication, behavior) or feeding difficulties in this population.
+The retrieved evidence supports **exercise interventions (e.g., dance, structured walking) to improve motor skills** in children with autism spectrum disorder (ASD), with dose-response relationships reported for overall and gross motor function. **No direct evidence** was found for treatments targeting core ASD symptoms (e.g., social communication, behavior) or feeding difficulties in this population, though protocols for music therapy and occupational therapy-based interventions are under investigation.
 
 **Most important recent finding**
-Exercise significantly improved overall, gross, and fine motor skills in children with ASD, with dose-response relationships identified for overall and gross motor skills. [1]
+Exercise significantly improved overall, gross, and fine motor skills in children with ASD, with dose-response effects identified for overall and gross motor skills. [1]
 
 **Immediate context**
-Motor skill interventions show evidence for functional improvements, but **no direct evidence** was found for treatments addressing social communication, emotion regulation, or behavioral symptoms in ASD. Feeding difficulties were addressed in a different population (indirect evidence). Ongoing trials explore water competency and social responsiveness but have not yet reported results.
+Direct evidence for motor skill improvement via exercise exists, but **no established treatments** for ASD’s core symptoms (e.g., social communication, repetitive behaviors) were retrieved. Protocols for music therapy and occupational therapy interventions are active but have not yet reported efficacy results. Feeding difficulties were addressed in a different population (not ASD-specific).
 
 **Top treatment drugs (established first, then the most notable latest drug)**
 
@@ -22,20 +32,20 @@ Motor skill interventions show evidence for functional improvements, but **no di
 | NTI164 (latest, investigational) | Being tested in a registered Phase 3 trial, Not yet recruiting; not an approved treatment | [NCT07257939](https://clinicaltrials.gov/study/NCT07257939) |
 
 ## Latest findings
-- **2026-12**: **Case study**, Dual-target deep brain stimulation (DBS) in a 12-month-old child with severe autism showed sustained reductions in core symptoms (e.g., ATEC scores decreased by 81.3% at 12 months) [6].
-- **2026-12**: **Systematic review**, Behavioral sleep interventions improved sleep outcomes in autistic children, with 39 studies included since 2002 [2].
-- **2026-09-22**: **Case report**, Crohn’s disease in an adolescent with autism was misdiagnosed due to communication barriers, highlighting the need for gastrointestinal screening [7].
-- **2026-09-18**: **Meta-analysis**, Exercise interventions improved motor skills in children with ASD, with dose-response effects for gross and overall motor skills [1].
+- **2026-09-22**: Case study, **Dual-target deep brain stimulation (DBS)** showed sustained reductions in core ASD symptoms (e.g., ATEC score decreased by 81.3% over 12 months) in a single pediatric case [6].
+- **2026-09-18**: Meta-analysis, **Exercise interventions** significantly improved gross and fine motor skills in children with ASD, with dose-response effects for overall and gross motor skills [1].
+- **2026-09-11**: Randomized controlled trial, **Modified ketogenic diet + rehabilitation** reduced ABC and CARS scores more than rehabilitation alone in young children with ASD [2].
+- **2026-09-08**: Clinical trial protocol, **AllPlay Dance program** (community-based dance) is under investigation for motor skills in ASD (ANZCTR ACTRN12625000600448).
 
 ## Current evidence
-| Approach                          | Evidence level                     | What the evidence shows                                                                                     | Reference                                                                                     |
-|-----------------------------------|------------------------------------|-------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------|
-| **Exercise interventions**         | Evidence-supported but limited | Exercise significantly improved gross, fine, and overall motor skills in children with ASD, with dose-response effects. | [1] |
-| **Behavioral sleep interventions** | Evidence-supported but limited     | Systematic review of 39 studies (2002–2026) found behavioral sleep interventions effective for autistic children under 18. | [2] |
-| **Modified ketogenic diet**        | Emerging                          | Short-term reductions in ASD symptom severity (ABC/CARS scores) in children with ASD, combined with rehabilitation. | [3] |
-| **Caregiver-assisted NDBI**        | Emerging                          | Pilot RCT showed feasibility of group-based naturalistic developmental behavioral interventions for preschoolers. | [4] |
-| **Extended reality (XR) interventions** | Emerging          | Systematic review identified 113 XR studies (2020–2026), with VR/AR showing potential for training, therapy, and assessment. | [5] |
-| **Deep brain stimulation (DBS)**   | Experimental or preliminary        | Single 12-month case study reported sustained reductions in core ASD symptoms (e.g., 81.3% improvement in ATEC scores). | [6] |
+| Approach                          | Evidence level                     | What the evidence shows                                                                                     | Reference                                                                 |
+|-----------------------------------|------------------------------------|-------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------|
+| Exercise interventions             | Evidence-supported but limited | Exercise significantly improved gross and fine motor skills in children with ASD; dose-response effects exist. | [1] |
+| Modified ketogenic diet + rehab    | Evidence-supported but limited     | Short-term reductions in ASD symptom severity (ABC/CARS scores) compared to rehabilitation alone.           | [2] |
+| Caregiver-assisted NDBI (group)   | Emerging                          | Promising but less pronounced improvements in social/communication skills than one-on-one NDBI.           | [3] |
+| Behavioral sleep interventions     | Emerging                          | Systematic review identified 39 studies showing behavioral sleep interventions improve sleep outcomes in autistic children. | [4] |
+| Extended reality (XR) interventions | Emerging                          | VR/AR systems show potential for training, education, and therapy in ASD, though no direct efficacy data.   | [5] |
+| Dual-target DBS                   | Experimental or preliminary       | Single case study reported sustained reductions in core ASD symptoms (12-month follow-up).                  | [6] |
 
 ## Treatment Drug Landscape
 
@@ -46,7 +56,7 @@ Motor skill interventions show evidence for functional improvements, but **no di
 | Drug | Category | Indication | Dose / route (if sourced) | Approval status / date | Key evidence |
 |---|---|---|---|---|---|
 | Aripiprazole | Approved (FDA-labelled for this condition) | "Aripiprazole is indicated for the treatment of: • Schizophrenia • Irritability Associated with Autistic Disorder • Treatment of Tourette’s Disorder" | Route: Oral. Pediatric Patients (6 to 17 years) The recommended dosage range for the treatment of pediatric patients with irritability associated with autistic disorder is 5 to 15 mg/day. Dosing should be initiated at 2 mg/day. The dose should be increased to 5 mg/day, with subsequent increases to 10 or 15 mg/day if needed. Dose adjustments of up to 5 mg/day should occur gradually, at intervals of no less than one week. | FDA-approved for the use shown; label effective 2026-03-05; original approval date not retrieved | FDA label. [DailyMed](https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=02a4af27-c83c-4166-950c-7a1cb12d198d) |
-| Risperidone | Approved (FDA-labelled for this condition) | "Risperidone tablets are indicated for the treatment of irritability associated with autistic disorder, including symptoms of aggression towards others, deliberate self-injuriousness, temper tantrums, and quickly changing moods. Efficacy was established in 3 short-term trials in children and adolescents (ages 5 to 17 years)." | Route: Oral. Start with 0.25 mg per day for children weighing less than 20 kg, and 0.5 mg per day for those weighing 20 kg or more. After at least four days, increase the dose to 0.5 mg per day for children under 20 kg or 1.0 mg per day for those 20 kg or heavier, and maintain this dose for no less than 14 days. If needed, raise the dose by 0.25 mg per day for children under 20 kg or 0.5 mg per day for those 20 kg or more, at intervals of two weeks or more. The usual dose range is 0.5 mg to 3 mg per day. | FDA-approved for the use shown; label effective 2026-06-25; original approval date not retrieved | FDA label: Efficacy was established in 3 short-term trials in children and adolescents (ages 5 to 17 years). [DailyMed](https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=03d3b52d-3a7d-4595-84c9-332da6ca9171) |
+| Risperidone | Approved (FDA-labelled for this condition) | "Risperidone tablets are indicated for the treatment of irritability associated with autistic disorder, including symptoms of aggression towards others, deliberate self-injuriousness, temper tantrums, and quickly changing moods. Efficacy was established in 3 short-term trials in children and adolescents (ages 5 to 17 years)." | Route: Oral. Start with 0.25 mg per day for children weighing less than 20 kg, and 0.5 mg per day for those weighing 20 kg or more. After at least four days, increase to 0.5 mg per day for under-20 kg patients or 1.0 mg per day for those 20 kg or heavier, maintaining this dose for no less than 14 days. If needed, raise the dose by 0.25 mg per day for under-20 kg patients or 0.5 mg per day for those 20 kg or more, at intervals of 2 weeks or greater. The usual dose range is 0.5 mg to 3 mg per day, and this applies to children and adolescents weighing at least 15 kg. | FDA-approved for the use shown; label effective 2026-06-25; original approval date not retrieved | FDA label: Efficacy was established in 3 short-term trials in children and adolescents (ages 5 to 17 years). [DailyMed](https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=03d3b52d-3a7d-4595-84c9-332da6ca9171) |
 
 ### Other drugs: used for symptoms, or still being tested (not established treatments of this condition)
 
@@ -70,6 +80,7 @@ Motor skill interventions show evidence for functional improvements, but **no di
 | Date | Type | Announcement | What the regulator's page says |
 |---|---|---|---|
 | date not stated | Regulatory announcement | [FDA Takes Action to Make a Treatment Available for Autism Symptoms / FDA](https://www.fda.gov/news-events/press-announcements/fda-takes-action-make-treatment-available-autism-symptoms#footer) | “The FDA is collaborating with GSK to broaden the existing Wellcovorin label," said George Tidmarsh, M.D., Ph.D., Director of the FDA’s Center for Drug Evaluation and Research. Food and Drug Administration today initiated the approval of leucovorin calcium tablets for patients with cerebral folate deficiency (CFD), a neurological condition that affects folate (a vitamin essential for brain health) transport into the brain. |
+| date not stated | Regulatory announcement | [FDA Takes Action to Make a Treatment Available for Autism Symptoms / FDA](https://www.fda.gov/news-events/press-announcements/fda-takes-action-make-treatment-available-autism-symptoms) | “The FDA is collaborating with GSK to broaden the existing Wellcovorin label," said George Tidmarsh, M.D., Ph.D., Director of the FDA’s Center for Drug Evaluation and Research. Food and Drug Administration today initiated the approval of leucovorin calcium tablets for patients with cerebral folate deficiency (CFD), a neurological condition that affects folate (a vitamin essential for brain health) transport into the brain. |
 | date not stated | Regulatory announcement | [FDA Takes Action to Make a Treatment Available for Autism Symptoms / FDA](https://www.fda.gov/news-events/press-announcements/fda-takes-action-make-treatment-available-autism-symptoms#main-content) | “The FDA is collaborating with GSK to broaden the existing Wellcovorin label," said George Tidmarsh, M.D., Ph.D., Director of the FDA’s Center for Drug Evaluation and Research. Food and Drug Administration today initiated the approval of leucovorin calcium tablets for patients with cerebral folate deficiency (CFD), a neurological condition that affects folate (a vitamin essential for brain health) transport into the brain. |
 | date not stated | Regulatory announcement | [FDA Takes Action to Make a Treatment Available for Autism Symptoms / FDA](https://www.fda.gov/news-events/press-announcements/fda-takes-action-make-treatment-available-autism-symptoms#section-nav) | “The FDA is collaborating with GSK to broaden the existing Wellcovorin label," said George Tidmarsh, M.D., Ph.D., Director of the FDA’s Center for Drug Evaluation and Research. Food and Drug Administration today initiated the approval of leucovorin calcium tablets for patients with cerebral folate deficiency (CFD), a neurological condition that affects folate (a vitamin essential for brain health) transport into the brain. |
 | date not stated | Regulatory announcement | [FDA Takes Action to Make a Treatment Available for Autism Symptoms / FDA](https://www.fda.gov/news-events/press-announcements/fda-takes-action-make-treatment-available-autism-symptoms#search-form) | “The FDA is collaborating with GSK to broaden the existing Wellcovorin label," said George Tidmarsh, M.D., Ph.D., Director of the FDA’s Center for Drug Evaluation and Research. Food and Drug Administration today initiated the approval of leucovorin calcium tablets for patients with cerebral folate deficiency (CFD), a neurological condition that affects folate (a vitamin essential for brain health) transport into the brain. |
@@ -112,43 +123,43 @@ Motor skill interventions show evidence for functional improvements, but **no di
 
 1. **Wang et al. (2026)**, meta-analysis: “Exercise significantly improved overall, gross, and fine motor skills in children with ASD.” [1]
 2. **Hao et al. (2026)**, systematic review: “There was a significant increase in XR autism research after 2020, with virtual reality (VR) as the largest modality (n = 61, 53.0%), followed by augmented reality (AR) (n = 36, 31.3%).” [5]
-3. **Mazurek et al. (2026)**, systematic review: “Most studies (95%) found that behavioral interventions were effective for at least some sleep outcomes.” [2]
-4. **Restoy et al. (2024)**, meta-analysis: “Studies of non-pharmacological interventions showed significant improvement in both ER and ED.” [8]
-5. **Sandbank et al. (2023)**, meta-analysis: “When effects were then restricted to exclude those at high risk of detection bias, only one significant summary effect was estimated-naturalistic developmental behavioral interventions on measures of diagnostic characteristics of autism (0.30, 0.03 to 0.57; P=0.03).” [9]
+3. **Mazurek et al. (2026)**, systematic review: “Most studies (95%) found that behavioral interventions were effective for at least some sleep outcomes.” [4]
+4. **Sandbank et al. (2023)**, meta-analysis: “When effects were then restricted to exclude those at high risk of detection bias, only one significant summary effect was estimated-naturalistic developmental behavioral interventions on measures of diagnostic characteristics of autism (0.30, 0.03 to 0.57; P=0.03).” [7]
+5. **Zeidan et al. (2022)**, systematic review: “Prevalence estimates increased over time and varied greatly within and across sociodemographic groups.” [8]
 
 ## Conflicting evidence
 None was retrieved.
 
 ## What remains under investigation
-- **Efficacy**: Head-to-head trials comparing exercise, behavioral sleep interventions, and ketogenic diet for long-term outcomes in ASD.
-- **Effectiveness**: Real-world implementation of caregiver-assisted NDBI in diverse settings (e.g., community-based programs).
-- **Feasibility**: Scalability of extended reality (XR) interventions for motor/social skills in clinical practice.
-- **Association**: Longitudinal studies on sleep spindle characteristics as neurophysiological biomarkers for ASD progression.
-- **Exploratory**: Dose-response relationships for music therapy on social communication (protocol-only; no results yet).
+- **Efficacy**: Head-to-head comparisons of exercise vs. ketogenic diet vs. behavioral interventions for core ASD symptoms.
+- **Effectiveness**: Long-term outcomes (beyond 2 months) of modified ketogenic diet and caregiver-assisted NDBI in real-world settings.
+- **Feasibility**: Scalability of dual-target DBS for broader ASD populations, given its current single-case evidence.
+- **Association**: Neurophysiological markers (e.g., sleep spindles) as predictors of response to behavioral or pharmacological interventions.
+- **Exploratory**: Dose-response relationships for XR interventions (e.g., VR/AR) in ASD symptom management.
 
 ## Evidence limitations
 
 - Findings are drawn from abstracts, registry records and web pages, not full texts; study quality was not appraised from the full papers.
 - Doses appear only where an FDA label gives them for this condition (section 2.1); for any other use, see a prescribing source. Approval dates appear only where a retrieved source states them.
 - Excluded retracted publication: Efficacy of oral folinic acid supplementation in children with autism spectrum disorder: a (PMID 39243316, 2024). Retracted work is not used as evidence.
-- 2 retrieved record(s) were excluded because they were not about the question's subject.
+- 3 retrieved record(s) were excluded because they were not about the question's subject.
 
 ## Sources
 
 1. Wang T, Dong X, Jia Y, et al. Dose-response relationship between exercise interventions and motor skills in children with autism spectrum disorder: a systematic review and multilevel meta-analysis. *European journal of pediatrics*. 2026-09-18. [PMID 42758334](https://pubmed.ncbi.nlm.nih.gov/42758334/). DOI 10.1007/s00431-026-07421-4.
-2. Mazurek MO, Smith JV, Kiernan B, et al. Behavioral interventions for sleep problems in autistic children: A systematic review. *Sleep medicine*. 2026 Dec. [PMID 42685447](https://pubmed.ncbi.nlm.nih.gov/42685447/). DOI 10.1016/j.sleep.2026.109242.
-3. Liu L, Zhao Q, Zhou J, et al. Evaluating the therapeutic efficacy of a modified ketogenic diet in children with autism spectrum disorder: a randomized controlled trial. *BMC pediatrics*. 2026-09-11. [PMID 42763398](https://pubmed.ncbi.nlm.nih.gov/42763398/). DOI 10.1186/s12887-026-07708-3.
-4. Seng GJ, Lin JY, Huang WL, et al. Feasibility and Preliminary Efficacy of a Caregiver-Assisted Group-Based Naturalistic Developmental Behavioral Intervention Program for Autistic Preschoolers: A Pilot Randomized Controlled Trial. *Autism : the international journal of research and practice*. 2026-07-23. [PMID 42494078](https://pubmed.ncbi.nlm.nih.gov/42494078/). DOI 10.1177/13623613261462574.
+2. Liu L, Zhao Q, Zhou J, et al. Evaluating the therapeutic efficacy of a modified ketogenic diet in children with autism spectrum disorder: a randomized controlled trial. *BMC pediatrics*. 2026-09-11. [PMID 42763398](https://pubmed.ncbi.nlm.nih.gov/42763398/). DOI 10.1186/s12887-026-07708-3.
+3. Seng GJ, Lin JY, Huang WL, et al. Feasibility and Preliminary Efficacy of a Caregiver-Assisted Group-Based Naturalistic Developmental Behavioral Intervention Program for Autistic Preschoolers: A Pilot Randomized Controlled Trial. *Autism : the international journal of research and practice*. 2026-07-23. [PMID 42494078](https://pubmed.ncbi.nlm.nih.gov/42494078/). DOI 10.1177/13623613261462574.
+4. Mazurek MO, Smith JV, Kiernan B, et al. Behavioral interventions for sleep problems in autistic children: A systematic review. *Sleep medicine*. 2026 Dec. [PMID 42685447](https://pubmed.ncbi.nlm.nih.gov/42685447/). DOI 10.1016/j.sleep.2026.109242.
 5. Hao D, Mansi H, Elkefi S, et al. Extended reality (XR) interventions in supporting children with autism: A systematic review. *International journal of medical informatics*. 2026 Dec. [PMID 42784985](https://pubmed.ncbi.nlm.nih.gov/42784985/). DOI 10.1016/j.ijmedinf.2026.106719.
 6. Shi M, Hu J, Pei J, et al. Dual-target deep brain stimulation for severe pediatric autism: Sustained core symptom reduction in a 12-month case study. *Clinical neurophysiology : official journal of the International Federation of Clinical Neurophysiology*. 2026 Dec. [PMID 42759099](https://pubmed.ncbi.nlm.nih.gov/42759099/). DOI 10.1016/j.clinph.2026.2112403.
-7. Hitomi K, Katayama S, Nakada S, et al. Crohn's Disease Presenting as an Abdominal Wall Abscess in an Adolescent With Autism Spectrum Disorder. *Case reports in pediatrics*. 2026-09-22. [PMID 42781187](https://pubmed.ncbi.nlm.nih.gov/42781187/). DOI 10.1155/crpe/8225541.
-8. Restoy D, Oriol-Escudé M, Alonzo-Castillo T, et al. Emotion regulation and emotion dysregulation in children and adolescents with Autism Spectrum Disorder: A meta-analysis of evaluation and intervention studies. *Clinical psychology review*. 2024 Apr. [PMID 38401510](https://pubmed.ncbi.nlm.nih.gov/38401510/). DOI 10.1016/j.cpr.2024.102410.
-9. Sandbank M, Bottema-Beutel K, Crowley LaPoint S, et al. Autism intervention meta-analysis of early childhood studies (Project AIM): updated systematic review and secondary analysis. *BMJ (Clinical research ed.)*. 2023 Nov 14. [PMID 37963634](https://pubmed.ncbi.nlm.nih.gov/37963634/). DOI 10.1136/bmj-2023-076733.
+7. Sandbank M, Bottema-Beutel K, Crowley LaPoint S, et al. Autism intervention meta-analysis of early childhood studies (Project AIM): updated systematic review and secondary analysis. *BMJ (Clinical research ed.)*. 2023 Nov 14. [PMID 37963634](https://pubmed.ncbi.nlm.nih.gov/37963634/). DOI 10.1136/bmj-2023-076733.
+8. Zeidan J, Fombonne E, Scorah J, et al. Global prevalence of autism: A systematic review update. *Autism research : official journal of the International Society for Autism Research*. 2022 May. [PMID 35238171](https://pubmed.ncbi.nlm.nih.gov/35238171/). DOI 10.1002/aur.2696.
 
 **Other sources (regulators, guideline organisations, web pages, FDA labels)**
 
 - [Pharmacological treatments in autism spectrum disorder: a narrative review | Journal of Psychopathology](https://www.jpsychopathol.it/article/view/251)
 - [FDA Takes Action to Make a Treatment Available for Autism Symptoms | FDA](https://www.fda.gov/news-events/press-announcements/fda-takes-action-make-treatment-available-autism-symptoms#footer)
+- [FDA Takes Action to Make a Treatment Available for Autism Symptoms | FDA](https://www.fda.gov/news-events/press-announcements/fda-takes-action-make-treatment-available-autism-symptoms)
 - [FDA Takes Action to Make a Treatment Available for Autism Symptoms | FDA](https://www.fda.gov/news-events/press-announcements/fda-takes-action-make-treatment-available-autism-symptoms#main-content)
 - [FDA Takes Action to Make a Treatment Available for Autism Symptoms | FDA](https://www.fda.gov/news-events/press-announcements/fda-takes-action-make-treatment-available-autism-symptoms#section-nav)
 - [FDA Takes Action to Make a Treatment Available for Autism Symptoms | FDA](https://www.fda.gov/news-events/press-announcements/fda-takes-action-make-treatment-available-autism-symptoms#search-form)

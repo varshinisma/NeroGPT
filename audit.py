@@ -13,7 +13,7 @@ slug = sys.argv[1] if len(sys.argv) > 1 else "how-to-treat-autism-in-children"
 folder = Path(__file__).parent / "demo_output"
 presented = (folder / f"{slug}.md").read_text(encoding="utf-8")
 state = json.loads((folder / f"{slug}.state.json").read_text(encoding="utf-8"))
-_m = re.search(r"\n## References\n", presented)
+_m = re.search(r"\n## Sources\n", presented)
 _refs = {int(a): b for a, b in re.findall(r"(?m)^(\d+)\. .*?\[PMID (\d{6,9})\]", presented[_m.end():])} if _m else {}
 _note = presented[presented.rfind("\n---\n"):] if "\n---\n" in presented else ""
 _main = presented[:_m.start()] if _m else presented.split(_note)[0]
@@ -35,7 +35,8 @@ def sentences(t):
 
 
 blob = " ".join([(p.get("title") or "") + " " + (p.get("abstract") or "") + str(p.get("year")) + str(p.get("date")) for p in papers.values()] +
-                [str(t) for t in trials.values()] + [(w.get("title") or "") + (w.get("snippet") or "") for w in state["web"]] + [r["indication_excerpt"] for r in reg]).lower()
+                [str(t) for t in trials.values()] + [(w.get("title") or "") + (w.get("snippet") or "") for w in state["web"]] + [r["indication_excerpt"] + " " + (r.get("indication_statement") or "") + " " + (r.get("dose_statement") or "") for r in reg] +
+                [d.get("boxed_warning") or "" for d in state.get("drug_labels", [])]).lower()      # the retrieved FDA label text, dosing section included
 norm = lambda s: re.sub(r"[\s,\-*_‐-―’']", "", s.lower())
 
 # A. the false statement "no pharmacologic treatments"
@@ -75,7 +76,7 @@ est = re.findall(r"\*\*Established\*\*", claims)
 guide = any("guideline" in str(p.get("type")).lower() for p in papers.values())
 check("I", "no 'Established' label without a guideline source", not est or guide, f"{len(est)} label(s)")
 # J/K. trial relevance
-check("J", "clinical trials section lists treatment trials only (others are counted, not printed)", "## 3. Clinical trials" in text and "Other registry records" not in text)
+check("J", "clinical trials section lists treatment trials only (others are counted, not printed)", "## Clinical trials" in text and "Other registry records" not in text)
 fox = [t for t in trials.values() if re.search(r"syndrome", t.get("title") or "", re.I)]
 check("K", "syndrome-specific trials are flagged as not generalisable", all(f"{t['nct_id']}" not in text or "do not generalise" in text for t in fox), f"{len(fox)} syndrome trial(s)")
 # L. the verifier's own summary
@@ -121,7 +122,11 @@ s_bad = [ln for ln in claims.splitlines() if re.search(r"NCT\d{8}", ln) and not 
          and not re.search(r"not|no |cannot|pending|investigation", ln, re.I)]
 check("S", "no trial is described as effective", not s_bad, "; ".join(s_bad)[:150])
 # T. categories are separate
-check("T", "FDA-approved, other drugs used in practice and trial drugs are separate numbered sections", ("### 2.1 FDA-approved for this condition" in text and "### 2.2 " in text and "### 2.3 " in text) or not reg)
+check("T", "the Treatment Drug Landscape has two tables with the specification's columns: drugs used for treatment, then symptom-directed or still-in-trial drugs",
+      text.count("| Drug | Category | Indication | Dose / route (if sourced) | Approval status / date | Key evidence |") == 2
+      and 0 <= text.find("### Drugs used for treatment of this condition") < text.find("### Other drugs: used for symptoms"))
+check("AG", "no symptom-directed (off-label) or investigational drug sits in the treatment table",
+      not re.search(r"\| (?:Off-label|Emerging)", text.split("### Other drugs: used for symptoms")[0].split("### Drugs used for treatment of this condition")[-1]))
 # status honesty
 check("U", "answer states the drug-landscape status honestly", state["drug_intelligence_status"] == "complete" or "incomplete" in text.lower(), state["drug_intelligence_status"])
 
@@ -145,7 +150,7 @@ ok_jobs = {k for k, v in status.items() if v.get("retrieval_status") == "success
 superseded = {"pubmed_fast": ("pubmed_recent",), "pubmed_fast_q": ("pubmed_quality",), "trials_fast": ("trials_deep",), "fda_fast": ("fda_deep",), "web_fast": ("web_approvals", "web_standard")}
 still_bad = [k for k, v in status.items() if not k.startswith("guideline") and v.get("retrieval_status") != "success" and not any(s in ok_jobs for s in superseded.get(k, ()))]
 head = "\n".join(text.splitlines()[:4])
-limits = text.split("### Limitations of this report")[-1].split("\n## ")[0] if "### Limitations of this report" in text else ""
+limits = text.split("## Evidence limitations")[-1].split("\n## ")[0] if "## Evidence limitations" in text else ""
 check("X", "no top banner; a source that failed is named in Evidence limitations with 'absence of evidence cannot be concluded'",
       "Source warning" not in head and (not still_bad or "absence of evidence cannot be concluded" in limits), f"still failed: {still_bad}")
 check("Y", "the report opens with a Bottom line and has no fixed scope sentence", "**Bottom line" in text and "not a complete treatment guideline" not in text)
@@ -154,15 +159,22 @@ gl_urls = {g["url"].rstrip("/").lower() for g in state.get("guidelines", [])}
 care_rows = [r for r in care.splitlines() if r.startswith("|") and not re.match(r"^\|[\s:\-|]+$", r) and not r.startswith("| Topic")]
 unsourced = [r[:50] for r in care_rows if not ({u.rstrip("/").lower() for u in re.findall(r"\((https?://[^)\s]+)\)", r)} & gl_urls) and "No guideline retrieved" not in r and "search unavailable" not in r]
 check("Z", "no Established care section and no model-written 'Other agents' table", "### Established care" not in text and "Other agents named" not in text)
-ks = text.split("### Key studies")[-1].split("\n### ")[0] if "### Key studies" in text else ""
+ks = re.split(r"\n#{2,4} ", text.split("## Key studies")[-1])[0] if "## Key studies" in text else ""
 ks_items = [ln for ln in ks.splitlines() if re.match(r"^\d+\. ", ln)]
 ks_bad = [ln[:50] for ln in ks_items if not (re.search(r"[A-Z][A-Za-z\u00c0-\u017f'\-]+(?: et al\.?| and [A-Z]|,)", ln) and re.search(r"(?:19|20)\d\d", ln)
                                               and re.search(r"meta-analys|systematic review|randomi|trial|cohort|case|review|observational|qualitative|pilot|cross-sectional", ln, re.I)
                                               and re.search(r"PMID \d{6,9}", ln) and ln.count("**") % 2 == 0 and len(ln.split()) >= 12)]
 check("AA", "every Key studies entry has authors, year, design, a finding and a PMID", not ks_bad and (bool(ks_items) or "none is listed" in ks), f"{len(ks_items)} entr(ies); bad={ks_bad}")
 check("AB", "the research-support disclaimer is in the closing note", "Research support, not a substitute for clinical judgement." in presented)
-check("AC", "the report has the numbered structure: Clinical summary, 1 Treatment approaches, 2 Drug landscape, 3 Trials, 4 Gaps and limitations, References",
-      all(h in presented for h in ("## Clinical summary", "## 1. Treatment approaches", "## 2. Treatment Drug Landscape", "## 3. Clinical trials", "## 4. Evidence gaps and limitations", "## References")))
+_order = ["## Clinical summary", "## Latest findings", "## Current evidence", "## Treatment Drug Landscape", "## Clinical trials", "## Key studies",
+          "## Conflicting evidence", "## What remains under investigation", "## Evidence limitations", "## Sources"]
+_pos = [presented.find(h) for h in _order]
+check("AC", "the sections follow the specification's order: summary, latest findings, current evidence, drug landscape, trials, key studies, conflicting evidence, what remains, limitations, sources",
+      all(x >= 0 for x in _pos) and _pos == sorted(_pos), ", ".join(h for h, x in zip(_order, _pos) if x < 0))
+check("AE", "the fast answer ends with Top treatment drugs (established first, then the most notable latest drug)",
+      "**Top treatment drugs (established first, then the most notable latest drug)**" in presented or "**Top treatment drugs:**" in presented)
+check("AF", "emerging drugs are late-phase and labelled investigational; none is listed as established",
+      all("investigational" in r.lower() and not re.search(r"phase (?:1\b|not applicable)", r, re.I) for r in text.splitlines() if re.match(r"\|[^|]*\|\s*Emerging:", r)))      # drug rows only, not the evidence-level word 'Emerging' 
 check("AD", "no internal job names or letter labels in the report", not re.search(r"pubmed_|guidelines_deep|web_fast|trials_deep|fda_fast|\(\s*[A-D]\s*\)", presented))
 
 width = max(len(t) for _, t, _, _ in results)

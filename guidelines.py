@@ -68,6 +68,7 @@ def find_guidelines(question: str, condition_words: list[str], searcher, config:
     """searcher(query) -> JSON string of [{title, url, snippet}] or an error string. Returns {'results': [...], 'failed': n, 'topics': n} or {'error': ...}."""
     config = config or load_config()
     topics = topics_for(question, config)
+    topics = [t for t in topics if t.get("drugs")] or topics      # only the topics that can name a drug (the guideline pages feed the drug tables)
     stems = [w[:5] for w in condition_words if len(w) >= 4]
     condition = " ".join(condition_words)
 

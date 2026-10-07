@@ -1,4 +1,14 @@
-# How to treat autism in children?
+# Agent conversation
+
+**Last updated:** 2026-10-08 00:34:29
+
+## User
+
+How to treat autism in children?
+
+---
+
+## Assistant
 
 **Evidence searched on 2026-10-08** (PubMed, ClinicalTrials.gov, FDA drug labels, web)
 

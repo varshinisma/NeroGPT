@@ -29,16 +29,15 @@ from pathlib import Path
 import phi
 import server
 from clinical_tools import fda_label_link, search_clinical_trials, search_europepmc_quick, search_fda_labels, search_pubmed
-from landscape import (drug_intelligence_status, limitations_markdown, record_source_status, regulatory_markdown,
-                       top_drugs_markdown, trials_markdown, used_in_practice_markdown, used_in_practice_rows, candidate_sentences, trial_drug_rows,
-                       regulatory_updates_markdown, safety_alerts_markdown)
+from landscape import (drug_intelligence_status, landscape_markdown, limitations_markdown, record_source_status,
+                       top_drugs_markdown, trials_markdown, used_in_practice_rows, candidate_sentences, trial_drug_rows, dose_summary_ok, dose_fallback)
 from pipeline import save_pdf, strip_preliminary
 from presentation import closing_note, numberize
-from guidelines import find_guidelines, guideline_snapshot_markdown, load_config as load_care_config, topics_for
-from report import DISCLAIMER, clean_model_key_studies, source_problems
+from guidelines import find_guidelines, load_config as load_care_config, topics_for
+from report import DISCLAIMER, clean_model_key_studies, design_of, source_problems
 from verification import is_indirect, known_sources, verify_and_repair
 
-FAST_TIMEOUT_S = 3.0          # per retrieval skill, FAST path
+FAST_TIMEOUT_S = 4.5          # per retrieval skill, FAST path (the FDA table is part of the first answer, so the FDA search is waited for)
 DEEP_TIMEOUT_S = 25.0         # per retrieval skill, DEEP path
 CLAUDE_MODE = os.getenv("NEUROGPT_LLM") == "claude_files"   # the text-writing steps are answered by Claude through files, not by an API model
 DEEP_BUDGET_S = 1e5 if CLAUDE_MODE else 100.0   # total deep-research budget (not applied while Claude writes the text)
@@ -146,8 +145,10 @@ def regulator_search(query: str) -> str:
 def regulator_search_many(queries: list[str]) -> str:
     """Several regulator-site searches merged (each page once)."""
     seen, merged = set(), []
-    for q in queries:
-        data = _json(regulator_search(q))
+    with ThreadPoolExecutor(max_workers=len(queries)) as ex:
+        results = list(ex.map(regulator_search, queries))
+    for raw in results:
+        data = _json(raw)
         for item in data if isinstance(data, list) else []:
             if item.get("url") and item["url"] not in seen:
                 seen.add(item["url"])
@@ -322,11 +323,20 @@ def usable(p: dict, stems: set[str]) -> bool:
     return not p.get("retracted") and (not stems or any(st in f"{p['title']} {p['abstract']}".lower() for st in stems))
 
 
+def evidence_tier(p: dict) -> int:
+    """0 guideline, 1 systematic review / meta-analysis, 2 randomized trial, 3 other clinical study, 4 narrative review, 5 case report, 6 design not stated."""
+    kinds = " ".join(str(t) for t in (p.get("type") or [])) + " " + (p.get("title") or "")
+    if "guideline" in kinds.lower():
+        return 0
+    design = design_of(p)
+    return design[1] + 1 if design else 6
+
+
 def ordered_papers(papers: dict, stems: set[str] | None = None) -> list[dict]:
-    """Newest first (year), keeping retrieval order within a year. Retracted and off-topic records are left out of what the model sees
-    (they stay in the ResearchState). No reranking."""
+    """What the model sees first: the strongest study design first (guideline, systematic review / meta-analysis, randomized trial ...), the newest first within a design,
+    keeping retrieval order within a year. Retracted and off-topic records are left out of what the model sees (they stay in the ResearchState). One sort, no reranking model."""
     pool = [p for p in papers.values() if stems is None or usable(p, stems)]
-    return sorted(pool, key=lambda p: -(int(p["year"]) if str(p.get("year") or "").isdigit() else 0))
+    return sorted(pool, key=lambda p: (evidence_tier(p), -(int(p["year"]) if str(p.get("year") or "").isdigit() else 0)))
 
 
 # ------------------------------------------------------------------ model streaming
@@ -420,20 +430,29 @@ GROUND = ("Use ONLY the RETRIEVED DATA. Never use memory for clinical facts. Cit
 
 FAST_TASK = ("FAST INITIAL RESPONSE, under 120 words (do NOT write an 'Evidence searched on' line, it is already shown), exactly three parts: "
              "(1) **Bottom line** - 1 to 2 sentences that ANSWER THE EXACT QUESTION by naming the main approaches the retrieved evidence supports, in plain clinical language; "
-             "never headline one narrow outcome (for example motor skills) as if it answered a broad question; if the data only supports a narrow finding, say what it covers and what it does not; "
+             "never call an approach 'established' or 'most established' unless a guideline in the data says so; "
+             "never headline one narrow outcome (for example motor skills) as if it answered a broad question;if the data only supports a narrow finding, say what it covers and what it does not; "
              "(2) **Most important recent finding** - one finding with its date, study type, key result and citation; (3) **Immediate context** - 1 to 2 sentences on what is and is not established. "
              "Do NOT write about drugs: the system adds the 'Top treatment drugs' table from FDA label data. " + GROUND)
 
-EVIDENCE_TASK = ("Write ONLY these parts, in this order, under 420 words in total, and finish every part. "
-                 "FIRST, ONE Markdown table, no heading, no label, with exactly these columns: | Approach | Evidence level | What the evidence shows | Reference |. One row per treatment approach "
-                 "(for example an intervention type or a symptom-directed treatment), at most 8 rows, newest and strongest evidence first, each approach ONCE. "
+EVIDENCE_TASK = ("Write ONLY these parts, in this order, under 450 words in total, and finish every part. "
+                 "FIRST, the heading '## Latest findings' followed by at most 4 bullets, newest first; each bullet gives the exact date as given in the data, the study type, one sentence on the result and (PMID <the PMID printed in that study's cite field>). "
+                 "SECOND, the heading '## Current evidence' followed by ONE Markdown table with exactly these columns: | Approach | Evidence level | What the evidence shows | Reference |. One row per treatment approach "
+                 "(for example an intervention type or a symptom-directed treatment), at most 8 rows, strongest evidence first, each approach ONCE. "
                  "Evidence level must be one of: Established (only a guideline or consistent high-quality evidence; a systematic review of studies of variable quality is NOT established), "
                  "Evidence-supported but limited, Emerging, Experimental or preliminary, Indirect evidence (different or related population), Protocol - no results, Insufficient evidence. "
                  "'What the evidence shows' is ONE sentence of what the cited source reports. Reference is (PMID <the PMID printed in that study's cite field>). "
-                 "SECOND, '### Key studies': a numbered list of up to 5 studies, each in the form '**<first author> et al. (<year>)**, <design>: <what it found, one sentence> (PMID <the PMID printed in that study's cite field>)' "
+                 "THIRD, '## Key studies': a numbered list of up to 5 studies, each in the form '**<first author> et al. (<year>)**, <design>: <what it found, one sentence> (PMID <the PMID printed in that study's cite field>)' "
                  "- fill every <...> from a study in the data; the design is for example meta-analysis, systematic review, randomized controlled trial or cohort study. "
-                 "THIRD, '### Conflicting or negative evidence' (only a real disagreement between two DIFFERENT sources, or negative results; otherwise say none was retrieved). "
-                 "FOURTH, '### What remains under investigation' (at most 5 short bullets, no sub-bullets). Distinguish efficacy, effectiveness, feasibility and association. Do not discuss drug approval or drug availability. " + GROUND)
+                 "FOURTH, '## Conflicting evidence' (only a real disagreement between two DIFFERENT sources, or negative results; otherwise say none was retrieved). "
+                 "FIFTH, '## What remains under investigation' (at most 5 short bullets, no sub-bullets). Distinguish efficacy, effectiveness, feasibility and association. "
+                 "Do not discuss drug approval or drug availability. " + GROUND)
+
+HOLD_FROM = re.compile(r"(?im)^#{2,4}\s*(?:Key studies|Conflicting|What remains)")      # the specification puts Key studies, Conflicting evidence and What remains AFTER the drugs and trials
+
+DOSE_TASK = ("Below is the dosing text of an FDA drug label for ONE use of the drug. Write 3 to 4 short plain-English sentences for a clinician that cover: the starting dose, how it is adjusted "
+             "(steps and timing), the usual or maximum dose range, and the age or weight group it applies to, but only where the text states them. Use ONLY what the text says. "
+             "Copy every number and unit exactly as written; never add a number, a warning, advice or any fact that is not in the text, and never comment on what the label does NOT say. Keep every qualifier exactly as written (for example 'no less than', 'at least', 'up to', 'a minimum of') and do not add a timing the text does not give. Reply with the sentences only: plain text, no bold, no heading, no list.")
 
 USED_TASK = ("List the drugs that the SOURCES below describe as USED IN CLINICAL PRACTICE to treat or manage this condition or its symptoms (for example in a review, guideline or "
              "practice article), beyond any drug already in `fda_labelled_for_condition`. Reply with ONE JSON array only, at most 6 objects, each {\"drug\": generic name, "
@@ -554,6 +573,7 @@ def _fast_jobs(question: str) -> dict:
             f"({query}) AND (PUB_TYPE:\"Systematic Review\" OR PUB_TYPE:\"Meta-Analysis\" OR PUB_TYPE:\"Randomized Controlled Trial\" OR PUB_TYPE:\"Practice Guideline\")",
             max_results=4, years_back=years + 1, sort="relevance")),
         "trials_fast": lambda: cached("ct", cond, 300, lambda: search_clinical_trials(cond, "", "", 4)),
+        "trials_drugs_fast": lambda: cached("ct", f"{cond}|drug-fast", 300, lambda: search_clinical_trials(cond, "", "", 4, drug_only=True)),
         "fda_fast": lambda: cached("fda", cond, 3600, lambda: search_fda_labels(kw, None, 4)),
         "web_fast": lambda: cached("web", cond, 300, lambda: web_search(f"{cond} FDA approved treatment drugs")),
     }
@@ -700,6 +720,8 @@ def stream_answer(question: str):
                         plan_box["raw_" + g] = {}
                     elif g == "evidence":      # show evidence as soon as the two main PubMed searches are in; the others get a short grace period
                         plan_box["raw_" + g], _ = run_jobs(by_group[g], DEEP_TIMEOUT_S, essential=[n for n in ("pubmed_recent", "pubmed_quality") if n in by_group[g]], extra_until=8.0)
+                    elif g == "drugs" and "fda_deep" in by_group[g]:      # the FDA labels are essential; the web searches get a grace period (their results are used if they arrive)
+                        plan_box["raw_" + g], _ = run_jobs(by_group[g], DEEP_TIMEOUT_S, essential=["fda_deep"], extra_until=12.0)
                     else:
                         plan_box["raw_" + g], _ = run_jobs(by_group[g], DEEP_TIMEOUT_S)
                 except Exception as error:
@@ -735,7 +757,7 @@ def stream_answer(question: str):
         threading.Thread(target=run, daemon=True).start()
 
     threading.Thread(target=deep_worker, daemon=True).start()
-    raw_fast, _ = run_jobs(fast_jobs(question), FAST_TIMEOUT_S, essential=["pubmed_fast", "trials_fast"], extra_until=2.5)
+    raw_fast, _ = run_jobs(fast_jobs(question), FAST_TIMEOUT_S, essential=["pubmed_fast", "trials_fast", "fda_fast"], extra_until=2.5)
     state["retrieval_errors"].update(ingest(papers, trials, web, raw_fast))
     ingest_regulatory(state, raw_fast)
     record_source_status(state, raw_fast)
@@ -750,13 +772,8 @@ def stream_answer(question: str):
         pool.shutdown(wait=False, cancel_futures=True)
         return
     header = f"**Evidence searched on {datetime.now():%Y-%m-%d}** (PubMed, ClinicalTrials.gov, FDA drug labels, web)\n\n"
-    preliminary = "> *Preliminary answer from the fast search. The verified report replaces this text when the deeper research finishes.*\n\n"
-    problems = source_problems(state, core_only=True)
-    if problems:      # shown live in the browser; the retry in the deeper stage may still resolve it
-        yield event("warning", category="source", message="Some sources did not respond in the fast pass (" + ", ".join(n for n, _, _ in problems)
-                    + "). Retrying in the deeper stage; do not conclude that evidence is absent.")
     summary_head = "## Clinical summary\n\n"
-    yield event("token", stage="INITIAL", text=header + preliminary + summary_head)
+    yield event("token", stage="INITIAL", text=header + summary_head)
 
     # --- INITIAL: the fast answer, streamed (clinical-answer-writer sees only its own view)
     fast_prompt = (f"TASK: {FAST_TASK}\n\nQUESTION: {question}\nRETRIEVED DATA (JSON):\n"
@@ -816,10 +833,9 @@ def stream_answer(question: str):
     opening = model_text
     sections: list[str] = []          # filled in the order the sections are STREAMED, so the final report is the same document that was shown growing
 
-    HOLD_FROM = re.compile(r"(?im)^#{2,4}\s*(?:Conflicting|What remains)")      # the synthesis sections come LAST in the document, after drugs and trials
     streamed_upto: dict[str, int] = {}
 
-    def stage_stream(stage: str, skill: str, task: str, data: dict, max_tokens: int, hold: re.Pattern | None = None):
+    def stage_stream(stage: str, skill: str, task: str, data: dict, max_tokens: int, hold: re.Pattern | None = None, on_hold=None, between=None, on_start=None):
         """One enrichment stage (a generator): ONE skill loaded lazily + that skill's own view, fresh model context, tokens yielded live.
         With `hold`, tokens are shown only up to the first match of the pattern; the rest is kept back and shown later, in its place in the document.
         Returns the text, or None if skipped/failed."""
@@ -828,6 +844,8 @@ def stream_answer(question: str):
             return None
         prompt = f"TASK: {task}\n\nQUESTION: {question}\nRETRIEVED DATA (JSON):\n{json.dumps(data, ensure_ascii=False, separators=(',', ':'))}"
         text, emitted, held = "", 0, False
+        if on_start:
+            on_start()      # independent work that only needs the retrieved data starts now, in the background
         try:
             for chunk in stream_llm(load_skill_text(skill), prompt, max_tokens):
                 text += chunk
@@ -837,10 +855,14 @@ def stream_answer(question: str):
                 elif not held:
                     m = hold.search(text)
                     end = m.start() if m else max(emitted, len(text) - 40)        # keep a short tail back: a heading may be half-typed
+                    if m and on_hold:
+                        on_hold()      # the visible part is done: start the work that does not need the rest
                     held = bool(m)
                     if end > emitted:
                         yield event("token", stage=stage, text=text[emitted:end])
                         emitted = end
+                if between is not None and held:
+                    yield from between()      # other finished sections are shown while the model is still writing the held-back part
             if hold is not None and not held and emitted < len(text):
                 yield event("token", stage=stage, text=text[emitted:])
                 emitted = len(text)
@@ -851,6 +873,96 @@ def stream_answer(question: str):
         streamed_upto[stage] = emitted
         return text
 
+    def prepare_landscape() -> str:
+        """Merge the drug / trial / guideline retrieval, name the used-in-practice drugs, look up labels, condense doses and build the landscape. No streaming here:
+        it runs in a background thread while the model finishes the held-back sections."""
+        absorb("guidelines")
+        absorb("drugs")
+        absorb("trials")
+        sections[0] = header + summary_head + opening + "\n\n" + top_drugs_markdown(state)      # same order as streamed: Bottom line, finding, context, then the FDA table (with the FINAL FDA records)
+        state["trial_status"] = "complete" if (state["source_status"].get("trials_deep") or state["source_status"].get("trials_fast") or {}).get("retrieval_status") == "success" else "partial"
+        state["trials"] = list(trials.values())
+        label_pool = ThreadPoolExecutor(max_workers=6)
+        fda_recs = [r for r in state["regulatory"] if r.get("matches_condition")]
+        fda_names = [r["generic"] for r in fda_recs]
+        fda_label_futures = [label_pool.submit(fda_label_link, n) for n in fda_names]      # each FDA drug's own label (boxed warning): runs while the model works below
+
+        def condense(rec: dict):      # the label's dosing section in 3-4 sentences; kept only if every number is in the label text
+            prompt = (f"TASK: {DOSE_TASK}\n\nDRUG: {rec['generic']}\nUSE: {question}\nLABEL DOSING TEXT:\n{rec['dose_statement']}")
+            try:
+                return rec, "".join(stream_llm(load_skill_text("drug-intelligence"), prompt, 300)).replace("**", "").strip()      # no markdown emphasis in a table cell
+            except Exception:
+                return rec, ""
+        dose_futures = [label_pool.submit(condense, rec) for rec in fda_recs if len(rec.get("dose_statement") or "") > 350]
+
+        # drugs described as USED IN PRACTICE: the model only NAMES a drug and a source; code verifies the name and the 'used / prescribed / recommended' wording in that source.
+        # Sources: the review articles, the web pages (standard-of-care pages included) and the retrieved guideline excerpts.
+        used_sources: dict = {}
+        for p in sorted(ordered_papers(papers, stems), key=lambda p: p.get("origin") != "pubmed_drugs")[:14]:      # reviews found by the drug-treatment search first
+            if not p.get("retracted") and not p.get("protocol"):
+                used_sources[p["pmid"]] = (snippet(p["abstract"], 700), f"PMID {p['pmid']} ({p['cite'].split(' [')[0]})")
+        for w in state["web"][:12]:
+            if w.get("url"):
+                used_sources[w["url"]] = (w.get("snippet") or "", f"[{(w.get('title') or 'web page')[:160]}]({w['url']})")
+        for g in state.get("guidelines", []):
+            used_sources[g["url"]] = (g.get("text") or g.get("excerpt") or "", f"[{g['organisation']}: {g['title'][:160]}]({g['url']})")
+        topic_stems = [s for s in state.get('core_stems', []) if len(s) >= 4]
+        full_text = {k: (v[0] + ' ' + v[1] + ' ' + k).lower() for k, v in used_sources.items()}      # text + title + address
+        used_sources = {k: (candidate_sentences(v[0]), v[1]) for k, v in used_sources.items()
+                        if candidate_sentences(v[0]) and (not topic_stems or any(s in full_text[k] for s in topic_stems))}      # only sources that are about the condition      # only sources with a usable sentence are shown to the model
+        used_items: list = []
+        used_rows: list = []
+        for attempt in ((1, 2) if used_sources else ()):      # the model's choice varies between runs: if no drug passed the source check, ask once more (the check itself never changes)
+            try:
+                used_prompt = (f"TASK: {USED_TASK}\n\nQUESTION: {question}\nRETRIEVED DATA (JSON):\n" + json.dumps(
+                    {"fda_labelled_for_condition": [r["generic"] for r in state["regulatory"] if r.get("matches_condition")],
+                     "sources": [{"id": k, "text": v[0]} for k, v in used_sources.items()]}, ensure_ascii=False, separators=(",", ":")))
+                raw_used = "".join(stream_llm(load_skill_text("drug-intelligence"), used_prompt, 400))
+                m_used = re.search(r"\[.*\]", raw_used, re.S)
+                used_items = json.loads(m_used.group(0)) if m_used else []
+            except Exception as error:
+                skipped.append(f"drugs used in practice ({str(error)[:80]})")
+                break
+            used_rows = used_in_practice_rows(used_items, used_sources, state, limit=5)
+            if used_rows or clock.now() > DEEP_BUDGET_S * 0.6:
+                break
+        used_rows = used_in_practice_rows(used_items, used_sources, state, limit=5)
+        state["used_drugs_trace"] = {"model_items": used_items, "sources_offered": len(used_sources), "accepted": len(used_rows)}      # kept in the saved state for audit
+        state["used_drugs"] = [r["drug"] for r in used_rows]
+        trial_rows = trial_drug_rows(state, {r['generic'] for r in state['regulatory']} | {r['drug'] for r in used_rows})      # drugs being TESTED in registered trials, from the registry only
+        state['trial_drugs'] = [r['drug'] for r in trial_rows]
+        listed = used_rows + trial_rows
+        listed_labels = list(label_pool.map(fda_label_link, [r['drug'] for r in listed]))      # each listed drug's OWN DailyMed page, with its boxed warning
+        fda_labels = [f.result() for f in fda_label_futures]      # already done while the model was working
+        for row, found in zip(listed, listed_labels):
+            row['fda_label'] = (found or {}).get('url')
+        safety_labels = [{'drug': n, 'url': f['url'], 'boxed_warning': f.get('boxed_warning')} for n, f in zip([r['drug'] for r in listed] + fda_names, listed_labels + fda_labels) if f]
+        state['drug_labels'] = [{'drug': x['drug'], 'url': x['url'], 'boxed_warning': x.get('boxed_warning')} for x in safety_labels]      # retrieved addresses: the verifier must not strip them
+        for future in dose_futures:
+            rec, text = future.result()
+            if dose_summary_ok(text, rec["dose_statement"]):
+                rec["dose_summary"] = text
+            else:
+                rec["dose_summary"] = dose_fallback(rec["dose_statement"])      # never an unchecked number: complete sentences copied from the label
+                skipped.append(f"dose summary for {rec['generic']} was not faithful to the label text; the label's own first sentences are shown")
+        landscape_md = landscape_markdown(state, used_rows, trial_rows)      # ONE categorized table + regulator announcements + boxed warnings
+        return landscape_md
+
+    landscape_box: dict = {}
+
+    def run_prepare():
+        try:
+            landscape_box["md"] = prepare_landscape()
+        except Exception as error:
+            landscape_box["error"] = f"{type(error).__name__}: {str(error)[:120]}"
+    landscape_thread = threading.Thread(target=run_prepare, daemon=True)
+    landscape_started: list = []
+
+    def start_landscape():
+        if not landscape_started:
+            landscape_started.append(True)
+            landscape_thread.start()
+
     # 2. EVIDENCE_ENRICHING: starts the moment the PubMed deep search is in (it does NOT wait for web, FDA, trials or guidelines)
     state["answer_status"] = "ENRICHING"
     yield event("stage", stage="EVIDENCE_ENRICHING")
@@ -860,9 +972,35 @@ def stream_answer(question: str):
     yield event("milestone", name="retrieval_complete", seconds=clock.marks["retrieval_deep_s"])
     stems = set(state["core_stems"])
     sections.append("")      # slot 0: the opening + top drugs, filled in below once the FDA results are in
-    deep_title = "\n\n## 1. Treatment approaches and strength of evidence\n\n"
-    yield event("token", stage="EVIDENCE_ENRICHING", text=deep_title)
-    gen_text = yield from stage_stream("EVIDENCE_ENRICHING", "evidence-synthesis", EVIDENCE_TASK, build_evidence_context(state, question), DEEP_TOKENS, hold=HOLD_FROM)
+    parts: dict = {}      # head, landscape, trials, tail: put into the report in the document's order at the end
+    landscape_emitted: list = []
+
+    def emit_landscape_and_trials():
+        """The drug landscape and the trials are shown as soon as they are ready, even while the model is still writing the held-back sections."""
+        if landscape_emitted or not landscape_started or landscape_thread.is_alive():
+            return
+        landscape_emitted.append(True)
+        yield event("stage", stage="DRUGS_ENRICHING")
+        if "md" not in landscape_box:      # the preparation failed or timed out: show what is known, never nothing
+            skipped.append("drug landscape: " + str(landscape_box.get("error", "preparation did not finish in time")))
+            landscape_box["md"] = landscape_markdown(state, [], [])
+        landscape_md = landscape_box["md"]
+        yield event("token", stage="DRUGS_ENRICHING", text="\n\n" + landscape_md + "\n\n")
+        state["drug_intelligence_status"] = drug_intelligence_status(state, not any(x.startswith("drugs used in practice") for x in skipped))
+        state["drugs"] = landscape_md
+        parts["landscape"] = landscape_md
+        clock.mark("drugs_done_s")
+        yield event("stage", stage="TRIALS_ENRICHING")      # clinical-trials: registry records, no model
+        parts["trials"] = trials_markdown(state)
+        yield event("token", stage="TRIALS_ENRICHING", text="\n\n" + parts["trials"])
+        clock.mark("trials_done_s")
+
+    yield event("token", stage="EVIDENCE_ENRICHING", text="\n\n")
+    gen_text = yield from stage_stream("EVIDENCE_ENRICHING", "evidence-synthesis", EVIDENCE_TASK, build_evidence_context(state, question), DEEP_TOKENS,
+                                       hold=HOLD_FROM, on_hold=start_landscape, between=emit_landscape_and_trials, on_start=start_landscape)
+    start_landscape()      # no held-back part (the model stopped early): start it now
+    landscape_thread.join(timeout=max(10.0, DEEP_BUDGET_S - clock.now()))      # nothing else may read or change the papers while the thread works
+    yield from emit_landscape_and_trials()      # if it was not shown during the model's writing
     state["synthesis"], cut_off = trim_incomplete(gen_text or "")
     state["synthesis"] = tidy_model_sections(state["synthesis"])      # no stray labels such as "(A)" and no loose separators
     if cut_off:
@@ -870,89 +1008,14 @@ def stream_answer(question: str):
     synthesis = clean_model_key_studies(state["synthesis"], ordered_papers(papers, stems), stems)   # model-written Key studies; incomplete entries dropped, list renumbered
     cut = HOLD_FROM.search(synthesis)
     evidence_head, evidence_tail = (synthesis[:cut.start()].rstrip(), synthesis[cut.start():]) if cut else (synthesis, "")
-    sections.append("## 1. Treatment approaches and strength of evidence\n\n" + evidence_head)
+    parts["head"] = evidence_head
     clock.mark("evidence_done_s")
 
-    # 3. DRUGS_ENRICHING: the FDA table is built from the FDA labels (code); the 'used in practice' table is verified by code against the retrieved sources
-    absorb("guidelines")
-    snapshot = guideline_snapshot_markdown(state)
-    if snapshot:      # what the guideline organisations say: a short block at the end of section 1, built by code from the retrieved guideline pages
-        sections.append(snapshot)
-        yield event("token", stage="EVIDENCE_ENRICHING", text="\n\n" + snapshot)
-    yield event("stage", stage="DRUGS_ENRICHING")
-    absorb("drugs")
-    absorb("trials")
-    sections[0] = header + summary_head + opening + "\n\n" + top_drugs_markdown(state)      # same order as streamed: Bottom line, finding, context, then the FDA table (with the FINAL FDA records)
-    state["trial_status"] = "complete" if (state["source_status"].get("trials_deep") or state["source_status"].get("trials_fast") or {}).get("retrieval_status") == "success" else "partial"
-    state["trials"] = list(trials.values())
-    reg_md = regulatory_markdown(state)
-    yield event("token", stage="DRUGS_ENRICHING", text="\n\n## 2. Treatment Drug Landscape\n\n" + reg_md + "\n\n")
-    # drugs described as USED IN PRACTICE: the model only NAMES a drug and a source; code verifies the name and the 'used / prescribed / recommended' wording in that source.
-    # Sources: the review articles, the web pages (standard-of-care pages included) and the retrieved guideline excerpts.
-    used_sources: dict = {}
-    for p in sorted(ordered_papers(papers, stems), key=lambda p: p.get("origin") != "pubmed_drugs")[:14]:      # reviews found by the drug-treatment search first
-        if not p.get("retracted") and not p.get("protocol"):
-            used_sources[p["pmid"]] = (snippet(p["abstract"], 700), f"PMID {p['pmid']} ({p['cite'].split(' [')[0]})")
-    for w in state["web"][:12]:
-        if w.get("url"):
-            used_sources[w["url"]] = (w.get("snippet") or "", f"[{(w.get('title') or 'web page')[:160]}]({w['url']})")
-    for g in state.get("guidelines", []):
-        used_sources[g["url"]] = (g.get("text") or g.get("excerpt") or "", f"[{g['organisation']}: {g['title'][:160]}]({g['url']})")
-    topic_stems = [s for s in state.get('core_stems', []) if len(s) >= 4]
-    full_text = {k: (v[0] + ' ' + v[1] + ' ' + k).lower() for k, v in used_sources.items()}      # text + title + address
-    used_sources = {k: (candidate_sentences(v[0]), v[1]) for k, v in used_sources.items()
-                    if candidate_sentences(v[0]) and (not topic_stems or any(s in full_text[k] for s in topic_stems))}      # only sources that are about the condition      # only sources with a usable sentence are shown to the model
-    label_pool = ThreadPoolExecutor(max_workers=6)
-    used_items: list = []
-    used_rows: list = []
-    for attempt in ((1, 2) if used_sources else ()):      # the model's choice varies between runs: if no drug passed the source check, ask once more (the check itself never changes)
-        try:
-            used_prompt = (f"TASK: {USED_TASK}\n\nQUESTION: {question}\nRETRIEVED DATA (JSON):\n" + json.dumps(
-                {"fda_labelled_for_condition": [r["generic"] for r in state["regulatory"] if r.get("matches_condition")],
-                 "sources": [{"id": k, "text": v[0]} for k, v in used_sources.items()]}, ensure_ascii=False, separators=(",", ":")))
-            raw_used = "".join(stream_llm(load_skill_text("drug-intelligence"), used_prompt, 400))
-            m_used = re.search(r"\[.*\]", raw_used, re.S)
-            used_items = json.loads(m_used.group(0)) if m_used else []
-        except Exception as error:
-            skipped.append(f"drugs used in practice ({str(error)[:80]})")
-            break
-        used_rows = used_in_practice_rows(used_items, used_sources, state, limit=5)
-        if used_rows or clock.now() > DEEP_BUDGET_S * 0.6:
-            break
-    used_rows = used_in_practice_rows(used_items, used_sources, state, limit=5)
-    state["used_drugs_trace"] = {"model_items": used_items, "sources_offered": len(used_sources), "accepted": len(used_rows)}      # kept in the saved state for audit
-    state["used_drugs"] = [r["drug"] for r in used_rows]
-    trial_rows = trial_drug_rows(state, {r['generic'] for r in state['regulatory']} | {r['drug'] for r in used_rows})      # drugs being TESTED in registered trials, from the registry only
-    state['trial_drugs'] = [r['drug'] for r in trial_rows]
-    fda_names = [r['generic'] for r in state['regulatory'] if r.get('matches_condition')]
-    listed = used_rows + trial_rows
-    found_all = list(label_pool.map(fda_label_link, [r['drug'] for r in listed] + fda_names))      # each drug's OWN DailyMed page, with its boxed warning
-    for row, found in zip(listed, found_all):
-        row['fda_label'] = (found or {}).get('url')
-    safety_labels = [{'drug': n, 'url': f['url'], 'boxed_warning': f.get('boxed_warning')} for n, f in zip([r['drug'] for r in listed] + fda_names, found_all) if f]
-    state['drug_labels'] = [{'drug': x['drug'], 'url': x['url'], 'boxed_warning': x.get('boxed_warning')} for x in safety_labels]      # retrieved addresses: the verifier must not strip them
-    used_md = used_in_practice_markdown(used_rows, trial_rows)
-    updates_md = regulatory_updates_markdown(state)      # approvals, label changes and safety communications from fda.gov / ema.europa.eu / cdsco.gov.in
-    safety_md = safety_alerts_markdown(state["drug_labels"])      # the labels' own boxed warnings
-    yield event("token", stage="DRUGS_ENRICHING", text=used_md + "\n\n" + updates_md + "\n\n" + safety_md + "\n\n")
-    drug_stage_ok = not any(s.startswith("drugs used in practice") for s in skipped)
-    state["drug_intelligence_status"] = drug_intelligence_status(state, drug_stage_ok)
-    drug_section = "## 2. Treatment Drug Landscape\n\n" + reg_md + "\n\n" + used_md + "\n\n" + updates_md + "\n\n" + safety_md
-    state["drugs"] = drug_section
-    sections.append(drug_section)
-    clock.mark("drugs_done_s")
-
-    # 4. TRIALS_ENRICHING (clinical-trials: registry records, no model)
-    yield event("stage", stage="TRIALS_ENRICHING")
-    trials_md = trials_markdown(state)
-    sections.append(trials_md)
-    yield event("token", stage="TRIALS_ENRICHING", text="\n\n" + trials_md)
-    clock.mark("trials_done_s")
-
-    # 5. SYNTHESIS: conflicting/negative evidence and what remains under investigation, then the evidence limitations
-    gaps = "## 4. Evidence gaps and limitations\n\n" + (evidence_tail if evidence_tail.strip() else "")
-    sections.append(gaps.rstrip())
-    yield event("token", stage="TRIALS_ENRICHING", text="\n\n" + gaps.rstrip())
+    # 5. Key studies, Conflicting evidence, What remains under investigation (model-written, held back until the drugs and trials were shown)
+    if evidence_tail.strip():
+        parts["tail"] = evidence_tail.strip()
+        yield event("token", stage="TRIALS_ENRICHING", text="\n\n" + parts["tail"])
+    sections.extend(parts[k] for k in ("head", "landscape", "trials", "tail") if parts.get(k))      # the document's order
 
     # limitations (deterministic) - keeps 'source failed' apart from 'searched, nothing found'
     retracted = [p for p in papers.values() if p.get("retracted")]

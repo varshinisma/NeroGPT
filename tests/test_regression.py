@@ -78,7 +78,7 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(s["source_status"]["fda_deep"]["evidence_status"], "unavailable")
         s["drug_intelligence_status"] = landscape.drug_intelligence_status(s, drug_stage_ok=True)
         self.assertIn(s["drug_intelligence_status"], ("partial", "failed"))
-        self.assertIn("does not mean that no approved drug exists", landscape.regulatory_markdown(s))
+        self.assertIn("does not mean that no approved drug exists", landscape.landscape_markdown(s, [], []))
         r = verification.verify_and_repair(BASE + "There are no approved drug treatments for this condition.\n", s)
         self.assertNotIn("There are no approved drug treatments", r["answer"])
         self.assertIn("incomplete", r["answer"].lower())              # the incompleteness is disclosed
@@ -120,10 +120,11 @@ class RegressionTests(unittest.TestCase):
     # TEST 8 -------------------------------------------------------------------------------------------------------------
     def test8_approved_indication_is_not_off_label_and_not_an_approval_for_the_core_disease(self):
         s = make_state()
-        md = landscape.regulatory_markdown(s)
+        md = landscape.landscape_markdown(s, [], [])
         self.assertIn("irritability associated with condition X", md)             # the label's own wording, quoted
-        self.assertIn("not to other symptoms of the condition", md)
-        self.assertNotIn("off-label", md.lower())
+        self.assertIn("Approved (FDA-labelled for this condition)", md)
+        approved_row = next(l for l in md.splitlines() if l.startswith("| Risperidone"))
+        self.assertNotIn("off-label", approved_row.lower())                       # a labelled drug is never called off-label
         r = verification.verify_and_repair(BASE + "Risperidone is used off-label for irritability in condition X.\n", s)
         self.assertNotIn("off-label", r["answer"].lower())
 

@@ -43,6 +43,8 @@ def numberize(text: str, papers: dict) -> tuple[str, list[str]]:
         n = num(m.group(1))
         return f"[{n}]" if n else m.group(0)
 
+    body = re.sub(r"PMID\s*\[(" + PMID + r")\]\(https?://[^)\s]*\)", r"PMID \1", body)      # 'PMID [123](https://...)' (a link the model sometimes writes) is the same citation
+    body = re.sub(r"\[PMID\s*(" + PMID + r")\]\(https?://[^)\s]*\)", r"[PMID \1]", body)
     body = GROUP.sub(group, body)
     body = BRACKET.sub(single, body)
     def paren(m):
@@ -67,7 +69,7 @@ def numberize(text: str, papers: dict) -> tuple[str, list[str]]:
             other.append(f"- [{link.group(1)}]({link.group(2)})" if link else f"- {m.group(1)}")
     out = body.rstrip()
     if refs:
-        out += "\n\n## References\n\n" + "\n".join(refs)
+        out += "\n\n## Sources\n\n" + "\n".join(refs)
     if other:
         out += "\n\n**Other sources (regulators, guideline organisations, web pages, FDA labels)**\n\n" + "\n".join(other)
     return out, order

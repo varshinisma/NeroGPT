@@ -85,12 +85,12 @@ def key_study_entries(papers: list[dict], stems: set[str] | None = None, limit: 
 def key_studies_markdown(papers: list[dict], stems: set[str] | None = None, limit: int = 5) -> str:
     entries = key_study_entries(papers, stems, limit)
     if not entries:
-        return "### Key studies\n\nNo retrieved record had all of: authors, year, study design, a stated result and a PMID, so none is listed."
+        return "## Key studies\n\nNo retrieved record had all of: authors, year, study design, a stated result and a PMID, so none is listed."
     lines = []
     for i, e in enumerate(entries, 1):
         note = " *(indirect evidence: different or related population)*" if e["indirect"] else ""
         lines.append(f"{i}. **{e['author']} ({e['year']})**, {e['design']}: “{e['finding']}” (PMID {e['pmid']}){note}")
-    return "### Key studies\n\n" + "\n".join(lines)
+    return "## Key studies\n\n" + "\n".join(lines)
 
 
 def remove_section(text: str, heading: str) -> str:
@@ -199,7 +199,7 @@ def clean_model_key_studies(text: str, papers: list[dict] | None = None, stems: 
         if complete:
             items.append(body)
     if items:
-        section = "### Key studies\n\n" + "\n".join(f"{i}. {b}" for i, b in enumerate(items[:5], 1))
+        section = "## Key studies\n\n" + "\n".join(f"{i}. {b}" for i, b in enumerate(items[:5], 1))
     else:
         section = key_studies_markdown(papers or [], stems)
     return "\n\n".join(x for x in (before, section, after) if x)

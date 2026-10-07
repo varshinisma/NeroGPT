@@ -85,7 +85,7 @@ def evidence_blob(state: dict) -> str:
     for w in state.get("web", []):
         parts += [w.get("title") or "", w.get("snippet") or ""]
     for r in state.get("regulatory", []):
-        parts += [r.get("indication_excerpt") or "", r.get("indication_statement") or "", str(r.get("label_date"))]
+        parts += [r.get("indication_excerpt") or "", r.get("indication_statement") or "", r.get("dose_statement") or "", str(r.get("label_date"))]
     for g in state.get("guidelines", []):
         parts += [g.get("title") or "", g.get("excerpt") or "", g.get("text") or "", str(g.get("year"))]
     for d in state.get("drug_labels", []):
@@ -224,6 +224,8 @@ def _failed_sources(state: dict) -> list[str]:
 def normalize_citations(text: str, state: dict) -> tuple[str, list[str]]:
     """'(Surname et al., Journal, Year)' -> add [PMID n] when exactly one retrieved paper matches surname + year (the journal only breaks a tie).
     Grouped citations are handled one by one. Returns (text, unresolved citation strings)."""
+    text = re.sub(r"PMID\s*\[(\d{6,9})\]\(https?://[^)\s]*\)", r"PMID \1", text)      # 'PMID [123](https://...)' is the same citation as 'PMID 123'
+    text = re.sub(r"\[PMID\s*(\d{6,9})\]\(https?://[^)\s]*\)", r"[PMID \1]", text)
     papers = state.get("papers", {}).values()
     unresolved: list[str] = []
 
@@ -360,9 +362,9 @@ def find_issues(text: str, state: dict) -> list[dict]:
     claim_text = text.split("\n### Sources")[0]
     in_verified_tables = False
     for line in claim_text.splitlines():
-        if line.startswith(("### 2.2", "### 2.3", "### 2.4", "### 2.5")):
+        if line.startswith("## Treatment Drug Landscape"):
             in_verified_tables = True
-        elif line.startswith("#") or line.startswith("---"):
+        elif line.startswith("## ") or line.startswith("---"):
             in_verified_tables = False
         if not line.strip() or line.startswith("#") or in_verified_tables:
             continue      # code-built tables (a source sentence, a registry record or an FDA label): identifiers in them are checked separately above
@@ -380,9 +382,9 @@ def find_issues(text: str, state: dict) -> list[dict]:
                 issues.append(_issue("protocol_as_efficacy", "high", f"PMID {ids[0]} is a protocol and cannot show efficacy", ids[0], "remove_sentence_pmid", pmid=ids[0], line=line))
             if is_indirect(p, stems) and not INDIRECT_LABEL.search(line):
                 issues.append(_issue("indirect_unlabeled", "medium", f"PMID {ids[0]} studies a different or related population but is not labelled indirect", ids[0], "tag_indirect", pmid=ids[0], line=line))
-        if any(p.search(line) for p, _ in DOSE_LANGUAGE) and not _is_row(line):
+        if any(p.search(line) for p, _ in DOSE_LANGUAGE):
             issues.append(_issue("dose_response_as_prescription", "medium", "a dose-response finding is worded as if it were a validated dose effect", "dose-response", "soften_dose", line=line))
-        if OVERCLAIM.search(line) and not _is_row(line):
+        if OVERCLAIM.search(line):
             issues.append(_issue("overclaim_language", "medium", "'confirmed/proven' wording is stronger than a single cited study supports", OVERCLAIM.search(line).group(0), "soften_word", line=line))
         if not row_of_code_table:
             for nct in {"NCT" + x for x in NCT_RE.findall(line)} & K["ncts"]:

@@ -73,7 +73,7 @@ def markdown_to_pdf(markdown: str, dst: str, title: str) -> str:
     def table(rows: list[list[str]], width: float):
         ncols = max(len(r) for r in rows)
         rows = [r + [""] * (ncols - len(r)) for r in rows]
-        weights = [min(max(max(len(clean(r[c])) for r in rows), 16 if c == 0 else 15), 38) for c in range(ncols)]
+        weights = [min(max(max(len(clean(r[c])) for r in rows), 24 if c == 0 else 15), 38) for c in range(ncols)]
         data = [[Paragraph(inline(c), styles["cellh" if i == 0 else "cell"]) for c in r] for i, r in enumerate(rows)]
         t = Table(data, colWidths=[width * w / sum(weights) for w in weights], repeatRows=1)
         t.setStyle(TableStyle([

@@ -62,7 +62,7 @@ def _norm(text: str) -> str:
 
 
 def _norm_url(url: str) -> str:
-    return url.rstrip(".,;:)/").lower()
+    return url.split("#:~:", 1)[0].rstrip(".,;:)/").lower()      # a text-fragment highlight (#:~:text=) does not change which page it is
 
 
 def known_sources(state: dict) -> dict:

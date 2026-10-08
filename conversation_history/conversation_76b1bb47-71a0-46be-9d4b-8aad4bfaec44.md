@@ -1,17 +1,27 @@
-# How to treat autism in children?
+# Agent conversation
+
+**Last updated:** 2026-10-08 15:49:34
+
+## User
+
+How to treat autism in children?
+
+---
+
+## Assistant
 
 **Evidence searched on 2026-10-08** (PubMed, ClinicalTrials.gov, FDA drug labels, web)
 
 ## Clinical summary
 
 **Bottom line**
-For children with autism, evidence supports **exercise interventions** (improving motor skills) and **naturalistic developmental behavioral interventions (NDBIs)** (enhancing developmental and social outcomes). A **modified ketogenic diet combined with rehabilitation** shows short-term reductions in behavioral and symptom severity, but further validation is needed.
+Evidence supports **exercise interventions** (e.g., structured physical activity) to improve motor skills in children with autism, and **naturalistic developmental behavioral interventions (NDBIs)**—especially caregiver-assisted group programs—to enhance developmental and social outcomes. A **modified ketogenic diet combined with rehabilitation** shows short-term reductions in autism severity scores, but further validation is needed.
 
 **Most important recent finding**
-Exercise significantly improved overall, gross, and fine motor skills in children with ASD, with dose-response relationships identified for overall and gross motor skills. [1]
+Exercise significantly improved overall, gross, and fine motor skills in children with ASD, with dose-response relationships identified for overall and gross motor skills [1].
 
 **Immediate context**
-While behavioral interventions (e.g., NDBIs) and dietary approaches (e.g., modified ketogenic diet) show promise for specific outcomes, no single treatment is universally established for all autism-related symptoms. Motor skill improvements are distinct from broader developmental or behavioral benefits.
+While motor skill interventions and behavioral therapies (NDBIs) show promise, **no single treatment is universally established** for core autism symptoms (e.g., social communication). Dietary approaches like the ketogenic diet require further efficacy confirmation. Ongoing trials explore sensory and water-based interventions, but results are pending.
 
 **Top treatment drugs (established first, then the most notable latest drug)**
 
@@ -22,22 +32,22 @@ While behavioral interventions (e.g., NDBIs) and dietary approaches (e.g., modif
 | NTI164 (latest, investigational) | Being tested in a registered Phase 3 trial, Not yet recruiting; not an approved treatment | [NCT07257939](https://clinicaltrials.gov/study/NCT07257939) |
 
 ## Latest findings
-- **2026 Dec**: Observational study found altered sleep spindle characteristics in children with ASD, significantly associated with ASD diagnosis [2].
-- **2026 Dec**: Randomized controlled trial showed a modified ketogenic diet combined with rehabilitation training significantly reduced ABC and CARS scores in young children with ASD after 2 months [3].
-- **2026-09-22**: Case study reported sustained core symptom reduction in a 12-month follow-up of a child with severe ASD after bilateral dual-target deep brain stimulation [4].
-- **2026-09-18**: Meta-analysis identified dose-response relationships between exercise interventions and improved overall, gross, and fine motor skills in children with ASD [1].
+- **2026 Dec**: Observational study found significantly reduced sleep spindle amplitude, number, density, and activity in children with ASD compared to controls, with spindle number independently associated with ASD diagnosis [9].
+- **2026 Sep**: Meta-analysis showed exercise significantly improved overall, gross, and fine motor skills in children with ASD, with dose-response effects for overall and gross motor skills [1].
+- **2026 Sep**: RCT demonstrated that a modified ketogenic diet combined with rehabilitation training reduced ABC and CARS scores more than rehabilitation alone in young children with ASD [3].
+- **2026 Jul**: Pilot RCT found caregiver-assisted group-based Naturalistic Developmental Behavioral Intervention (NDBI) improved developmental and social outcomes in autistic preschoolers, though nonverbal gains were limited to one-on-one interventions [8].
 
 ## Current evidence
 | Approach                          | Evidence level                     | What the evidence shows                                                                                     | Reference                                                                 |
 |-----------------------------------|------------------------------------|-------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------|
-| Behavioral interventions          | Evidence-supported but limited | Behavioral interventions significantly improved social-emotional or challenging behavior outcomes in ASD [5].                          | [5]                                                          |
-| Developmental interventions       | Evidence-supported but limited | Developmental interventions improved social communication outcomes in early childhood ASD [5].                              | [5]                                                          |
-| Exercise interventions            | Emerging                           | Exercise significantly improved overall, gross, and fine motor skills in children with ASD, with dose-response effects [1]. | [1]                                                          |
-| Modified ketogenic diet           | Experimental or preliminary        | A modified ketogenic diet combined with rehabilitation training reduced ABC and CARS scores in young children with ASD [3]. | [3]                                                          |
-| Deep brain stimulation (DBS)      | Experimental or preliminary        | Dual-target DBS led to sustained core symptom reduction in a 12-month case study of severe pediatric ASD [4]. | [4]                                                          |
-| Extended reality (XR) interventions | Emerging                        | XR interventions (e.g., VR, AR) showed promise in supporting children with ASD, particularly in training and educational systems [6]. | [6]                                                          |
-| Caregiver-assisted group-based NDBI | Emerging                        | Caregiver-assisted group-based Naturalistic Developmental Behavioral Interventions improved developmental and social outcomes in preschoolers with ASD [7]. | [7]                                                          |
-| Whole-plant cannabinoid extract   | Experimental or preliminary        | Disruptive behavior improved in 49% of children with ASD treated with whole-plant cannabinoid extract vs. 21% on placebo [8]. | [8]                                                          |
+| Behavioral interventions          | Evidence-supported but limited | Behavioral interventions significantly improved social-emotional outcomes and challenging behaviors (Hedges’ g=0.58, 95% CI 0.11–1.06) in early childhood ASD studies. | [2] |
+| Exercise interventions             | Emerging                          | Exercise significantly improved overall, gross, and fine motor skills in children with ASD, with dose-response effects. | [1] |
+| Modified ketogenic diet + rehab    | Experimental or preliminary       | Short-term reductions in ABC and CARS scores were greater with a modified ketogenic diet + rehabilitation than rehabilitation alone in young children with ASD. | [3] |
+| Extended reality (XR) interventions | Emerging                          | XR (e.g., VR, AR) showed promise for training, education, and therapy in ASD, with significant growth in research post-2020.                     | [4] |
+| Emotion regulation interventions   | Evidence-supported but limited     | Non-pharmacological interventions improved emotion regulation and dysregulation in children/adolescents with ASD.                          | [5] |
+| Whole-plant cannabis extract      | Experimental or preliminary       | Disruptive behavior improved in 49% of participants on whole-plant cannabis extract vs. 21% on placebo; SRS scores also favored treatment. | [6] |
+| Aripiprazole, atomoxetine, bumetanide | Evidence-supported but limited     | Aripiprazole, atomoxetine, and bumetanide showed improvement in at least one core symptom domain vs. placebo in ASD (network meta-analysis).       | [7] |
+| Naturalistic Developmental Behavioral Interventions (NDBI) | Experimental or preliminary | Caregiver-assisted group-based NDBI improved developmental and social outcomes in preschoolers with ASD.                                      | [8] |
 
 ## Treatment Drug Landscape
 
@@ -48,7 +58,7 @@ While behavioral interventions (e.g., NDBIs) and dietary approaches (e.g., modif
 | Drug | Indication | Dose / route (if sourced) | Approval status / date | Key evidence |
 |---|---|---|---|---|
 | Aripiprazole | "Aripiprazole is indicated for the treatment of: • Schizophrenia • Irritability Associated with Autistic Disorder • Treatment of Tourette’s Disorder" | Route: Oral. Pediatric Patients (6 to 17 years) The recommended dosage range for the treatment of pediatric patients with irritability associated with autistic disorder is 5 to 15 mg/day. Dosing should be initiated at 2 mg/day. The dose should be increased to 5 mg/day, with subsequent increases to 10 or 15 mg/day if needed. Dose adjustments of up to 5 mg/day should occur gradually, at intervals of no less than one week. | FDA-approved for the use shown; label effective 2026-03-05; original approval date not retrieved | FDA label. [DailyMed label](https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=02a4af27-c83c-4166-950c-7a1cb12d198d#:~:text=Irritability%20Associated%20with%20Autistic%20Disorder) |
-| Risperidone | "Risperidone tablets are indicated for the treatment of irritability associated with autistic disorder, including symptoms of aggression towards others, deliberate self-injuriousness, temper tantrums, and quickly changing moods. Efficacy was established in 3 short-term trials in children and adolescents (ages 5 to 17 years)." | Route: Oral. Start with 0.25 mg per day for children weighing less than 20 kg, and 0.5 mg per day for those weighing 20 kg or more. After at least four days, increase the dose to 0.5 mg per day for children under 20 kg or 1.0 mg per day for those 20 kg or heavier, maintaining this dose for no less than 14 days. If insufficient response occurs, raise the dose by 0.25 mg per day for children under 20 kg or 0.5 mg per day for those 20 kg or more, with increases made every 2 weeks or more. The usual dose range is 0.5 mg to 3 mg per day, and this applies to children and adolescents weighing at least 15 kg. | FDA-approved for the use shown; label effective 2026-06-25; original approval date not retrieved | FDA label: Efficacy was established in 3 short-term trials in children and adolescents (ages 5 to 17 years). [DailyMed label](https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=03d3b52d-3a7d-4595-84c9-332da6ca9171#:~:text=irritability%20associated%20with%20autistic%20disorder) |
+| Risperidone | "Risperidone tablets are indicated for the treatment of irritability associated with autistic disorder, including symptoms of aggression towards others, deliberate self-injuriousness, temper tantrums, and quickly changing moods. Efficacy was established in 3 short-term trials in children and adolescents (ages 5 to 17 years)." | Route: Oral. Start with 0.25 mg per day for children weighing less than 20 kg, and 0.5 mg per day for those weighing 20 kg or more. After at least four days, increase the dose to 0.5 mg per day for children under 20 kg or 1.0 mg per day for those 20 kg or heavier, and maintain this dose for no less than 14 days. If needed, raise the dose by 0.25 mg per day for children under 20 kg or 0.5 mg per day for those 20 kg or more, with increases made every 2 weeks or longer. The usual dose range is 0.5 mg to 3 mg per day, and this applies to children and adolescents weighing 15 kg or more. | FDA-approved for the use shown; label effective 2026-06-25; original approval date not retrieved | FDA label: Efficacy was established in 3 short-term trials in children and adolescents (ages 5 to 17 years). [DailyMed label](https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=03d3b52d-3a7d-4595-84c9-332da6ca9171#:~:text=irritability%20associated%20with%20autistic%20disorder) |
 
 ### Other drugs: used for symptoms (not established treatments of this condition)
 
@@ -70,7 +80,7 @@ While behavioral interventions (e.g., NDBIs) and dietary approaches (e.g., modif
 
 *Page wording from the regulator's own site; read the page for the full announcement.*
 
-### Safety warnings (FDA boxed warnings)
+### Safety warnings (FDA boxed warnings of the drugs listed above)
 
 | Drug(s) (FDA label) | Boxed warning, in the label's words |
 |---|---|
@@ -89,6 +99,7 @@ While behavioral interventions (e.g., NDBIs) and dietary approaches (e.g., modif
 | Trial | Intervention | Phase | Status (last update) | What the record shows |
 |---|---|---|---|---|
 | [NCT07863752](https://clinicaltrials.gov/study/NCT07863752) | Stronger Together Mindfulness-Based Intervention; Psychoeducation Program | Phase not applicable | Completed (2026-10-07) | Completed; results not posted/retrieved. |
+| [NCT06234501](https://clinicaltrials.gov/study/NCT06234501) | Pyridoxal 5'-Phosphate (100 mg); Placebo | Phase not applicable | Recruiting (2026-10-07) | Under investigation; results not yet available; effectiveness cannot be inferred. |
 | [NCT07076264](https://clinicaltrials.gov/study/NCT07076264) | AquOTic | Phase not applicable | Recruiting (2026-10-07) | Under investigation; results not yet available; effectiveness cannot be inferred. |
 | [NCT06659328](https://clinicaltrials.gov/study/NCT06659328) | Structured Walking Intervention for Children with Autism Spectrum Disorder. | Phase not applicable | Completed (2026-10-06) | Completed; results not posted/retrieved. |
 | [NCT04903353](https://clinicaltrials.gov/study/NCT04903353) | Comparison of Risperidone and Aripiprazole | Phase 4 | Completed (2026-10-05) | Completed; results not posted/retrieved. |
@@ -104,38 +115,41 @@ While behavioral interventions (e.g., NDBIs) and dietary approaches (e.g., modif
 
 ## Key studies
 
-1. **Sandbank et al. (2023)**, Meta-analysis: Behavioral and developmental interventions showed significant effects on social-emotional and communication outcomes in early childhood ASD [5].
-2. **Wang et al. (2026)**, Meta-analysis: Exercise interventions demonstrated dose-response improvements in motor skills for children with ASD [1].
-3. **Liu et al. (2026)**, Randomized controlled trial: A modified ketogenic diet combined with rehabilitation training reduced ASD symptom severity scores (ABC, CARS) in young children [3].
-4. **Seng et al. (2026)**, Randomized controlled trial: Caregiver-assisted group-based NDBI improved developmental and social outcomes in preschoolers with ASD [7].
+1. **Wang et al. (2026)**, meta-analysis: “Exercise significantly improved overall, gross, and fine motor skills in children with ASD.” [1]
+2. **Hao et al. (2026)**, systematic review: “There was a significant increase in XR autism research after 2020, with virtual reality (VR) as the largest modality (n = 61, 53.0%), followed by augmented reality (AR) (n = 36, 31.3%).” [4]
+3. **Restoy et al. (2024)**, meta-analysis: “Studies of non-pharmacological interventions showed significant improvement in both ER and ED.” [5]
+4. **Sandbank et al. (2023)**, meta-analysis: “When effects were then restricted to exclude those at high risk of detection bias, only one significant summary effect was estimated-naturalistic developmental behavioral interventions on measures of diagnostic characteristics of autism (0.30, 0.03 to 0.57; P=0.03).” [2]
+5. **Zeidan et al. (2022)**, systematic review: “Prevalence estimates increased over time and varied greatly within and across sociodemographic groups.” [10]
 
 ## Conflicting evidence
 None was retrieved.
 
 ## What remains under investigation
-- **Efficacy**: Long-term effects of deep brain stimulation (DBS) for severe ASD symptoms beyond 12 months.
-- **Effectiveness**: Real-world effectiveness of caregiver-assisted group-based NDBI in diverse clinical settings.
-- **Feasibility**: Scalability of modified ketogenic diet interventions in routine pediatric care.
-- **Association**: Neurophysiological markers (e.g., sleep spindles) as predictors of ASD symptom progression.
+- **Efficacy**: Head-to-head comparisons of behavioral interventions (e.g., NDBI vs. traditional ABA) for long-term outcomes in ASD.
+- **Effectiveness**: Real-world implementation of extended reality (XR) interventions in diverse clinical settings.
+- **Feasibility**: Long-term adherence and scalability of modified ketogenic diets in ASD populations.
+- **Association**: Neurophysiological markers (e.g., sleep spindle characteristics) as predictors of treatment response in ASD.
+- **Effectiveness**: Longitudinal effects of sensory integration therapy on daily functioning in ASD.
 
 ## Evidence limitations
 
 - Findings are drawn from abstracts, registry records and web pages, not full texts; study quality was not appraised from the full papers.
 - Doses appear only where an FDA label gives them for this condition (section 2.1); for any other use, see a prescribing source. Approval dates appear only where a retrieved source states them.
 - Excluded retracted publication: Efficacy of oral folinic acid supplementation in children with autism spectrum disorder: a (PMID 39243316, 2024). Retracted work is not used as evidence.
-- 2 retrieved record(s) were excluded because they were not about the question's subject.
-- The PubMed / Europe PMC search timed out, so it may be incomplete; the absence of evidence cannot be concluded from it.
+- 3 retrieved record(s) were excluded because they were not about the question's subject.
 
 ## Sources
 
 1. Wang T, Dong X, Jia Y, et al. Dose-response relationship between exercise interventions and motor skills in children with autism spectrum disorder: a systematic review and multilevel meta-analysis. *European journal of pediatrics*. 2026-09-18. [PMID 42758334](https://pubmed.ncbi.nlm.nih.gov/42758334/). DOI 10.1007/s00431-026-07421-4.
-2. Erçelebi H, Özbudak P, Menderes D, et al. Altered sleep spindle characteristics in children with autism spectrum Disorder: A potential neurophysiological marker. *Clinical neurophysiology : official journal of the International Federation of Clinical Neurophysiology*. 2026 Dec. [PMID 42753649](https://pubmed.ncbi.nlm.nih.gov/42753649/). DOI 10.1016/j.clinph.2026.2112405.
+2. Sandbank M, Bottema-Beutel K, Crowley LaPoint S, et al. Autism intervention meta-analysis of early childhood studies (Project AIM): updated systematic review and secondary analysis. *BMJ (Clinical research ed.)*. 2023 Nov 14. [PMID 37963634](https://pubmed.ncbi.nlm.nih.gov/37963634/). DOI 10.1136/bmj-2023-076733.
 3. Liu L, Zhao Q, Zhou J, et al. Evaluating the therapeutic efficacy of a modified ketogenic diet in children with autism spectrum disorder: a randomized controlled trial. *BMC pediatrics*. 2026-09-11. [PMID 42763398](https://pubmed.ncbi.nlm.nih.gov/42763398/). DOI 10.1186/s12887-026-07708-3.
-4. Shi M, Hu J, Pei J, et al. Dual-target deep brain stimulation for severe pediatric autism: Sustained core symptom reduction in a 12-month case study. *Clinical neurophysiology : official journal of the International Federation of Clinical Neurophysiology*. 2026 Dec. [PMID 42759099](https://pubmed.ncbi.nlm.nih.gov/42759099/). DOI 10.1016/j.clinph.2026.2112403.
-5. Sandbank M, Bottema-Beutel K, Crowley LaPoint S, et al. Autism intervention meta-analysis of early childhood studies (Project AIM): updated systematic review and secondary analysis. *BMJ (Clinical research ed.)*. 2023 Nov 14. [PMID 37963634](https://pubmed.ncbi.nlm.nih.gov/37963634/). DOI 10.1136/bmj-2023-076733.
-6. Hao D, Mansi H, Elkefi S, et al. Extended reality (XR) interventions in supporting children with autism: A systematic review. *International journal of medical informatics*. 2026 Dec. [PMID 42784985](https://pubmed.ncbi.nlm.nih.gov/42784985/). DOI 10.1016/j.ijmedinf.2026.106719.
-7. Seng GJ, Lin JY, Huang WL, et al. Feasibility and Preliminary Efficacy of a Caregiver-Assisted Group-Based Naturalistic Developmental Behavioral Intervention Program for Autistic Preschoolers: A Pilot Randomized Controlled Trial. *Autism : the international journal of research and practice*. 2026-07-23. [PMID 42494078](https://pubmed.ncbi.nlm.nih.gov/42494078/). DOI 10.1177/13623613261462574.
-8. Aran A, Harel M, Cassuto H, et al. Cannabinoid treatment for autism: a proof-of-concept randomized trial. *Molecular autism*. 2021 Feb 3. [PMID 33536055](https://pubmed.ncbi.nlm.nih.gov/33536055/). DOI 10.1186/s13229-021-00420-2.
+4. Hao D, Mansi H, Elkefi S, et al. Extended reality (XR) interventions in supporting children with autism: A systematic review. *International journal of medical informatics*. 2026 Dec. [PMID 42784985](https://pubmed.ncbi.nlm.nih.gov/42784985/). DOI 10.1016/j.ijmedinf.2026.106719.
+5. Restoy D, Oriol-Escudé M, Alonzo-Castillo T, et al. Emotion regulation and emotion dysregulation in children and adolescents with Autism Spectrum Disorder: A meta-analysis of evaluation and intervention studies. *Clinical psychology review*. 2024 Apr. [PMID 38401510](https://pubmed.ncbi.nlm.nih.gov/38401510/). DOI 10.1016/j.cpr.2024.102410.
+6. Aran A, Harel M, Cassuto H, et al. Cannabinoid treatment for autism: a proof-of-concept randomized trial. *Molecular autism*. 2021 Feb 3. [PMID 33536055](https://pubmed.ncbi.nlm.nih.gov/33536055/). DOI 10.1186/s13229-021-00420-2.
+7. Siafis S, Çıray O, Wu H, et al. Pharmacological and dietary-supplement treatments for autism spectrum disorder: a systematic review and network meta-analysis. *Molecular autism*. 2022 Mar 4. [PMID 35246237](https://pubmed.ncbi.nlm.nih.gov/35246237/). DOI 10.1186/s13229-022-00488-4.
+8. Seng GJ, Lin JY, Huang WL, et al. Feasibility and Preliminary Efficacy of a Caregiver-Assisted Group-Based Naturalistic Developmental Behavioral Intervention Program for Autistic Preschoolers: A Pilot Randomized Controlled Trial. *Autism : the international journal of research and practice*. 2026-07-23. [PMID 42494078](https://pubmed.ncbi.nlm.nih.gov/42494078/). DOI 10.1177/13623613261462574.
+9. Erçelebi H, Özbudak P, Menderes D, et al. Altered sleep spindle characteristics in children with autism spectrum Disorder: A potential neurophysiological marker. *Clinical neurophysiology : official journal of the International Federation of Clinical Neurophysiology*. 2026 Dec. [PMID 42753649](https://pubmed.ncbi.nlm.nih.gov/42753649/). DOI 10.1016/j.clinph.2026.2112405.
+10. Zeidan J, Fombonne E, Scorah J, et al. Global prevalence of autism: A systematic review update. *Autism research : official journal of the International Society for Autism Research*. 2022 May. [PMID 35238171](https://pubmed.ncbi.nlm.nih.gov/35238171/). DOI 10.1002/aur.2696.
 
 **Other sources (regulators, guideline organisations, web pages, FDA labels)**
 

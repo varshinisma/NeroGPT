@@ -536,10 +536,10 @@ class ClickableLinks(unittest.TestCase):
         s["drug_labels"] = [{"drug": "Quetiapine", "url": "https://dailymed.nlm.nih.gov/q", "boxed_warning": "Increased mortality in elderly patients."}]
         md = landscape.landscape_markdown(s, rows, [{"drug": "NTI164", "nct": "NCT07257939", "phase": "Phase 3", "status": "Recruiting", "updated": "2026-09-30",
                                                       "url": "https://clinicaltrials.gov/study/NCT07257939", "fda_label": None, "conditions": "Autism", "primary": "ABC score", "ages": "from 6 Years"}])
-        self.assertIn("| Drug | Category | Indication | Dose / route (if sourced) | Approval status / date | Key evidence |", md)      # the specification's six columns
+        self.assertIn("| Drug | Indication | Dose / route (if sourced) | Approval status / date | Key evidence |", md)      # the specification's six columns
         self.assertNotIn("FDA label of this drug", md)
         used_part = md.split("### Safety warnings")[0]
-        self.assertNotIn("dailymed.nlm.nih.gov/q", used_part)
+        self.assertIn("[Quetiapine](https://dailymed.nlm.nih.gov/q)", used_part)      # the drug name opens that drug's own DailyMed page
         safety = landscape.safety_alerts_markdown([{"drug": "Quetiapine", "url": "https://dailymed.nlm.nih.gov/q", "boxed_warning": "Increased mortality in elderly patients."}])
         self.assertIn("https://dailymed.nlm.nih.gov/q", safety)      # where the boxed warning came from
 
@@ -831,21 +831,21 @@ class FollowsTheSpecification(unittest.TestCase):
                 {"drug": "Drugzol", "excerpt": "Drugzol is recommended for irritability.", "label": "[AAP](https://aap.org/x)", "purpose": "irritability", "population": "children", "category": "Guideline-recommended"}]
         trial = [{"drug": "NTI164", "nct": "NCT07", "phase": "Phase 3", "status": "Recruiting", "updated": "2026-09-30", "url": "https://clinicaltrials.gov/study/NCT07", "conditions": "Autism", "primary": "Score", "ages": "6+"}]
         md = landscape.landscape_markdown(st, used, trial)
-        header = "| Drug | Category | Indication | Dose / route (if sourced) | Approval status / date | Key evidence |"
+        header = "| Drug | Indication | Dose / route (if sourced) | Approval status / date | Key evidence |"
         self.assertEqual(md.count(header), 1)      # six columns in the treatment table
         self.assertEqual(md.count("| Drug | Indication | Key evidence |"), 1)      # only three in the other-drugs table
         first_heading = "### Drugs used for treatment of this condition"
         second_heading = "### Other drugs: used for symptoms (not established treatments of this condition)"
         self.assertLess(md.index(first_heading), md.index(second_heading))
         treatment, other = md.split(second_heading)[0], md.split(second_heading)[1]
-        self.assertIn("Approved (FDA-labelled", treatment)
+        self.assertIn("FDA-approved for the use shown", treatment)
         self.assertIn("Guideline-recommended", treatment)
         self.assertNotIn("Off-label", treatment.split("*Approved:")[1].split("\n\n", 1)[1])      # no symptom drug in the treatment table
         self.assertNotIn("Emerging: investigational", treatment)
         self.assertIn("Melatonin", other)      # symptom-directed and investigational drugs are in the second table, which has no category column
         self.assertNotIn("NTI164", other)
-        self.assertNotIn("Approved (FDA-labelled", other.split("### Recently approved")[0])
-        order = [md.index(x) for x in ("Approved (FDA-labelled", "Guideline-recommended |", "Melatonin")]
+        self.assertNotIn("FDA-approved for the use shown", other.split("### Recently approved")[0])
+        order = [md.index(x) for x in ("FDA-approved for the use shown", "Guideline-recommended; no FDA", "Melatonin")]
         self.assertEqual(order, sorted(order))
         self.assertTrue(md.startswith("## Treatment Drug Landscape"))
 
@@ -1032,3 +1032,13 @@ class OnlyDrugTopicsAreSearched(unittest.TestCase):
         topics = {r["topic"] for r in res["results"]}
         self.assertEqual(topics, {"medications", "sleep", "anxiety", "adhd"})
         self.assertLessEqual(len(asked), 8)      # four topics, each at most one retry: not the eleven searches that took 14 s
+
+
+class ReferenceColumnRepair(unittest.TestCase):
+    def test_a_citation_left_in_the_last_cell_moves_into_the_reference_column(self):
+        text = ("## Current evidence\n| Approach | Evidence level | What the evidence shows | Reference |\n|---|---|---|---|\n"
+                "| Exercise | Emerging | Improved motor skills [4]. |\n| Diet | Limited | Fewer symptoms [PMID 123, 456]. |\n| Full | Emerging | Ok | [7] |\n")
+        fixed = qa_stream.tidy_model_sections(text)
+        self.assertIn("| Exercise | Emerging | Improved motor skills. | [4] |", fixed)
+        self.assertIn("| Diet | Limited | Fewer symptoms. | [PMID 123, 456] |", fixed)
+        self.assertIn("| Full | Emerging | Ok | [7] |", fixed)

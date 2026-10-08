@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+from urllib.parse import quote
 
 PERIPHERAL = re.compile(r"\b(imaging|mri|eeg|biomarker\w*|diagnos\w*|screen\w*|assessment|characteri[sz]\w*|natural history|qualitative|survey|dental|oral hygiene|"
                         r"habituation|dataset|machine learning|registry)\b", re.I)
@@ -89,6 +90,24 @@ def dose_fallback(source: str, limit: int = 420) -> str:
     return out
 
 
+def drug_name(r: dict) -> str:
+    """The drug's name, linked to that drug's own DailyMed label page when one was found."""
+    return f"[{_cell(r['drug'])}]({r['fda_label']})" if r.get("fda_label") else _cell(r["drug"])
+
+
+def label_link(r: dict, stems: list[str]) -> str:
+    """The DailyMed label link, opened at the label's own wording about this condition: a browser text fragment (#:~:text=) highlights that passage when the page supports it;
+    otherwise the label simply opens."""
+    url = r.get("url") or ""
+    statement = re.sub(r"[•●]+", " ", r.get("indication_statement") or r.get("indication_excerpt") or "")
+    words = re.sub(r"[^\w\s'-]", " ", statement).split()
+    for i, w in enumerate(words):
+        if any(s and s in w.lower() for s in stems):
+            phrase = " ".join(words[max(0, i - 3):i + 2])
+            return url + "#:~:text=" + quote(phrase, safe="") if url and len(phrase) >= 8 else url
+    return url
+
+
 def _dose_cell(r: dict) -> str:
     """Route and the label's dosing text for THIS condition. Never inferred: when the label has no dosing section for the condition, the cell says so."""
     route = f"Route: {r['route']}. " if r.get("route") else ""
@@ -116,32 +135,33 @@ def landscape_markdown(state: dict, used_rows: list[dict], trial_rows: list[dict
     elif not reg:
         terms = ", ".join(state.get("fda_terms") or []) or "the question's condition terms"
         intro = f"No FDA drug label with an indication matching the condition was found when searched (search terms: {terms}).\n\n"
+    stems = [x for x in (state.get("core_stems") or []) if len(x) >= 4]
     entries: list[tuple[int, str, str]] = []
     for r in reg:
         brands = ", ".join(b for b in r.get("brands", []) if b.lower() != r["generic"].lower())
         statement = r.get("indication_statement") or r["indication_excerpt"]
         efficacy = re.search(r"Efficacy was established[^.]*\.", statement or "")
-        evidence = (f"FDA label: {efficacy.group(0)} " if efficacy else "FDA label. ") + (f"[DailyMed]({r['url']})" if r.get("url") else "")
-        entries.append((0, "", f"| {r['generic']}{' (' + brands + ')' if brands else ''} | Approved (FDA-labelled for this condition) | \"{_cell(statement, 800)}\" | {_dose_cell(r)} | "
+        evidence = (f"FDA label: {efficacy.group(0)} " if efficacy else "FDA label. ") + (f"[DailyMed label]({label_link(r, stems)})" if r.get("url") else "")
+        entries.append((0, "", f"| {r['generic']}{' (' + brands + ')' if brands else ''} | \"{_cell(statement, 800)}\" | {_dose_cell(r)} | "
                            f"FDA-approved for the use shown; label effective {r.get('label_date') or 'date not retrieved'}; original approval date not retrieved | {_cell(evidence, 400)} |"))
     for r in used_rows:
         tier = 1 if r.get("category", "").startswith("Guideline") else 2
         said = f"\"{_cell(r['excerpt'], 260)}\" " if len(r.get("excerpt", "")) <= 260 else ""
         pop = "" if r.get("population", "").startswith("not stated") else f" (population: {r['population']})"
-        entries.append((tier, f"| {_cell(r['drug'])} | {_cell(r['purpose'], 200)}{pop} | {said}{_cell(r['label'], 500)} |", f"| {_cell(r['drug'])} | {r.get('category') or 'Off-label (described as used in practice)'} | {_cell(r['purpose'], 200)}{pop} | "
-                              f"Not stated in the retrieved source for this use | No FDA-labelled indication for this condition in the retrieved labels | {said}{_cell(r['label'], 500)} |"))
+        entries.append((tier, f"| {drug_name(r)} | {_cell(r['purpose'], 200)}{pop} | {said}{_cell(r['label'], 500)} |", f"| {drug_name(r)} | {_cell(r['purpose'], 200)}{pop} | "
+                              f"Not stated in the retrieved source for this use | {r.get('category') or 'Off-label'}; no FDA-labelled indication for this condition in the retrieved labels | {said}{_cell(r['label'], 500)} |"))
     for r in []:      # trial drugs are not listed here: the Clinical trials section is the only place trials appear
         link = f"[{r['nct']}]({r['url']})" if r.get("url") else r["nct"]
-        entries.append((3, f"| {_cell(r['drug'])} | Registered conditions: {_cell(r['conditions'], 160)}. Ages: {_cell(r['ages'], 80)} | Investigational, {r['phase']}; not approved. {r['status']}, last update {r['updated']}. {link}. Primary outcome: {_cell(r['primary'], 200)}. A registry entry does not show that the drug works. |", f"| {_cell(r['drug'])} | Emerging: investigational, {r['phase']} | Registered conditions: {_cell(r['conditions'], 160)}. Ages: {_cell(r['ages'], 80)} | "
+        entries.append((3, f"| {drug_name(r)} | Registered conditions: {_cell(r['conditions'], 160)}. Ages: {_cell(r['ages'], 80)} | Investigational, {r['phase']}; not approved. {r['status']}, last update {r['updated']}. {link}. Primary outcome: {_cell(r['primary'], 200)}. A registry entry does not show that the drug works. |", f"| {drug_name(r)} | Emerging: investigational, {r['phase']} | Registered conditions: {_cell(r['conditions'], 160)}. Ages: {_cell(r['ages'], 80)} | "
                            f"Investigational: trial-specific dosing is in the registry record | Not approved. {r['status']}, last update {r['updated']} | "
                            f"{link}. Primary outcome: {_cell(r['primary'], 200)}. A registry entry does not show that the drug works. |"))
     entries.sort(key=lambda e: e[0])
-    columns = ["| Drug | Category | Indication | Dose / route (if sourced) | Approval status / date | Key evidence |", "|---|---|---|---|---|---|"]
+    columns = ["| Drug | Indication | Dose / route (if sourced) | Approval status / date | Key evidence |", "|---|---|---|---|---|"]
     short_columns = ["| Drug | Indication | Key evidence |", "|---|---|---|"]
     treatment = [e[2] for e in entries if e[0] <= 1]      # Approved, Guideline-recommended: used for the treatment of this condition
     other = [e[1] for e in entries if e[0] >= 2]      # three columns only: drug, indication, key evidence          # Off-label (symptom-directed) and Emerging (still in trials): not established treatments of this condition
     if not treatment:
-        treatment = ["| None retrieved | | | | | No FDA label or guideline page naming a drug for this condition was retrieved in this run. This does not mean none exists. |"]
+        treatment = ["| None retrieved | | | | No FDA label or guideline page naming a drug for this condition was retrieved in this run. This does not mean none exists. |"]
     if not other:
         other = ["| None retrieved | | No symptom-directed drug for this condition was retrieved in this run. This does not mean none exists. |"]
     dose_note = ("Doses appear only where an FDA label or source gives them for the use shown" + ("; each dose entry is a short summary of the label's dosing section for this condition, "
@@ -555,12 +575,12 @@ def _warning_key(drug: str, text: str) -> str:
 
 
 def safety_alerts_markdown(labels: list[dict]) -> str:
-    """2.5 FDA boxed warnings of the drugs listed above, in the label's own words. Drugs whose boxed warning says the same thing share one row (each drug links to its own label).
+    """2.5 FDA boxed warnings of the drugs, in the label's own words. Drugs whose boxed warning says the same thing share one row (each drug links to its own label).
     Side effects belong here, not in the 'used for' column."""
     rows = [x for x in labels if x.get("boxed_warning") and x.get("url")]
-    head = "### Safety warnings (FDA boxed warnings of the drugs listed above)\n\n"
+    head = "### Safety warnings (FDA boxed warnings)\n\n"
     if not rows:
-        return head + "*No boxed warning was found in the retrieved FDA labels of the drugs listed above. This is not a complete safety review: read the full label.*"
+        return head + "*No boxed warning was found in the retrieved FDA labels of the drugs. This is not a complete safety review: read the full label.*"
     groups: dict[str, list[dict]] = {}
     for x in rows:
         groups.setdefault(_warning_key(x["drug"], x["boxed_warning"]), []).append(x)
@@ -581,14 +601,13 @@ REG_VERB = re.compile(r"\b(approv\w*|label\w*|authori[sz]\w*|warn\w*|safety|anno
 def _regulatory_sentences(text: str, stems: list[str], limit: int = 2) -> str:
     """Up to two sentences of the page that state a regulatory action, copied unchanged (navigation text such as 'More Press Announcements' is skipped)."""
     from verification import _sentences
-    keep = []
+    candidates = []
     for sentence in _sentences(_clean_source(text)):
         sentence = sentence.strip()
         if 40 <= len(sentence) <= 420 and REG_VERB.search(sentence) and not re.search(r"press announcements|news release|skip to|menu|\bsearch\b", sentence, re.I):
-            keep.append(sentence)
-        if len(keep) >= limit:
-            break
-    return " ".join(keep)
+            candidates.append(sentence)
+    about = [s for s in candidates if any(x in s.lower() for x in stems)]      # sentences that name the condition come first, so the row shows why it is listed
+    return " ".join((about + [s for s in candidates if s not in about])[:limit])
 
 
 def regulatory_updates_markdown(state: dict, limit: int = 6) -> str:
@@ -596,12 +615,13 @@ def regulatory_updates_markdown(state: dict, limit: int = 6) -> str:
     from urllib.parse import urlparse
     stems = [x for x in (state.get("core_stems") or []) if len(x) >= 4]
     head = "### Recently approved or updated (FDA, EMA and CDSCO announcements)\n\n"
-    rows, seen = [], set()
+    rows, seen, seen_titles = [], set(), set()
     for w in state.get("web", []):
         url = w.get("url") or ""
+        page = url.split("#", 1)[0].split("?", 1)[0].rstrip("/").lower()      # the same page with another #anchor or ?query is one announcement
         host = (urlparse(url).hostname or "").lower()
         path = urlparse(url).path.lower()
-        if w.get("source") != "web_regulatory" or not any(host == h or host.endswith("." + h) for h in REGULATOR_HOSTS) or url in seen:
+        if w.get("source") != "web_regulatory" or not any(host == h or host.endswith("." + h) for h in REGULATOR_HOSTS) or page in seen:
             continue
         if host.endswith("fda.gov") and not any(m in path for m in ("press-announcements", "drug-safety-communications", "safety-announcements")):
             continue      # on fda.gov only press announcements and safety communications count: not committee meetings, Q&A pages, divisions or download files
@@ -615,11 +635,14 @@ def regulatory_updates_markdown(state: dict, limit: int = 6) -> str:
         kind = ("Safety communication" if re.search(r"safety|warns?|warning", title, re.I)
                 else "Approval or regulatory action" if re.search(r"approv|authori[sz]|clear", f"{title} {text[:300]}", re.I) else "Regulatory announcement")
         found = DATE_RE.search(text) or DATE_RE.search(url)
-        seen.add(url)
+        if title.lower() in seen_titles:
+            continue
+        seen.add(page)
+        seen_titles.add(title.lower())
         said = _regulatory_sentences(text, stems)
         rows.append((found.group(0) if found else "date not stated", kind, title, said or "No sentence stating the action was retrieved; open the page", url))
-        if len(rows) >= limit:
-            break
+    rows.sort(key=lambda r: r[0] == "date not stated")      # dated announcements first
+    rows = rows[:limit]
     if not rows:
         return head + "*No FDA, EMA or CDSCO announcement about this condition was retrieved. This does not mean none exists.*"
     lines = ["| Date | Type | Announcement | What the regulator's page says |", "|---|---|---|---|"]

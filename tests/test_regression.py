@@ -122,7 +122,7 @@ class RegressionTests(unittest.TestCase):
         s = make_state()
         md = landscape.landscape_markdown(s, [], [])
         self.assertIn("irritability associated with condition X", md)             # the label's own wording, quoted
-        self.assertIn("Approved (FDA-labelled for this condition)", md)
+        self.assertIn("FDA-approved for the use shown", md)
         approved_row = next(l for l in md.splitlines() if l.startswith("| Risperidone"))
         self.assertNotIn("off-label", approved_row.lower())                       # a labelled drug is never called off-label
         r = verification.verify_and_repair(BASE + "Risperidone is used off-label for irritability in condition X.\n", s)

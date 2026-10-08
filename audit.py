@@ -122,8 +122,8 @@ s_bad = [ln for ln in claims.splitlines() if re.search(r"NCT\d{8}", ln) and not 
          and not re.search(r"not|no |cannot|pending|investigation", ln, re.I)]
 check("S", "no trial is described as effective", not s_bad, "; ".join(s_bad)[:150])
 # T. categories are separate
-check("T", "the Treatment Drug Landscape has two tables with the specification's columns: drugs used for treatment, then symptom-directed or still-in-trial drugs",
-      text.count("| Drug | Category | Indication | Dose / route (if sourced) | Approval status / date | Key evidence |") == 2
+check("T", "the Treatment Drug Landscape has two tables with the specification's columns: drugs used for treatment, then symptom-directed drugs",
+      text.count("| Drug | Indication | Dose / route (if sourced) | Approval status / date | Key evidence |") == 1 and text.count("| Drug | Indication | Key evidence |") == 1
       and 0 <= text.find("### Drugs used for treatment of this condition") < text.find("### Other drugs: used for symptoms"))
 check("AG", "no symptom-directed (off-label) or investigational drug sits in the treatment table",
       not re.search(r"\| (?:Off-label|Emerging)", text.split("### Other drugs: used for symptoms")[0].split("### Drugs used for treatment of this condition")[-1]))

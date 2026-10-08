@@ -26,7 +26,17 @@ def search_live_web(query: str) -> str:
     """
     try:
         from ddgs import DDGS
-        results = list(DDGS().text(query, max_results=5))
+        results, error = [], None
+        for backend in ("yahoo", "duckduckgo", "auto"):      # the engines that answer quickly first; the default 'auto' tries slow ones and can take 20 s
+            try:
+                results = list(DDGS(timeout=8).text(query, max_results=5, backend=backend))
+            except Exception as failure:
+                error = failure
+                continue
+            if results:
+                break
+        if not results and error:
+            raise error
     except Exception as error:
         return f"Web search failed: {error}"
     if not results:

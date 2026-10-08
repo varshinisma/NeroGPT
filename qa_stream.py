@@ -100,8 +100,9 @@ def web_search(query: str, snippet_chars: int = 500) -> str:
             items = [{"title": r.get("title"), "url": r.get("url"), "snippet": (r.get("content") or "")[:snippet_chars]} for r in found]
             if items:
                 return json.dumps(items, ensure_ascii=False)
-        except Exception:
-            pass
+        except Exception as error:
+            if "usage limit" in str(error) or "Forbidden" in type(error).__name__ or "Unauthorized" in type(error).__name__:
+                os.environ.pop("TAVILY_API_KEY", None)      # the plan limit is reached or the key is refused: stop asking Tavily in this run of the server, use the fallback search
     return server.search_live_web(query)
 
 
@@ -116,7 +117,9 @@ def guideline_search(query: str) -> str:
                 _tavily_client = TavilyClient(api_key=os.environ["TAVILY_API_KEY"])
             found = _tavily_client.search(query, max_results=5, search_depth="basic", include_domains=domains).get("results", [])
             return json.dumps([{"title": r.get("title"), "url": r.get("url"), "snippet": (r.get("content") or "")[:1500]} for r in found], ensure_ascii=False)
-        except Exception:
+        except Exception as error:
+            if "usage limit" in str(error) or "Forbidden" in type(error).__name__ or "Unauthorized" in type(error).__name__:
+                os.environ.pop("TAVILY_API_KEY", None)
             pass                       # Tavily unavailable or over its usage limit: fall back to the DuckDuckGo search below
     sites = " OR ".join(f"site:{d}" for d in ("aap.org", "nice.org.uk", "cdc.gov", "nih.gov", "who.int", "aacap.org", "asha.org", "aota.org"))
     return server.search_live_web(f"{query} ({sites})")      # results are re-checked against the full allow-list afterwards
@@ -173,10 +176,34 @@ def ingest_guidelines(state: dict, raw: dict) -> None:
         state["guideline_rows"], state["guidelines"], state["guideline_search_ok"] = [], [], False
 
 
+CITE_TAIL = re.compile(r"\s*((?:\[(?:PMID\s*)?\d+(?:[,;]\s*(?:PMID\s*)?\d+)*\]\s*[,;]?\s*)+)\.?\s*$")
+
+
+def fix_reference_column(text: str) -> str:
+    """A small model sometimes puts the citation at the end of the 'What the evidence shows' cell and leaves the Reference cell out: the row then has one cell too few
+    and the Reference column prints empty. The trailing citation is moved into its own Reference cell."""
+    out, width = [], 0
+    for line in text.split(chr(10)):
+        if line.lstrip().startswith("|"):
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            if re.search(r"reference", line, re.I) and not width and not re.fullmatch(r"[\s|:\-]+", line):
+                width = len(cells)
+            elif width and len(cells) == width - 1 and not re.fullmatch(r"[\s|:\-]+", line):
+                m = CITE_TAIL.search(cells[-1])
+                shows = cells[-1][:m.start()].rstrip() if m else cells[-1]
+                cells = cells[:-1] + [shows + ("." if m and shows and not shows.endswith(".") else ""), m.group(1).strip() if m else ""]
+                line = "| " + " | ".join(cells) + " |"
+        else:
+            width = 0
+        out.append(line)
+    return chr(10).join(out)
+
+
 def tidy_model_sections(text: str) -> str:
     """Remove what a small model sometimes adds around its sections: letter labels like '(A)' / '**(B)**' and loose '---' separators."""
     text = re.sub(r"(?m)^[ \t]*\*{0,2}\(?[A-D]\)\*{0,2}[ \t]*$\n?", "", text)
     text = re.sub(r"(?m)^[ \t]*-{3,}[ \t]*$\n?", "", text)
+    text = fix_reference_column(text)
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 

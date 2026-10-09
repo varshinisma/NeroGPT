@@ -31,3 +31,6 @@ desktop.ini
 
 # Logs
 *.log
+
+# Questions asked in the browser are logged here at run time (they can contain what a user typed)
+conversation_history/

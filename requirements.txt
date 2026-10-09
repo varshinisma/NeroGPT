@@ -1,7 +1,22 @@
-agno
-groq
-mistralai
-python-dotenv
-ddgs
-tavily-python
-reportlab
+# NeuroGPT - Python 3.10 or newer (developed and tested on Python 3.13).
+# Install with:  python -m pip install -r requirements.txt
+
+# Agent framework and model providers (the model is chosen with MODEL_PROVIDER in .env)
+agno==3.0.10
+mistralai==2.10.1
+groq>=1.7
+
+# Configuration and HTTP
+python-dotenv>=1.2
+httpx>=0.28
+
+# Web search: Tavily (primary, needs TAVILY_API_KEY) and DDGS (free fallback)
+tavily-python>=0.8
+ddgs>=9.16
+
+# PDF report
+reportlab>=5.0
+
+# Local name detector used to remove personal identifiers before anything leaves the machine
+spacy>=3.8,<3.9
+en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl

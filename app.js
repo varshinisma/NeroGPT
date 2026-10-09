@@ -113,7 +113,6 @@ form.addEventListener('submit', async (event) => {
     answerBox.textContent = markdown || 'Connection error. Is the Python server running?';
   } finally {
     form.querySelector('button').disabled = false;
-    prompt.focus();
-    message.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    prompt.focus({ preventScroll: true });  // the reader may be in the middle of the answer: the page is never moved when the research finishes
   }
 });

@@ -26,15 +26,25 @@ def search_live_web(query: str) -> str:
     """
     try:
         from ddgs import DDGS
+        from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+
+        def one(backend):
+            return list(DDGS(timeout=8).text(query, max_results=5, backend=backend))
         results, error = [], None
-        for backend in ("yahoo", "duckduckgo", "auto"):      # the engines that answer quickly first; the default 'auto' tries slow ones and can take 20 s
-            try:
-                results = list(DDGS(timeout=8).text(query, max_results=5, backend=backend))
-            except Exception as failure:
-                error = failure
-                continue
-            if results:
-                break
+        pool = ThreadPoolExecutor(max_workers=3)
+        pending = {pool.submit(one, b) for b in ("duckduckgo", "yahoo", "bing")}      # side by side: the first engine with results wins
+        try:
+            while pending and not results:
+                done, pending = wait(pending, timeout=12, return_when=FIRST_COMPLETED)
+                if not done:
+                    break
+                for future in done:
+                    try:
+                        results = future.result() or results
+                    except Exception as failure:
+                        error = failure
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
         if not results and error:
             raise error
     except Exception as error:
@@ -137,19 +147,20 @@ def load_skill(skill_name: str) -> str:
     return text
 
 
-def build_model(max_tokens: int | None = None):
+def build_model(max_tokens: int | None = None, temperature: float | None = None):
     """Create the chat model selected by MODEL_PROVIDER (groq or mistral). max_tokens caps the output size."""
     provider = os.getenv("MODEL_PROVIDER", "groq").lower()
     if provider == "groq":
         if not os.getenv("GROQ_API_KEY"):
             raise RuntimeError("Set GROQ_API_KEY in .env before starting the server.")
         from agno.models.groq import Groq
-        return Groq(id=os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"), max_tokens=max_tokens)
+        return Groq(id=os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"), max_tokens=max_tokens, **({} if temperature is None else {"temperature": temperature}))
     if provider == "mistral":
         if not os.getenv("MISTRAL_API_KEY"):
             raise RuntimeError("Set MISTRAL_API_KEY in .env before starting the server.")
         from agno.models.mistral import MistralChat
-        return MistralChat(id=os.getenv("MISTRAL_MODEL", "mistral-small-latest"), max_tokens=max_tokens)
+        return MistralChat(id=os.getenv("MISTRAL_MODEL", "mistral-small-latest"), max_tokens=max_tokens, client_params={"timeout_ms": int(os.getenv("MODEL_TIMEOUT_S", "30")) * 1000},      # a stalled call fails after 30 s instead of hanging the answer
+                           **({} if temperature is None else {"temperature": temperature}))
     raise RuntimeError("MODEL_PROVIDER must be groq or mistral.")
 
 

@@ -17,7 +17,7 @@ from collections import Counter
 
 PMID_RE = re.compile(r"PMID[:\s]*([0-9]{6,9})")
 NCT_RE = re.compile(r"NCT\s?(\d{8})")
-DOI_RE = re.compile(r"10\.\d{4,9}/[^\s\]\)|,;>】]+")
+DOI_RE = re.compile(r"10\.\d{4,9}/(?:\([^\s()]*\)|[^\s\]\)|,;>】])+")
 URL_RE = re.compile(r"https?://[^\s\]\)>|,;]+")
 # "Surname et al., [*Journal*,] Year" not already followed by [PMID n]
 AY_RE = re.compile(r"([A-Z][A-Za-zÀ-ſ'\-]+) et al\.,?\s*(?:\*?[^*,;()\[\]\n]{2,80}\*?,\s*)?((?:19|20)\d\d)(?!\d)(?!\s*\[PMID)")
@@ -40,7 +40,6 @@ NEGATION = re.compile(r"\b(no|not|none|never|without|unapproved|un-approved|inve
 NO_DRUGS_CLAIM = re.compile(r"\bno (?:pharmacolog\w+|drug|medication)\w*\b[^.\n]{0,70}\b(?:identified|retrieved|found|exist\w*|available)\b", re.I)
 NON_EXISTENCE = re.compile(r"\b(?:there (?:is|are) no|does not exist|do not exist|none exist|no [a-z\- ]{0,30}(?:exist|exists|available))\b", re.I)
 SCOPED = re.compile(r"(timed out|unavailable|could not be retrieved|not retrieved|retrieval|failed|incomplete|partial|does not (?:mean|show)|cannot be concluded)", re.I)
-INDIRECT_MARKERS = ("with and without", " traits", "co-occurring", "comorbid", "healthy volunteers", " mice", " rats", "in vitro", "animal model")
 OVERCLAIM = re.compile(r"\b(confirmed|confirms|proven|proved|proves|validated|definitive(?:ly)?|conclusively)\b", re.I)
 DOSE_LANGUAGE = [(re.compile(r"dose[\s-]dependent", re.I), "dose-response (exploratory)"),
                  (re.compile(r"(?:with )?stronger effects? at higher doses", re.I), "with an exploratory dose-response relationship reported")]
@@ -209,11 +208,64 @@ def _label_before(text: str, pos: int) -> str:
     return text[start + 1:pos]
 
 
+def _fda_relevant(r: dict) -> bool:
+    from landscape import fda_relevant
+    return fda_relevant(r)
+
+
 def is_indirect(paper: dict, stems: set[str] | None = None) -> bool:
-    title = (paper.get("title") or "").lower()
-    if any(m in title for m in INDIRECT_MARKERS):
-        return True
-    return bool(stems) and not any(s in title for s in stems)
+    """Indirect evidence (a related or different population, an associated condition, a related intervention) as decided by the evidence triage; False when there is no triage decision."""
+    return (paper.get("triage") or {}).get("relevance") == "indirect"
+
+
+MONTHS = {m: i for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), 1)}
+
+
+def date_after(date_text: str, today) -> bool:
+    """True when a publication date ('2026 Dec', '2026 Oct 20', '2026-12-01', '2027') is later than today. Day-level when the day is given, month-level when the month is, year-level otherwise."""
+    text = str(date_text or "")
+    year = re.search(r"\b(19|20)\d\d\b", text)
+    if not year:
+        return False
+    y = int(year.group(0))
+    low = text.lower()
+    month = next((n for k, n in MONTHS.items() if re.search(rf"\b{k}", low)), None)
+    day = None
+    if month is not None:
+        d = re.search(r"\b(?:" + "|".join(MONTHS) + r")[a-z]*\.?\s+(\d{1,2})\b", low)
+        day = int(d.group(1)) if d else None
+    else:
+        m = re.search(r"\b(?:19|20)\d\d[-/](\d{1,2})(?:[-/](\d{1,2}))?\b", text)
+        if m:
+            month = int(m.group(1))
+            day = int(m.group(2)) if m.group(2) else None
+    if y != today.year:
+        return y > today.year
+    if month is None:
+        return False
+    if month != today.month:
+        return month > today.month
+    return day is not None and day > today.day
+
+
+DATED_BULLET = re.compile(r"(?m)^(\s*[-*]\s*(?:\*\*)?)((?:19|20)\d\d(?:[ \-/][A-Za-z]{3,9}(?: \d{1,2})?|-\d{1,2}(?:-\d{1,2})?)?)(?=\s*[:*\)–—-])")      # '2026 Dec', '2027 Jan 15', '2026-12-01', '2027' at the start of a bullet
+
+
+def fix_future_dates(text: str, state: dict) -> tuple[str, list[str]]:
+    """A report that says the evidence was searched on date X cannot present a finding as dated after X: such a date is shown as an advance publication with its issue date. General: it only compares dates."""
+    from datetime import datetime
+    try:
+        today = datetime.strptime(str(state.get("searched_on") or ""), "%Y-%m-%d")
+    except ValueError:
+        today = datetime.now()
+    actions = []
+
+    def fix(m):
+        if date_after(m.group(2), today):
+            actions.append("marked an advance-publication date (later than the search date)")
+            return f"{m.group(1)}Advance publication (issue dated {m.group(2)})"
+        return m.group(0)
+    return DATED_BULLET.sub(fix, text), actions
 
 
 def _failed_sources(state: dict) -> list[str]:
@@ -404,7 +456,7 @@ def find_issues(text: str, state: dict) -> list[dict]:
             if APPROVAL_POSITIVE.search(sentence) and not NEGATION.search(sentence) and not any(n.split()[0] in sentence.lower() for n in reg_names):
                 issues.append(_issue("unsupported_approval_claim", "high", "an approval claim is not backed by a retrieved regulatory source", sentence[:80], "fix_approval", line=line, sentence=sentence))
             low_s = sentence.lower()
-            if "off-label" in low_s and any(r["matches_condition"] and r["generic"].lower().split()[0] in low_s for r in state.get("regulatory", [])):
+            if "off-label" in low_s and any(_fda_relevant(r) and r["generic"].lower().split()[0] in low_s for r in state.get("regulatory", [])):
                 issues.append(_issue("off_label_vs_approved", "high", "a drug with a labelled indication matching the condition is called off-label", sentence[:80], "remove_sentence", line=line, sentence=sentence))
 
     # 4b. 'Established' needs a guideline (or consistent high-quality evidence); one study or one review of variable quality is not enough
@@ -704,6 +756,7 @@ def quality_control(text: str, state: dict, issues: list[dict]) -> dict:
 def verify_and_repair(answer: str, state: dict, repair: bool = True, max_repairs: int = 1) -> dict:
     """WRITE -> normalise -> rebuild Sources -> VERIFY -> (one repair) -> rebuild Sources -> VERIFY AGAIN -> QC. Returns the final text and an honest status."""
     state.setdefault("repair_count", 0)
+    answer, date_actions = fix_future_dates(answer, state)
     text, _ = normalize_citations(answer, state)
     text = rebuild_sources(text, state)
     issues_before = find_issues(text, state)
@@ -713,6 +766,7 @@ def verify_and_repair(answer: str, state: dict, repair: bool = True, max_repairs
         state["repair_count"] += 1
         text, _ = normalize_citations(text, state)
         text = rebuild_sources(text, state)
+    actions = date_actions + actions
     issues_after = find_issues(text, state)          # the SAME final string that will be shown
     qc = quality_control(text, state, issues_after)
     state["verification_status"] = qc["status"]

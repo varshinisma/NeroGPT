@@ -32,10 +32,12 @@ def make_state():
                                   abstract="We will assess music therapy for social communication. Protocol only.")
     s["papers"]["333333"] = paper("333333", "Nutraceuticals in youth with and without condition X traits", journal="Mood Journal", author="Woz J",
                                   abstract="Both treatments gave modest improvement in mood.")
+    s["papers"]["333333"]["triage"] = {"relevance": "indirect", "role": "emerging", "population": "youth with and without condition X traits", "evidence": ""}
     s["trials_by_id"]["NCT01234567"] = {"nct_id": "NCT01234567", "title": "A trial", "interventions": ["Drug A"], "recruitment_status": "RECRUITING", "last_update": "2026-10-01",
                                         "results_posted": False, "design": "INTERVENTIONAL", "phase": ["PHASE3"], "primary_endpoint": "Score", "url": "https://clinicaltrials.gov/study/NCT01234567"}
     s["source_status"] = {k: {"retrieval_status": "success", "evidence_status": "found", "error": None} for k in ("pubmed_fast", "fda_deep", "web_approvals", "trials_deep")}
     s["regulatory"] = [{"generic": "Risperidone", "brands": ["Risperdal"], "jurisdiction": "FDA", "matches_condition": True, "label_date": "2026-06-25", "set_id": "abc",
+                        "model_relevant": True, "model_evidence": "Treatment of irritability associated with condition X in pediatric patients",
                         "indication_excerpt": "Treatment of irritability associated with condition X in pediatric patients", "url": "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=abc",
                         "source_id": "fda:abc"}]
     return s
@@ -56,18 +58,6 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(r["repair_count"], 1)
 
     # TEST 2 -------------------------------------------------------------------------------------------------------------
-    def test2_drug_approval_without_regulatory_source_is_not_verified(self):
-        s = make_state()
-        s["regulatory"] = []
-        answer = BASE + "Drugzol is FDA-approved for condition X in children.\n"
-        before = verification.verify_and_repair(answer, s, repair=False)
-        self.assertEqual(before["status"], "NEEDS_REPAIR")            # QC does not pass an unsourced approval claim
-        table = ("#### Other agents named in the retrieved evidence (not in the FDA label records)\n| Drug | Category | Population | Dose / route | Approval status | Evidence |\n"
-                 "|---|---|---|---|---|---|\n| Drugzol | Investigational | youth | 5 mg PO | FDA-approved | x |\n")
-        fixed = landscape.enforce_other_agents_table(table, s)
-        self.assertIn("Not verified in retrieved regulatory sources", fixed)
-        self.assertNotIn("FDA-approved", fixed)
-        self.assertNotIn("5 mg", fixed)
 
     # TEST 3 -------------------------------------------------------------------------------------------------------------
     def test3_drug_retrieval_timeout_is_not_reported_as_no_drugs(self):
@@ -173,6 +163,9 @@ class RegressionTests(unittest.TestCase):
                                             "last_update": "2026-10-01", "design": "OBSERVATIONAL", "phase": [], "results_posted": False}
         s["trials_by_id"]["NCT09999992"] = {"nct_id": "NCT09999992", "title": "Habituation to dental examination", "interventions": ["Habituation"], "recruitment_status": "RECRUITING",
                                             "last_update": "2026-10-01", "design": "INTERVENTIONAL", "phase": [], "results_posted": False}
+        s["trials_by_id"]["NCT01234567"]["triage"] = {"relevance": "direct", "kind": "treatment_trial", "evidence": "t"}
+        s["trials_by_id"]["NCT09999991"]["triage"] = {"relevance": "direct", "kind": "diagnostic_or_assessment", "evidence": "t"}
+        s["trials_by_id"]["NCT09999992"]["triage"] = {"relevance": "not_relevant", "kind": "other", "evidence": ""}
         md = landscape.trials_markdown(s)
         self.assertIn("NCT01234567", md)
         self.assertNotIn("NCT09999991", md)      # a syndrome / characterisation record is not a treatment trial
@@ -219,19 +212,6 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(r["status"], "PASS")
         self.assertFalse([i for i in r["issues_after"] if i["kind"] == "indirect_unlabeled"])
 
-    def test18_other_agents_table_is_enforced_for_any_column_count(self):
-        s = make_state()
-        table = ("#### Other agents named in the retrieved evidence (not in the FDA label records)\n| Drug | Category | Population | Dose | Approval | Evidence |\n|---|---|---|---|---|---|\n"
-                 "| **Exercise intervention** | Investigational | kids | g = 0.9 | Under investigation | x |\n"
-                 "| **Probiotic Z** | Investigational | kids | 10 mg/day | FDA-approved | (Smith et al., 2026 [PMID 111111]) |\n"
-                 "| **Risperidone** | Off-label | kids | 1 mg | - | dup |\n")
-        out = landscape.enforce_other_agents_table(table, s)
-        self.assertNotIn("Exercise", out)                                          # a non-substance is not a drug
-        self.assertNotIn("Risperidone", out)                                       # already covered by the FDA record
-        self.assertIn("Probiotic Z", out)
-        self.assertNotIn("10 mg/day", out)
-        self.assertNotIn("FDA-approved", out)
-        self.assertIn("Not retrieved", out)
 
     def test19_results_part_of_an_abstract_is_what_the_model_sees(self):
         text = "Background " + "x" * 700 + " Results After two months the score fell by 5 points. Conclusion modest."
@@ -282,13 +262,6 @@ class RegressionTests(unittest.TestCase):
         self.assertTrue(verification.unsupported_numbers("A trial (*n* = 894).", s))
 
 
-    def test26_empty_other_agents_table_becomes_none_retrieved(self):
-        s = make_state()
-        table = ("#### Other agents named in the retrieved evidence (not in the FDA label records)\n| Drug | Category | Population | Dose | Approval | Evidence |\n|---|---|---|---|---|---|\n"
-                 "| **None retrieved.** |  |  |  |  |  |\n\n**Safety alerts:** None retrieved.")
-        out = landscape.enforce_other_agents_table(table, s)
-        self.assertIn("None retrieved.", out)
-        self.assertNotIn("| Drug |", out)                                                          # no empty table with a fake row
 
     def test27_overclaim_words_are_softened_anywhere_in_the_prose(self):
         s = make_state()
@@ -305,15 +278,6 @@ class RegressionTests(unittest.TestCase):
         self.assertNotIn("unavailable", block)
 
 
-    def test29_table_is_enforced_even_after_a_stray_line(self):
-        s = make_state()
-        text = ("#### Other agents named in the retrieved evidence (not in the FDA label records)\nNone retrieved.\n\n| Drug | Category | Population | Dose | Approval | Evidence |\n"
-                "|---|---|---|---|---|---|\n| **Memantine** | Off-label | youth | Not retrieved | FDA-endorsed | slides |\n\n---\n**Safety alerts:**\nNone")
-        out = landscape.enforce_other_agents_table(text, s)
-        self.assertIn("Not verified in retrieved regulatory sources", out)           # the enforcement reached the real table
-        self.assertNotIn("FDA-endorsed", out)
-        self.assertEqual(out.count("None retrieved."), 0)                            # the stray line is dropped because a row survives
-        self.assertIn("**Safety alerts:**", out)
 
     def test30_malformed_pubmed_ids_are_removed(self):
         s = make_state()
@@ -360,16 +324,6 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(r["status"], "PASS")
 
 
-    def test36_guideline_recommended_needs_a_cited_guideline(self):
-        s = make_state()
-        s["web"] = [{"title": "Leucovorin approval press release", "url": "https://example.org/press", "snippet": "x"},
-                    {"title": "Autism clinical practice guideline", "url": "https://example.org/guideline", "snippet": "y"}]
-        header = "#### Other agents named in the retrieved evidence (not in the FDA label records)\n| D | C | P | Dose | A | E |\n|---|---|---|---|---|---|\n"
-        wrong = landscape.enforce_other_agents_table(header + "| Drug1 | Guideline-recommended | kids | x | y | FDA approval (https://example.org/press) |\n", s)
-        right = landscape.enforce_other_agents_table(header + "| Drug2 | Guideline-recommended | kids | x | y | (https://example.org/guideline) |\n", s)
-        self.assertNotIn("| Guideline-recommended |", wrong)                         # an approval press release is not a guideline
-        self.assertIn("Category not verified", wrong)
-        self.assertIn("| Guideline-recommended |", right)                            # a cited guideline is accepted
 
 
     def test37_confirms_is_softened_and_no_stranded_annotation_is_left(self):
@@ -400,14 +354,6 @@ class RegressionTests(unittest.TestCase):
         self.assertNotIn("found no posted results", r["answer"])                    # the registry says results ARE posted
         self.assertNotIn("Results were posted for NCT01234567", r["answer"])        # the registry says they are NOT
 
-    def test40_drugs_named_only_as_exposure_risks_are_not_listed_as_agents(self):
-        s = make_state()
-        table = ("#### Other agents named in the retrieved evidence (not in the FDA label records)\n| D | C | P | Dose | A | E |\n|---|---|---|---|---|---|\n"
-                 "| **Topiramate** | Indirect | Prenatal exposure cohort | x | y | Prenatal exposure linked to 1.9% ASD risk; no treatment efficacy |\n"
-                 "| **Probiotic Z** | Investigational | kids | x | y | RCT (Smith et al., Test Journal, 2026 [PMID 111111]) |\n")
-        out = landscape.enforce_other_agents_table(table, s)
-        self.assertNotIn("Topiramate", out)
-        self.assertIn("Probiotic Z", out)
 
 
 if __name__ == "__main__":

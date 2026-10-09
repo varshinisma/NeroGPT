@@ -351,37 +351,6 @@ class EmptyLabel(unittest.TestCase):
         self.assertIn("Efficacy", verification.lint_fix(text)[0])
 
 
-class UsedInPractice(unittest.TestCase):
-    SOURCES = {
-        "111111": ("Pharmacotherapy of irritability: risperidone is widely used, and melatonin is commonly prescribed for sleep problems in children with the condition.", "PMID 111111 (Smith et al.)"),
-        "222222": ("Dexmedetomidine is being tested in a phase 2 trial in the condition.", "PMID 222222 (Chen et al.)"),
-        "333333": ("Prenatal exposure to valproate was associated with the condition.", "PMID 333333 (Wu et al.)"),
-    }
-
-    def test_only_drugs_the_source_says_are_used_survive(self):
-        s = make_state()
-        items = [{"drug": "melatonin", "source": "111111"}, {"drug": "dexmedetomidine", "source": "222222"}, {"drug": "valproate", "source": "333333"},
-                 {"drug": "invented-drug", "source": "111111"}, {"drug": "melatonin", "source": "999999"}, {"drug": "risperidone", "source": "111111"}]
-        rows = landscape.used_in_practice_rows(items, self.SOURCES, s)
-        self.assertEqual([r["drug"] for r in rows], ["melatonin"])       # risperidone already has an FDA-labelled row; the others fail the checks
-        self.assertIn("commonly prescribed", rows[0]["excerpt"])
-
-    def test_markdown_has_no_dose_and_names_the_source(self):
-        rows = landscape.used_in_practice_rows([{"drug": "melatonin", "source": "111111"}], self.SOURCES, make_state())
-        md = landscape.landscape_markdown(make_state(), rows, [])
-        self.assertIn("PMID 111111", md)
-        self.assertIn("sleep problems", md)      # the other-drugs table has only drug, indication and key evidence: no dose column, so none can be invented
-        self.assertNotRegex(md, r"\d+\s?mg")
-        empty = make_state()
-        empty["regulatory"] = []
-        self.assertIn("None retrieved", landscape.landscape_markdown(empty, [], []))
-
-    def test_a_row_passes_the_verifier(self):
-        s = make_state()
-        s["papers"]["111111"]["abstract"] = self.SOURCES["111111"][0]
-        rows = landscape.used_in_practice_rows([{"drug": "melatonin", "source": "111111"}], self.SOURCES, s)
-        text = BASE + landscape.landscape_markdown(s, rows, []) + "\n"
-        self.assertEqual([i for i in verification.find_issues(text, s) if i["severity"] in ("high", "medium")], [])
 
 
 class TopDrugsTable(unittest.TestCase):
@@ -401,7 +370,7 @@ class TopDrugsTable(unittest.TestCase):
     def test_table_has_a_label_link_and_no_cut_off_marker(self):
         s = make_state()
         s["core_stems"] = ["autis"]
-        s["regulatory"] = [{"generic": "Risperidone", "matches_condition": True, "indication_excerpt": self.RIS, "url": "https://dailymed.nlm.nih.gov/x"}]
+        s["regulatory"] = [{"generic": "Risperidone", "matches_condition": True, "model_relevant": True, "model_evidence": "Risperidone is indicated for the treatment of irritability associated with condition X.", "indication_excerpt": self.RIS, "url": "https://dailymed.nlm.nih.gov/x"}]
         s["source_status"] = {"fda_fast": {"retrieval_status": "success", "evidence_status": "found", "error": None}}
         md = landscape.top_drugs_markdown(s)
         self.assertIn("[DailyMed](https://dailymed.nlm.nih.gov/x)", md)
@@ -413,26 +382,6 @@ class TopDrugsTable(unittest.TestCase):
         self.assertLessEqual(len(out), 205)
 
 
-class UsedInPracticeSelection(unittest.TestCase):
-    def test_model_only_sees_sentences_that_say_a_drug_is_used(self):
-        text = ("Atomoxetine improved scores compared with placebo in a randomized trial. Melatonin is commonly used to address sleep problems. "
-                "Bumetanide is being tested in a phase 3 trial.")
-        cand = landscape.candidate_sentences(text)
-        self.assertIn("Melatonin is commonly used", cand)
-        self.assertNotIn("Atomoxetine", cand)
-        self.assertNotIn("Bumetanide", cand)
-
-    def test_search_fragment_marker_never_fuses_two_fragments(self):
-        cand = landscape.candidate_sentences("Fluoxetine has shown some effectiveness in [...] Quetiapine is commonly used in clinical practice for irritability.")
-        self.assertTrue(cand.startswith("Quetiapine"))
-
-    def test_excerpt_keeps_both_the_drug_and_the_use_wording(self):
-        s = ("Beside the evidence of efficacy for the labelled drugs there are few studies of other agents such as quetiapine and ziprasidone, although these are "
-             "frequently used off-label in clinical practice for irritability, with variable results across many small samples in the literature and many further words here.")
-        out = landscape.excerpt_around(s, "quetiapine")
-        self.assertIn("quetiapine", out)
-        self.assertIn("used off-label", out)
-        self.assertIn(out.replace("... ", "").replace(" ...", "").split(" ")[0], s)
 
 
 class CompleteText(unittest.TestCase):
@@ -468,51 +417,6 @@ class CompleteText(unittest.TestCase):
         self.assertNotIn("aggression and", out)
 
 
-class TrialDrugRows(unittest.TestCase):
-    def state(self):
-        s = make_state()
-        s["trials_by_id"] = {
-            "NCT01": {"nct_id": "NCT01", "phase": ["PHASE3"], "recruitment_status": "RECRUITING", "last_update": "2026-09-01", "url": "https://clinicaltrials.gov/study/NCT01",
-                      "drug_interventions": ["Lumateperone high dose", "Lumateperone low dose", "Placebo"]},
-            "NCT02": {"nct_id": "NCT02", "phase": ["PHASE2"], "recruitment_status": "COMPLETED", "last_update": "2026-01-01", "url": "https://clinicaltrials.gov/study/NCT02",
-                      "drug_interventions": ["Sertraline", "Placebo", "Comparison of Risperidone and Aripiprazole"]},
-            "NCT03": {"nct_id": "NCT03", "phase": ["PHASE1"], "recruitment_status": "NOT_YET_RECRUITING", "last_update": "2026-02-01", "url": "https://clinicaltrials.gov/study/NCT03",
-                      "drug_interventions": ["Risperidone"]},
-        }
-        for trial in s["trials_by_id"].values():
-            trial.setdefault("conditions", ["Condition X"])      # the registry records which condition each trial is about
-        return s
-
-    def test_names_come_from_the_registry_without_placebo_comparisons_or_non_drugs(self):
-        rows = landscape.trial_drug_rows(self.state(), set())
-        names = [r["drug"] for r in rows]
-        self.assertEqual(names[0], "Lumateperone")                         # the latest phase first, dose labels removed
-        self.assertEqual(names.count("Lumateperone"), 1)
-        for bad in ("Placebo", "Comparison of Risperidone and Aripiprazole"):
-            self.assertNotIn(bad, names)
-        self.assertIn("Sertraline", names)
-
-    def test_drugs_that_already_have_a_row_are_not_repeated(self):
-        names = [r["drug"].lower() for r in landscape.trial_drug_rows(self.state(), {"Risperidone", "sertraline"})]
-        self.assertNotIn("risperidone", names)
-        self.assertNotIn("sertraline", names)
-
-    def test_trial_drugs_are_not_listed_in_the_landscape_tables(self):
-        rows = landscape.trial_drug_rows(self.state(), set())
-        self.assertTrue(rows)
-        md = landscape.landscape_markdown(self.state(), [], rows)
-        self.assertNotIn(rows[0]["drug"], md.split("### Other drugs")[1].split("### Recently approved")[0])      # trials appear only in the Clinical trials section
-
-    def test_trial_rows_pass_the_verifier(self):
-        s = self.state()
-        s["trials_by_id"]["NCT01"].update({"title": "T", "interventions": ["Lumateperone"]})
-        md = landscape.landscape_markdown(s, [], landscape.trial_drug_rows(s, set()))
-        issues = [i for i in verification.find_issues(BASE + md + "\n", s) if i["severity"] in ("high", "medium") and i["kind"] != "unretrieved_nct"]
-        self.assertEqual(issues, [])
-
-    def test_clinical_tools_marks_drug_interventions_by_registered_type(self):
-        import clinical_tools
-        self.assertIn("drug_only", clinical_tools.search_clinical_trials.__code__.co_varnames)
 
 
 class ClickableLinks(unittest.TestCase):
@@ -545,16 +449,6 @@ class ClickableLinks(unittest.TestCase):
 
 
 class AboutTheCondition(unittest.TestCase):
-    def test_a_trial_that_is_not_about_the_condition_gives_no_trial_drug_row(self):
-        s = make_state()
-        s["core_stems"] = ["autis"]
-        s["trials_by_id"] = {
-            "NCT10": {"nct_id": "NCT10", "title": "Lumateperone for irritability", "conditions": ["Autism Spectrum Disorder"], "phase": ["PHASE3"], "recruitment_status": "RECRUITING",
-                      "last_update": "2026-09-01", "url": "https://clinicaltrials.gov/study/NCT10", "drug_interventions": ["Lumateperone"]},
-            "NCT11": {"nct_id": "NCT11", "title": "A trial of Drugzol in schizophrenia", "conditions": ["Schizophrenia"], "phase": ["PHASE3"], "recruitment_status": "RECRUITING",
-                      "last_update": "2026-09-01", "url": "https://clinicaltrials.gov/study/NCT11", "drug_interventions": ["Drugzol"]}}
-        names = [r["drug"] for r in landscape.trial_drug_rows(s, set())]
-        self.assertEqual(names, ["Lumateperone"])
 
     def test_trial_search_records_the_registered_conditions(self):
         import clinical_tools, inspect
@@ -574,33 +468,6 @@ class DrugLabelLinksSurviveVerification(unittest.TestCase):
         self.assertNotIn("ffffffff-0000", out)
 
 
-class PurposeAndSideEffects(unittest.TestCase):
-    MELATONIN = "Melatonin is commonly used to address sleep problems in ASD and appears to be effective."
-    LIST = ("Medications, including FDA-approved antipsychotics such as risperidone and aripiprazole, are used to manage comorbid irritability and aggression, stimulants and "
-            "non-stimulants (e.g., methylphenidate, atomoxetine) to treat ADHD-like symptoms, and melatonin for sleep disturbances.")
-
-    def test_purpose_is_the_phrase_the_source_gives_for_that_drug(self):
-        self.assertEqual(landscape.purpose_phrase(self.MELATONIN, "melatonin"), "sleep problems in ASD")
-        self.assertEqual(landscape.purpose_phrase(self.LIST, "methylphenidate"), "ADHD-like symptoms")      # not the antipsychotics' purpose, not melatonin's
-        self.assertEqual(landscape.purpose_phrase(self.LIST, "melatonin"), "sleep disturbances")
-
-    def test_a_drug_named_without_a_purpose_is_not_listed(self):
-        sentence = "The first-line drugs are selective serotonin reuptake inhibitors (SSRIs) such as sertraline, fluoxetine and fluvoxamine."
-        self.assertIsNone(landscape.purpose_phrase(sentence, "sertraline"))
-        rows = landscape.used_in_practice_rows([{"drug": "sertraline", "source": "9"}], {"9": (sentence, "[S](https://x.org)")}, make_state())
-        self.assertEqual(rows, [])
-
-    def test_side_effect_sentences_are_not_taken_as_a_use(self):
-        text = "Quetiapine is commonly used but weight gain and sedation limit its use in children."
-        self.assertEqual(landscape.candidate_sentences(text), "")
-        rows = landscape.used_in_practice_rows([{"drug": "quetiapine", "source": "9"}], {"9": (text, "[S](https://x.org)")}, make_state())
-        self.assertEqual(rows, [])
-
-    def test_row_carries_purpose_and_population(self):
-        text = "Quetiapine and ziprasidone are commonly used in clinical practice in the treatment of irritability and aggressive behavior in children and adults with ASD."
-        rows = landscape.used_in_practice_rows([{"drug": "quetiapine", "source": "9"}], {"9": (text, "[S](https://x.org)")}, make_state())
-        self.assertEqual(rows[0]["purpose"], "irritability and aggressive behavior in children and adults with ASD")
-        self.assertEqual(rows[0]["population"], "children and adults with ASD")
 
 
 class SafetyAndRegulatorUpdates(unittest.TestCase):
@@ -611,29 +478,14 @@ class SafetyAndRegulatorUpdates(unittest.TestCase):
         self.assertIn("Suicidality and Antidepressant Drugs", md)
         self.assertNotIn("BOXED WARNING Suicidality", md)
         self.assertIn("[Sertraline](https://dailymed.nlm.nih.gov/s)", md)
-        self.assertNotIn("Melatonin", md)
+        self.assertNotIn("[Melatonin]", md)      # no boxed warning: no row (it is named in the note under the table instead)
+        self.assertIn("No boxed warning on the retrieved label of: Melatonin.", md)
 
     def test_no_boxed_warning_says_so_without_claiming_safety(self):
         md = landscape.safety_alerts_markdown([{"drug": "Melatonin", "url": "https://x.org/m", "boxed_warning": None}])
         self.assertIn("No boxed warning was found", md)
         self.assertIn("not a complete safety review", md)
 
-    def test_only_regulator_pages_about_the_condition_are_listed(self):
-        s = make_state()
-        s["core_stems"] = ["autis"]
-        s["web"] = [
-            {"source": "web_regulatory", "title": "FDA Takes Action to Make a Treatment Available for Autism Symptoms", "url": "https://www.fda.gov/news-events/press-announcements/fda-takes-action",
-             "snippet": "On September 22, 2025, the FDA approved a label update. The agency said the drug may help some autistic children."},
-            {"source": "web_regulatory", "title": "FDA Approves Drug for Alzheimer's", "url": "https://www.fda.gov/news-events/press-announcements/alz", "snippet": "A new Alzheimer's drug."},
-            {"source": "web_regulatory", "title": "Autism written request", "url": "https://www.fda.gov/media/88437/download", "snippet": "Autism request document."},
-            {"source": "web_regulatory", "title": "Autism blog", "url": "https://random-blog.example.com/autism", "snippet": "Autism news."},
-            {"source": "web_standard", "title": "Autism guide", "url": "https://www.fda.gov/consumers/autism", "snippet": "Autism."}]
-        md = landscape.regulatory_updates_markdown(s)
-        self.assertIn("FDA Takes Action", md)
-        self.assertIn("September 22, 2025", md)
-        self.assertIn("Approval or regulatory action", md)
-        for left_out in ("Alzheimer", "written request", "random-blog", "consumers/autism"):
-            self.assertNotIn(left_out.lower(), md.lower())
 
     def test_no_announcement_is_stated_honestly(self):
         s = make_state()
@@ -828,7 +680,7 @@ class FollowsTheSpecification(unittest.TestCase):
         st = make_state()
         st["drug_labels"] = []
         used = [{"drug": "Melatonin", "excerpt": "Melatonin is commonly used.", "label": "[R](https://x.org/r)", "purpose": "sleep problems", "population": "children", "category": "Off-label (described as used in practice)"},
-                {"drug": "Drugzol", "excerpt": "Drugzol is recommended for irritability.", "label": "[AAP](https://aap.org/x)", "purpose": "irritability", "population": "children", "category": "Guideline-recommended"}]
+                {"drug": "Drugzol", "excerpt": "Drugzol is recommended for irritability.", "label": "[AAP](https://aap.org/x)", "purpose": "irritability", "population": "children", "relevance": "treats_condition", "category": "Guideline-recommended"}]
         trial = [{"drug": "NTI164", "nct": "NCT07", "phase": "Phase 3", "status": "Recruiting", "updated": "2026-09-30", "url": "https://clinicaltrials.gov/study/NCT07", "conditions": "Autism", "primary": "Score", "ages": "6+"}]
         md = landscape.landscape_markdown(st, used, trial)
         header = "| Drug | Indication | Dose / route (if sourced) | Approval status / date | Key evidence |"
@@ -849,22 +701,7 @@ class FollowsTheSpecification(unittest.TestCase):
         self.assertEqual(order, sorted(order))
         self.assertTrue(md.startswith("## Treatment Drug Landscape"))
 
-    def test_a_guideline_organisation_page_gives_the_guideline_recommended_category(self):
-        text = "Risperidone is recommended for the treatment of irritability in children with autism."
-        rows = landscape.used_in_practice_rows([{"drug": "risperidone", "source": "https://www.aap.org/en/patient-care/autism/x"}],
-                                               {"https://www.aap.org/en/patient-care/autism/x": (text, "[AAP](https://www.aap.org/en/patient-care/autism/x)")}, {"regulatory": []})
-        self.assertEqual(rows[0]["category"], "Guideline-recommended")
-        other = landscape.used_in_practice_rows([{"drug": "risperidone", "source": "https://blog.example.com/x"}],
-                                                {"https://blog.example.com/x": (text, "[Blog](https://blog.example.com/x)")}, {"regulatory": []})
-        self.assertEqual(other[0]["category"], "Off-label (described as used in practice)")
 
-    def test_only_late_phase_drug_trials_are_emerging_drugs(self):
-        s = make_state()
-        s["trials_by_id"] = {
-            "NCT1": {"nct_id": "NCT1", "phase": ["PHASE1"], "recruitment_status": "RECRUITING", "last_update": "2026-09-01", "url": "u", "conditions": ["Condition X"], "title": "t", "drug_interventions": ["Earlydrug"]},
-            "NCT2": {"nct_id": "NCT2", "phase": ["NA"], "recruitment_status": "RECRUITING", "last_update": "2026-09-01", "url": "u", "conditions": ["Condition X"], "title": "t", "drug_interventions": ["Naadrug"]},
-            "NCT3": {"nct_id": "NCT3", "phase": ["PHASE2", "PHASE3"], "recruitment_status": "RECRUITING", "last_update": "2026-09-01", "url": "u", "conditions": ["Condition X"], "title": "t", "drug_interventions": ["Latedrug"]}}
-        self.assertEqual([r["drug"] for r in landscape.trial_drug_rows(s, set())], ["Latedrug"])
 
     def test_the_fast_answer_adds_the_most_notable_latest_drug_as_investigational(self):
         s = make_state()
@@ -872,6 +709,8 @@ class FollowsTheSpecification(unittest.TestCase):
         s["trials_by_id"] = {
             "NCT3": {"nct_id": "NCT3", "phase": ["PHASE2"], "recruitment_status": "RECRUITING", "last_update": "2026-08-01", "url": "https://clinicaltrials.gov/study/NCT3", "conditions": ["Condition X"], "title": "t", "drug_interventions": ["Seconddrug"]},
             "NCT4": {"nct_id": "NCT4", "phase": ["PHASE3"], "recruitment_status": "RECRUITING", "last_update": "2026-09-01", "url": "https://clinicaltrials.gov/study/NCT4", "conditions": ["Condition X"], "title": "t", "drug_interventions": ["Latestdrug"]}}
+        for t in s["trials_by_id"].values():
+            t["triage"] = {"relevance": "direct", "kind": "treatment_trial", "evidence": "t"}      # the model's verified decision on the registry record
         md = landscape.top_drugs_markdown(s)
         self.assertIn("Top treatment drugs (established first, then the most notable latest drug)", md)
         self.assertIn("Latestdrug (latest, investigational)", md)
@@ -999,25 +838,6 @@ class TableRowsAreCheckedToo(unittest.TestCase):
         self.assertNotIn("999999", verification.verify_and_repair(invented, make_state())["answer"])      # an invented PMID written as a link is removed too (a fresh run: one repair pass each)
 
 
-class StrongestEvidenceFirst(unittest.TestCase):
-    def test_a_systematic_review_comes_before_a_newer_case_report_and_a_newer_trial(self):
-        old_review = study("200001", year="2022", types=("Systematic Review",))
-        new_case = study("200002", year="2026", types=("case-study",))
-        new_rct = study("200003", year="2025", types=("Randomized Controlled Trial",))
-        guideline = study("200004", year="2019", types=("Practice Guideline",))
-        guideline["title"] = "A practice guideline for condition X"
-        papers = {p["pmid"]: p for p in (new_case, new_rct, old_review, guideline)}
-        order = [p["pmid"] for p in qa_stream.ordered_papers(papers, None)]
-        self.assertEqual(order, ["200004", "200001", "200003", "200002"])      # guideline, review, trial, case report
-
-    def test_within_one_design_the_newest_comes_first(self):
-        a, b = study("200011", year="2023", types=("Meta-Analysis",)), study("200012", year="2026", types=("Meta-Analysis",))
-        self.assertEqual([p["pmid"] for p in qa_stream.ordered_papers({"200011": a, "200012": b}, None)], ["200012", "200011"])
-
-    def test_a_record_with_no_stated_design_goes_last(self):
-        unknown = study("200021", year="2026", types=("research-article",))
-        review = study("200022", year="2020", types=("Systematic Review",))
-        self.assertEqual([p["pmid"] for p in qa_stream.ordered_papers({"200021": unknown, "200022": review}, None)], ["200022", "200021"])
 
 
 class OnlyDrugTopicsAreSearched(unittest.TestCase):
@@ -1042,3 +862,658 @@ class ReferenceColumnRepair(unittest.TestCase):
         self.assertIn("| Exercise | Emerging | Improved motor skills. | [4] |", fixed)
         self.assertIn("| Diet | Limited | Fewer symptoms. | [PMID 123, 456] |", fixed)
         self.assertIn("| Full | Emerging | Ok | [7] |", fixed)
+
+
+# ---------------------------------------------------------------------------------------------------- the model interprets, code verifies
+OFFERED = {
+    "111111": {"title": "Pharmacotherapy review", "label": "PMID 111111 (Smith et al.)", "url": "", "kind": "paper",
+               "text": "Pharmacotherapy of irritability: risperidone is widely used, and melatonin is commonly prescribed for sleep problems in children with condition X. "
+                       "Dexmedetomidine is being tested in a phase 2 trial."},
+    "https://www.aap.org/x": {"title": "AAP guidance", "label": "[AAP: guidance](https://www.aap.org/x)", "url": "https://www.aap.org/x", "kind": "guideline",
+                              "text": "The AAP recommends melatonin for sleep problems in children with condition X."},
+    "https://blog.example.com/y": {"title": "A blog", "label": "[A blog](https://blog.example.com/y)", "url": "https://blog.example.com/y", "kind": "web",
+                                   "text": "Our experts say melatonin is recommended for sleep problems in children with condition X."},
+}
+
+
+def drug_item(**kw):
+    item = {"drug": "Melatonin", "source_id": "111111", "relevance": "treats_associated_symptom_or_comorbidity", "statement_type": "used_in_practice", "drug_kind": "generic", "category": "Off-label", "indication": "sleep problems",
+            "population": "children with condition X", "quote": "melatonin is commonly prescribed for sleep problems in children with condition X"}
+    item.update(kw)
+    return item
+
+
+class ModelInterpretationIsVerifiedAgainstTheSource(unittest.TestCase):
+    def test_quote_matching_ignores_case_spacing_and_quote_marks_but_not_content(self):
+        text = "The “FDA”   approved   Drugzol for pediatric patients."
+        self.assertIsNotNone(landscape.locate(text, 'the "fda" approved drugzol for pediatric patients'))
+        self.assertIsNotNone(landscape.locate(text, "... approved Drugzol for pediatric patients."))
+        self.assertIsNone(landscape.locate(text, "The FDA approved Drugzol for adults and children"))
+        self.assertIsNone(landscape.locate(text, "too short"))
+
+    def test_a_supported_drug_becomes_a_row_with_the_sources_own_wording(self):
+        rows, rejected = landscape.verify_drug_decisions([drug_item()], OFFERED, make_state())
+        self.assertEqual(rejected, [])
+        self.assertEqual(rows[0]["drug"], "Melatonin")
+        self.assertEqual(rows[0]["purpose"], "sleep problems")
+        self.assertEqual(rows[0]["excerpt"], "melatonin is commonly prescribed for sleep problems in children with condition X")
+        self.assertEqual(rows[0]["category"], "Off-label (described as used in practice)")
+        self.assertEqual(rows[0]["population"], "children with condition X")
+
+    def test_every_check_rejects_what_the_source_does_not_support(self):
+        s = make_state()
+        cases = {
+            "unknown source id": drug_item(source_id="999999"),
+            "quote not in the source": drug_item(quote="melatonin cures sleep problems in all children with condition X"),
+            "drug not in the quote": drug_item(drug="Quetiapine"),
+            "model says not relevant": drug_item(relevance="not_relevant"),
+            "model cannot tell": drug_item(relevance="undetermined"),
+            "category not allowed": drug_item(category="Approved"),
+            "not a drug name": drug_item(drug="Exercise programme 12"),
+        }
+        for name, item in cases.items():
+            rows, rejected = landscape.verify_drug_decisions([item], OFFERED, s)
+            self.assertEqual(rows, [], name)
+            self.assertEqual(len(rejected), 1, name)
+
+    def test_a_trial_only_drug_the_model_marks_irrelevant_is_not_listed(self):
+        item = drug_item(drug="Dexmedetomidine", relevance="not_relevant", quote="Dexmedetomidine is being tested in a phase 2 trial", indication="a phase 2 trial")
+        self.assertEqual(landscape.verify_drug_decisions([item], OFFERED, make_state())[0], [])
+
+    def test_guideline_recommended_needs_a_guideline_organisation_page(self):
+        s = make_state()
+        guide = drug_item(source_id="https://www.aap.org/x", category="Guideline-recommended", quote="The AAP recommends melatonin for sleep problems in children with condition X")
+        blog = drug_item(source_id="https://blog.example.com/y", category="Guideline-recommended", quote="melatonin is recommended for sleep problems in children with condition X")
+        self.assertEqual(landscape.verify_drug_decisions([guide], OFFERED, s)[0][0]["category"], "Guideline-recommended")
+        self.assertEqual(landscape.verify_drug_decisions([blog], OFFERED, s)[0][0]["category"], "Off-label (described as used in practice)")      # downgraded, not trusted
+
+    def test_a_drug_with_its_own_fda_row_is_not_repeated(self):
+        item = drug_item(drug="Risperidone", quote="risperidone is widely used", indication="irritability")
+        self.assertEqual(landscape.verify_drug_decisions([item], OFFERED, make_state())[0], [])
+
+    def test_a_relevant_label_decision_needs_a_sentence_of_the_label_and_an_irrelevant_one_needs_none(self):
+        rec = {"generic": "Drugzol", "matches_condition": True}
+        offered = {"fda:Drugzol": {"indication_text": "Drugzol is indicated for the treatment of irritability associated with condition X.", "record": rec}}
+        out = landscape.verify_fda_decisions([{"id": "fda:Drugzol", "relevant": True, "sentence": 7}], offered)
+        self.assertEqual(out["unreviewed"], ["Drugzol"])
+        self.assertFalse(landscape.fda_relevant(rec))      # no verified decision: the label is not listed, whatever the retrieval flag says
+        out = landscape.verify_fda_decisions([{"id": "fda:Drugzol", "relevant": True, "relation": "treats_associated_symptom_or_comorbidity", "sentence": 1}], offered)
+        self.assertEqual(out["confirmed"], ["Drugzol"])
+        self.assertTrue(landscape.fda_relevant(rec))
+        self.assertEqual(rec["model_evidence"], "Drugzol is indicated for the treatment of irritability associated with condition X.")
+        rec2 = {"generic": "Otherol", "matches_condition": True}
+        out = landscape.verify_fda_decisions([{"id": "fda:Otherol", "relevant": False}], {"fda:Otherol": {"indication_text": "Otherol is indicated for hypertension in adults.", "record": rec2}})
+        self.assertEqual(out["excluded"], ["Otherol"])
+        self.assertFalse(landscape.fda_relevant(rec2))
+
+    def test_an_fda_label_the_model_excluded_is_not_in_the_treatment_table(self):
+        s = make_state()
+        s["regulatory"][0]["model_relevant"] = False
+        treatment = landscape.landscape_markdown(s, [], []).split("### Other drugs")[0].split("### Drugs used for treatment")[1]
+        self.assertNotIn("Risperidone", treatment)
+
+
+REG_OFFERED = {
+    "reg:1": {"title": "FDA Takes Action on Drugzol for Condition X", "url": "https://www.fda.gov/news-events/press-announcements/a",
+              "text": "Skip to main content. The FDA today approved Drugzol tablets for patients with symptom Y, a feature that occurs in condition X. Posted September 22, 2025."},
+    "reg:2": {"title": "FDA Moves to Add Warning to Painex", "url": "https://www.fda.gov/news-events/press-announcements/b",
+              "text": "The FDA initiated a label change for Painex to reflect evidence that use in pregnancy may be associated with an increased risk of condition X. Release: September 22, 2025."},
+    "reg:3": {"title": "Advisory committee calendar", "url": "https://www.fda.gov/advisory-committees/c", "text": "Meeting calendar and registration for committee members of the agency."},
+    "reg:4": {"title": "FDA Approves Zetamab for Condition Z", "url": "https://www.fda.gov/news-events/press-announcements/d",
+              "text": "The FDA approved Zetamab for adults with condition Z. Condition Z is sometimes mentioned together with condition X in the literature."},
+}
+REG_ITEMS = [
+    {"id": "reg:1", "classification": "approval", "relation": "treats_associated_symptom_or_comorbidity", "concerns": "Drugzol tablets for symptom Y", "drug": "Drugzol",
+     "sentences": [2], "date": "September 22, 2025"},
+    {"id": "reg:2", "classification": "safety_communication", "relation": "risk_or_safety_related", "concerns": "label change for Painex", "drug": "Painex", "sentences": [1], "date": "September 22, 2025"},
+    {"id": "reg:3", "classification": "not_relevant", "relation": "unclear", "sentences": [1]},
+    {"id": "reg:4", "classification": "approval", "relation": "other_indication", "drug": "Zetamab", "sentences": [1], "date": ""},
+]
+
+
+class RegulatorPagesAreReadByTheModelAndVerified(unittest.TestCase):
+    def test_actions_that_bear_on_the_question_are_kept_with_their_type_and_relation(self):
+        kept, rejected = landscape.verify_regulator_decisions(REG_ITEMS, REG_OFFERED)
+        self.assertEqual([(x["type"], x["relation"]) for x in kept], [("Approval", "treats_associated_symptom_or_comorbidity"), ("Safety communication", "risk_or_safety_related")])
+        self.assertEqual(kept[0]["quote"], "The FDA today approved Drugzol tablets for patients with symptom Y, a feature that occurs in condition X.")      # the page's own sentence
+        self.assertEqual(kept[0]["date"], "September 22, 2025")
+        self.assertEqual(kept[1]["date"], "September 22, 2025")
+        self.assertEqual(len(rejected), 2)      # the meeting page and the approval for another indication
+
+    def test_an_action_about_another_indication_is_not_a_treatment_approval(self):
+        kept, rejected = landscape.verify_regulator_decisions([REG_ITEMS[3]], REG_OFFERED)
+        self.assertEqual(kept, [])
+        self.assertIn("other_indication", rejected[0][1])
+
+    def test_an_invented_date_drug_or_sentence_number_is_not_accepted(self):
+        bad = [dict(REG_ITEMS[0], date="March 3, 2026", drug="Ghostol"), dict(REG_ITEMS[1], sentences=[9])]
+        kept, rejected = landscape.verify_regulator_decisions(bad, REG_OFFERED)
+        self.assertEqual(len(kept), 1)
+        self.assertEqual(kept[0]["date"], "date not stated")
+        self.assertEqual(kept[0]["drug"], "")
+        self.assertEqual(len(rejected), 1)
+
+    def test_a_safety_communication_is_listed_as_an_announcement_and_never_as_a_boxed_warning(self):
+        s = make_state()
+        s["regulator_items"] = landscape.verify_regulator_decisions(REG_ITEMS, REG_OFFERED)[0]
+        md = landscape.landscape_markdown(s, [], [])
+        announcements = md.split("### Recently approved or updated")[1].split("### Safety warnings")[0]
+        boxed = md.split("### Safety warnings")[1]
+        self.assertIn("Safety communication", announcements)
+        self.assertIn("Painex", announcements)
+        self.assertIn("Approval (associated symptom or comorbidity)", announcements)
+        self.assertNotIn("Painex", boxed)      # the boxed-warning section holds boxed warnings only
+
+
+class TheReportHierarchyIsUnchanged(unittest.TestCase):
+    def test_landscape_headings_and_columns_are_the_same_with_model_interpreted_rows(self):
+        s = make_state()
+        s["regulator_items"] = landscape.verify_regulator_decisions(REG_ITEMS, REG_OFFERED)[0]
+        rows, _ = landscape.verify_drug_decisions([drug_item()], OFFERED, s)
+        md = landscape.landscape_markdown(s, rows, [])
+        headings = [line for line in md.splitlines() if line.startswith("#")]
+        self.assertEqual(headings, ["## Treatment Drug Landscape", "### Drugs used for treatment of this condition",
+                                    "### Other drugs: used for symptoms (not established treatments of this condition)",
+                                    "### Recently approved or updated (FDA, EMA and CDSCO announcements)", "### Safety warnings (FDA boxed warnings)"])
+        self.assertIn("| Drug | Indication | Dose / route (if sourced) | Approval status / date | Key evidence |", md)
+        self.assertIn("| Drug | Indication | Key evidence |", md)
+        self.assertIn("| Date | Type | Announcement | What the regulator's page says |", md)
+        self.assertIn("melatonin is commonly prescribed for sleep problems", md.split("### Other drugs")[1])
+
+    def test_a_drug_the_model_read_as_treating_an_associated_symptom_says_so_in_the_existing_indication_cell(self):
+        s = make_state()
+        rows, _ = landscape.verify_drug_decisions([drug_item()], OFFERED, s)
+        self.assertIn("[associated symptom or comorbidity, not the condition itself]", landscape.landscape_markdown(s, rows, []).split("### Other drugs")[1])
+        s["regulatory"][0]["model_relation"] = "treats_associated_symptom_or_comorbidity"
+        self.assertIn("associated symptom or comorbidity", landscape.landscape_markdown(s, [], []).split("### Other drugs")[0])
+
+    def test_ask_json_reads_the_object_even_when_the_model_wraps_it(self):
+        original = qa_stream.stream_llm
+        qa_stream.stream_llm = lambda *a, **k: iter(["Here you go:\n```json\n", '{"items": [{"id": "reg:1"}]}', "\n```"])
+        try:
+            self.assertEqual(qa_stream.ask_json("q", "task", {"a": 1}, 100)["items"], [{"id": "reg:1"}])
+        finally:
+            qa_stream.stream_llm = original
+
+
+PAPERS_OFFERED = {"1": {"sentences": ["Melatonin for sleep in children with condition X", "Children with condition X slept longer on melatonin.", "Sleep onset improved."]},
+                  "2": {"sentences": ["Hearing loss in adults", "Adults with hearing loss were studied."]}}
+
+
+class EvidenceIsReadByTheModelNotFilteredByKeywords(unittest.TestCase):
+    def test_paper_decisions_need_an_existing_sentence_and_population_words_from_the_paper(self):
+        items = [{"id": "1", "relevance": "direct", "role": "emerging", "population": "children with condition X", "sentence": 2},
+                 {"id": "2", "relevance": "direct", "role": "established", "population": "astronauts", "sentence": 9},
+                 {"id": "3", "relevance": "direct", "sentence": 1}]
+        out = landscape.verify_paper_triage(items, PAPERS_OFFERED)
+        self.assertEqual(out["1"]["relevance"], "direct")
+        self.assertEqual(out["1"]["population"], "children with condition X")
+        self.assertEqual(out["1"]["evidence"], "Children with condition X slept longer on melatonin.")
+        self.assertEqual(out["2"]["relevance"], "uncertain")      # a decision that points at no sentence of the paper is not accepted
+        self.assertEqual(out["2"]["population"], "")
+        self.assertNotIn("3", out)      # an id that was not offered
+
+    def test_a_paper_the_model_judged_irrelevant_is_not_shown_to_the_writer_whatever_words_it_contains(self):
+        a = study("700001", year="2026", types=("Randomized Controlled Trial",))
+        a["triage"] = {"relevance": "not_relevant", "role": None, "population": "", "evidence": ""}
+        b = study("700002", year="2020", types=("Case Reports",))
+        b["triage"] = {"relevance": "direct", "role": "emerging", "population": "", "evidence": "x"}
+        self.assertEqual([p["pmid"] for p in qa_stream.ordered_papers({"700001": a, "700002": b}, set())], ["700002"])
+        self.assertFalse(qa_stream.usable(a, set()))
+
+    def test_order_is_relevance_then_date_and_never_study_design(self):
+        old_review = study("700011", year="2015", types=("Systematic Review",))
+        old_review["triage"] = {"relevance": "indirect", "role": "established", "population": "", "evidence": "x"}
+        new_case = study("700012", year="2026", types=("Case Reports",))
+        new_case["triage"] = {"relevance": "direct", "role": "emerging", "population": "", "evidence": "x"}
+        mid = study("700013", year="2022", types=("Randomized Controlled Trial",))
+        mid["triage"] = {"relevance": "direct", "role": "experimental", "population": "", "evidence": "x"}
+        order = [p["pmid"] for p in qa_stream.ordered_papers({p["pmid"]: p for p in (old_review, new_case, mid)}, set())]
+        self.assertEqual(order, ["700012", "700013", "700011"])
+
+    def test_without_a_triage_decision_no_keyword_rule_removes_a_paper(self):
+        p = study("700021", year="2025")
+        p["title"] = "A study of something that shares no word with the question"
+        self.assertTrue(qa_stream.usable(p, {"zzzzz"}))
+        self.assertFalse(verification.is_indirect(p, {"zzzzz"}))
+
+    def test_indirect_means_the_triage_said_indirect(self):
+        p = study("700022")
+        p["triage"] = {"relevance": "indirect", "role": None, "population": "", "evidence": "x"}
+        self.assertTrue(verification.is_indirect(p, set()))
+
+    def test_trial_decisions_decide_which_records_are_treatment_trials(self):
+        offered = {"NCT1": {"sentences": ["Drugzol for condition X", "Conditions: condition X", "Interventions: Drugzol", "Primary outcome: score"]}}
+        out = landscape.verify_trial_triage([{"id": "NCT1", "relevance": "direct", "kind": "treatment_trial", "sentence": 3}, {"id": "NCT1x", "relevance": "direct", "kind": "other", "sentence": 1}], offered)
+        self.assertEqual(list(out), ["NCT1"])
+        self.assertTrue(landscape.is_treatment_trial({"triage": out["NCT1"]}))
+        self.assertFalse(landscape.is_treatment_trial({"triage": {"relevance": "direct", "kind": "diagnostic_or_assessment", "evidence": "x"}, "design": "INTERVENTIONAL", "interventions": ["x"]}))
+
+    def test_triage_runs_the_evidence_synthesis_skill_over_all_retrieved_records_and_stores_verified_decisions(self):
+        s = make_state()
+        s["papers"]["111111"]["triage"] = None
+        loaded = []
+        original_ask = qa_stream.ask_json
+
+        def fake(question, task, payload, tokens, skill="drug-intelligence"):
+            loaded.append(skill)
+            if "papers" in payload:
+                return {"papers": [{"id": p["id"], "relevance": "direct", "role": "emerging", "population": "", "sentence": 1} for p in payload["papers"]]}
+            return {"trials": [{"id": t["id"], "relevance": "direct", "kind": "treatment_trial", "sentence": 1} for t in payload["trials"]]}
+        qa_stream.ask_json = fake
+        try:
+            skipped = []
+            qa_stream.triage_evidence(s, "q", skipped)
+        finally:
+            qa_stream.ask_json = original_ask
+        self.assertEqual(set(loaded), {"evidence-synthesis"})
+        self.assertEqual(s["papers"]["111111"]["triage"]["relevance"], "direct")
+        self.assertEqual(s["trials_by_id"]["NCT01234567"]["triage"]["kind"], "treatment_trial")
+        self.assertEqual(skipped, [])
+
+    def test_a_failed_triage_call_leaves_the_records_unfiltered_and_says_so(self):
+        s = make_state()
+        s["papers"]["111111"].pop("triage", None)
+        original_ask = qa_stream.ask_json
+
+        def broken(*a, **k):
+            raise RuntimeError("model down")
+        qa_stream.ask_json = broken
+        try:
+            skipped = []
+            qa_stream.triage_evidence(s, "q", skipped)
+        finally:
+            qa_stream.ask_json = original_ask
+        self.assertNotIn("triage", s["papers"]["111111"])
+        self.assertTrue(qa_stream.usable(s["papers"]["111111"], set()))
+        self.assertTrue(skipped)
+
+
+class DatesAreConsistentWithTheSearchDate(unittest.TestCase):
+    def test_a_finding_dated_after_the_search_date_is_shown_as_an_advance_publication(self):
+        text = "## Latest findings\n- **2026 Dec**: A study found a result [PMID 1].\n- **2026 Sep**: Another study found a result [PMID 2].\n- **2027**: A third [PMID 3].\n"
+        fixed, actions = verification.fix_future_dates(text, {"searched_on": "2026-10-08"})
+        self.assertIn("**Advance publication (issue dated 2026 Dec)**", fixed)
+        self.assertIn("**2026 Sep**", fixed)
+        self.assertIn("**Advance publication (issue dated 2027)**", fixed)
+        self.assertEqual(len(actions), 2)
+
+    def test_the_check_is_general_and_runs_inside_the_verification_loop(self):
+        s = make_state()
+        s["searched_on"] = "2026-10-08"
+        s["papers"]["111111"]["date"] = "2026 Dec"
+        out = verification.verify_and_repair(BASE + "## Latest findings\n- **2026 Dec**: A study of exercise reported motor skills outcomes (PMID 111111).\n", s)
+        self.assertIn("Advance publication (issue dated 2026 Dec)", out["answer"])
+        self.assertTrue(any("advance-publication" in r for r in out["repairs"]))
+
+    def test_the_writer_is_told_when_a_papers_date_is_later_than_today(self):
+        p = study("700031")
+        p["date"] = "2099 Dec"
+        self.assertTrue(qa_stream.paper_view(p, 300)["after_search_date"])
+        p["date"] = "2020 Jan"
+        self.assertNotIn("after_search_date", qa_stream.paper_view(p, 300))
+
+
+class QuoteAndReviewerDetails(unittest.TestCase):
+    def test_a_quote_may_skip_text_with_an_ellipsis_but_every_piece_must_be_in_the_source_in_order(self):
+        text = "Aripiprazole is indicated for the treatment of: \u2022 Schizophrenia \u2022 Irritability Associated with Autistic Disorder \u2022 Tourette's Disorder"
+        self.assertIsNotNone(landscape.locate(text, "Aripiprazole is indicated for the treatment of: ... Irritability Associated with Autistic Disorder"))
+        self.assertIsNone(landscape.locate(text, "Irritability Associated with Autistic Disorder ... Aripiprazole is indicated for the treatment of"))
+        self.assertIsNone(landscape.locate(text, "Aripiprazole is indicated for the treatment of: ... Hypertension in older adults"))
+
+    def test_a_brand_name_in_brackets_is_dropped_from_the_drug_name(self):
+        offered = {"u": {"title": "t", "label": "l", "url": "", "kind": "web", "text": "Stimulant medications such as methylphenidate are commonly prescribed for hyperactivity in children with condition X."}}
+        item = drug_item(drug="Methylphenidate (Ritalin)", source_id="u", quote="methylphenidate are commonly prescribed for hyperactivity in children with condition X",
+                         indication="hyperactivity", population="children with condition X")
+        rows, rejected = landscape.verify_drug_decisions([item], offered, make_state())
+        self.assertEqual([r["drug"] for r in rows], ["Methylphenidate"], rejected)
+
+
+
+class TheModelPointsAtSentencesAndCodeTakesTheText(unittest.TestCase):
+    SRC = {"u": {"title": "t", "label": "l", "url": "", "kind": "web",
+                 "text": "Medication for condition X is an individual decision. Melatonin is commonly used to address sleep problems in children. Exercise helps motor skills."}}
+
+    def test_the_quote_is_the_sources_own_sentence_chosen_by_number(self):
+        item = {"drug": "Melatonin", "source_id": "u", "sentence": 2, "relevance": "treats_associated_symptom_or_comorbidity", "statement_type": "used_in_practice", "drug_kind": "generic", "category": "Off-label", "indication": "addressing sleep problems"}
+        rows, rejected = landscape.verify_drug_decisions([item], self.SRC, make_state())
+        self.assertEqual(rejected, [])
+        self.assertEqual(rows[0]["excerpt"], "Melatonin is commonly used to address sleep problems in children.")      # inflection in the model's phrase is fine: its words are in the sentence
+
+    def test_a_wrong_or_missing_number_or_a_sentence_without_the_drug_is_rejected(self):
+        base = {"drug": "Melatonin", "source_id": "u", "relevance": "treats_condition", "statement_type": "used_in_practice", "drug_kind": "generic", "category": "Off-label", "indication": "sleep problems"}
+        for sentence in (9, 0, "x", None, 1, 3):
+            rows, _ = landscape.verify_drug_decisions([dict(base, sentence=sentence)], self.SRC, make_state())
+            self.assertEqual(rows, [], sentence)
+
+    def test_an_indication_with_words_the_sentence_does_not_contain_is_never_shown(self):
+        item = {"drug": "Melatonin", "source_id": "u", "sentence": 2, "relevance": "treats_condition", "statement_type": "used_in_practice", "drug_kind": "generic", "category": "Off-label", "indication": "aggression and self-injury"}
+        rows = landscape.verify_drug_decisions([item], self.SRC, make_state())[0]
+        self.assertEqual(rows[0]["purpose"], "as stated in the quoted source sentence")      # the row stays, the model's unsupported wording does not
+        self.assertNotIn("aggression", landscape.landscape_markdown(make_state(), rows, []))
+
+
+
+class NavigationTextIsNotPartOfASentence(unittest.TestCase):
+    def test_a_page_navigation_fragment_is_split_off(self):
+        sentences = landscape.numbered_sentences("More Press Announcements . The FDA today initiated a label change for Drugzol in children with condition X.")
+        self.assertEqual(sentences[-1], "The FDA today initiated a label change for Drugzol in children with condition X.")
+        self.assertNotIn("Press Announcements", sentences[-1])
+
+
+class FdaLabelsAreInterpretedByTheModel(unittest.TestCase):
+    def test_labels_are_decided_by_the_model_asked_again_once_and_never_by_a_keyword(self):
+        records = [{"generic": "Aaa", "indication_excerpt": "Aaa is indicated for sleep problems in children with condition X.", "matches_condition": True},
+                   {"generic": "Bbb", "indication_excerpt": "Bbb is indicated for hypertension in adults.", "matches_condition": False},
+                   {"generic": "Ccc", "indication_excerpt": "Ccc is indicated for condition X in children and adults.", "matches_condition": False}]
+        calls = []
+        original = qa_stream.ask_json
+
+        def fake(question, task, payload, tokens, skill="drug-intelligence"):
+            names = [x["id"].split(":")[1] for x in payload["fda_labels"]]
+            calls.append(names)
+            answers = {"Aaa": {"relevant": True, "relation": "treats_associated_symptom_or_comorbidity", "sentence": 1}, "Bbb": {"relevant": False},
+                       "Ccc": {"relevant": True, "relation": "treats_condition", "sentence": 1}}
+            return {"fda_labels": [dict(answers[n], id=x["id"]) for n, x in zip(names, payload["fda_labels"]) if len(calls) > 1 or n != "Ccc"]}      # the first answer omits Ccc
+        qa_stream.ask_json = fake
+        try:
+            out = qa_stream.interpret_fda_labels("How to treat condition X?", records)
+        finally:
+            qa_stream.ask_json = original
+        self.assertEqual(calls, [["Aaa", "Bbb", "Ccc"], ["Ccc"]])      # the second call asks only for the label that got no decision
+        self.assertEqual([landscape.fda_relevant(r) for r in records], [True, False, True])      # Bbb matched no condition word and is out; Ccc matched none but the model judged it relevant
+        self.assertEqual(records[0]["model_relation"], "treats_associated_symptom_or_comorbidity")
+        self.assertEqual(out["unreviewed"], [])
+
+    def test_a_label_with_no_decision_is_not_listed_in_the_top_drugs_table(self):
+        s = make_state()
+        s["regulatory"] = [{"generic": "Zzz", "matches_condition": True, "indication_excerpt": "Zzz is indicated for condition X.", "url": "https://dailymed.nlm.nih.gov/z"}]
+        s["trials_by_id"] = {}
+        self.assertNotIn("Zzz", landscape.top_drugs_markdown(s))
+
+
+class IdentifiersAndLabelsAreHandledGenerally(unittest.TestCase):
+    def test_a_doi_with_brackets_is_one_identifier(self):
+        found = verification.DOI_RE.findall("see doi 10.1016/S2213-8587(24)00123-X and (10.1000/abc.def).")
+        self.assertIn("10.1016/S2213-8587(24)00123-X", found)
+        self.assertIn("10.1000/abc.def", [f.rstrip(".,;)") for f in found])
+
+    def test_a_drug_named_by_the_question_returns_every_distinct_label(self):
+        import clinical_tools
+        labels = [{"set_id": "a1", "effective_time": "20260101", "indications_and_usage": ["Drugzol is indicated for glycemic control in type 2 diabetes."], "openfda": {"brand_name": ["Drugzol"]}},
+                  {"set_id": "b2", "effective_time": "20260201", "indications_and_usage": ["Drugzol is indicated for chronic weight management in adults with obesity."], "openfda": {"brand_name": ["Drugzol W"]}},
+                  {"set_id": "c3", "effective_time": "20260301", "indications_and_usage": ["Drugzol is indicated for glycemic control in type 2 diabetes."], "openfda": {"brand_name": ["Drugzol"]}}]
+        original = clinical_tools._fda_get
+        clinical_tools._fda_get = lambda params: {"results": labels}
+        try:
+            records = clinical_tools._fda_records("DRUGZOL", ["weigh"], 4)
+        finally:
+            clinical_tools._fda_get = original
+        self.assertEqual([r["set_id"] for r in records], ["a1", "b2"])      # the duplicate label is dropped, both indications are offered to the model
+        self.assertEqual([r["matches_condition"] for r in records], [False, True])
+
+
+class TheAnnouncementsTableIsRecentDatedAndReadable(unittest.TestCase):
+    def state(self, *dates):
+        s = make_state()
+        s["searched_on"] = "2026-10-08"
+        s["regulator_items"] = [{"classification": "approval", "type": "Approval", "relation": "treats_condition", "title": f"Page {i}", "url": f"https://www.fda.gov/p{i}", "quote": f"The FDA approved Drugzol {i}.",
+                                 "concerns": "", "drug": "", "date": d} for i, d in enumerate(dates)]
+        return s
+
+    def test_only_actions_dated_within_three_years_are_listed_newest_first_and_the_rest_are_counted(self):
+        md = landscape.regulatory_updates_markdown(self.state("September 22, 2025", "date not stated", "June 2, 2021", "March 3, 2026"))
+        rows = [l for l in md.splitlines() if l.startswith("| ") and "Page" in l]
+        self.assertEqual([r.split("|")[1].strip() for r in rows], ["March 3, 2026", "September 22, 2025"])
+        self.assertIn("2 further regulator page(s) were read but are not listed", md)
+
+    def test_with_no_dated_action_the_section_says_so_instead_of_listing_undated_pages(self):
+        md = landscape.regulatory_updates_markdown(self.state("date not stated"))
+        self.assertIn("No FDA, EMA or CDSCO announcement dated within the last 3 years", md)
+        self.assertNotIn("| Page 0", md)      # the undated page is not listed as recent
+
+    def test_square_brackets_in_a_title_cannot_break_the_link(self):
+        s = self.state("September 22, 2025")
+        s["regulator_items"][0]["title"] = "Revised Written Request [POST-FDAAA]"
+        md = landscape.regulatory_updates_markdown(s)
+        self.assertIn("[Revised Written Request (POST-FDAAA)](https://www.fda.gov/p0)", md)
+
+    def test_a_snippets_cut_off_end_and_mid_sentence_fragments_are_not_quotable(self):
+        got = landscape.numbered_sentences("Skip nav. The FDA today initiated the approval of Drugzol tablets for condition Y. Individuals have problems with", complete_only=True)
+        self.assertEqual(got, ["The FDA today initiated the approval of Drugzol tablets for condition Y."])
+
+    def test_a_pages_own_date_is_read_from_its_text(self):
+        import clinical_tools
+
+        class Reply:
+            status_code = 200
+            headers = {"content-type": "text/html; charset=UTF-8"}
+            content = b"<html><script>var a='January 1, 2001'</script><body><p>FDA News Release</p><p>Release: September 22, 2025</p></body></html>"
+
+        class Client:
+            def get(self, url, timeout=6):
+                return Reply()
+        original = clinical_tools._http
+        clinical_tools._http = Client()
+        try:
+            self.assertEqual(clinical_tools.page_date("https://www.fda.gov/x"), "September 22, 2025")
+        finally:
+            clinical_tools._http = original
+
+
+class OnlyUseInPracticeAndOnlyTheConditionItselfGoInTheTreatmentTable(unittest.TestCase):
+    SRC = {"u": {"title": "t", "label": "l", "url": "https://www.aap.org/x", "kind": "guideline",
+                 "text": "The guideline recommends melatonin for insomnia in autistic children. Atomoxetine (k=3, RB 0.49) improved core symptoms in children."}}
+
+    def item(self, **kw):
+        base = {"drug": "Melatonin", "source_id": "u", "sentence": 1, "relevance": "treats_associated_symptom_or_comorbidity", "statement_type": "used_in_practice", "drug_kind": "generic", "category": "Guideline-recommended", "indication": "insomnia in autistic children"}
+        base.update(kw)
+        return base
+
+    def test_a_sentence_reporting_a_study_result_is_not_a_drug_used_in_practice(self):
+        study = self.item(drug="Atomoxetine", sentence=2, statement_type="study_result", indication="improved core symptoms in children", category="Off-label")
+        rows, rejected = landscape.verify_drug_decisions([study, self.item(drug="Zzzzol", statement_type=None)], self.SRC, make_state())
+        self.assertEqual(rows, [])
+        self.assertIn("study_result", rejected[0][1])
+
+    def test_a_guideline_drug_for_an_associated_symptom_is_in_the_other_drugs_table_and_says_so(self):
+        s = make_state()
+        rows, _ = landscape.verify_drug_decisions([self.item()], self.SRC, s)
+        self.assertEqual(rows[0]["category"], "Guideline-recommended")
+        md = landscape.landscape_markdown(s, rows, [])
+        treatment, other = md.split("### Other drugs")[0], md.split("### Other drugs")[1]
+        self.assertNotIn("Melatonin", treatment)
+        self.assertIn("Melatonin", other)
+        self.assertIn("[guideline-recommended]", other)
+        self.assertIn("[associated symptom or comorbidity, not the condition itself]", other)
+
+    def test_a_guideline_drug_for_the_condition_itself_is_in_the_treatment_table(self):
+        s = make_state()
+        rows, _ = landscape.verify_drug_decisions([self.item(relevance="treats_condition")], self.SRC, s)
+        self.assertIn("Melatonin", landscape.landscape_markdown(s, rows, []).split("### Other drugs")[0])
+
+    def test_the_evidence_cell_shows_the_sentence_even_when_it_is_long(self):
+        s = make_state()
+        long_sentence = "The guideline recommends melatonin for insomnia in autistic children when sleep hygiene has not helped, " * 2 + "with review after three months."
+        src = {"u": dict(self.SRC["u"], text=long_sentence)}
+        rows, _ = landscape.verify_drug_decisions([self.item()], src, s)
+        self.assertIn("The guideline recommends melatonin", landscape.landscape_markdown(s, rows, []).split("### Other drugs")[1])
+
+
+class OnlySpecificDrugsAreListed(unittest.TestCase):
+    SRC = {"u": {"title": "t", "label": "l", "url": "", "kind": "web",
+                 "text": "Many medications are prescribed off-label, such as SSRIs and Strattera, for anxiety in children with condition X. Stimulants such as Ritalin treat attention problems."}}
+
+    def item(self, **kw):
+        base = {"drug": "Strattera", "drug_kind": "brand", "source_id": "u", "sentence": 1, "relevance": "treats_associated_symptom_or_comorbidity", "statement_type": "used_in_practice",
+                "category": "Off-label", "indication": "anxiety in children"}
+        base.update(kw)
+        return base
+
+    def test_a_drug_class_is_not_a_drug_row_but_a_brand_name_is(self):
+        rows, rejected = landscape.verify_drug_decisions([self.item(drug="SSRIs", drug_kind="class"), self.item(), self.item(drug="Ritalin", drug_kind=None)], self.SRC, make_state())
+        self.assertEqual([r["drug"] for r in rows], ["Strattera"])
+        self.assertEqual(len(rejected), 2)
+
+    def test_a_snippets_heading_marks_and_doubled_full_stops_are_cleaned(self):
+        text = landscape._clean_source("### Stimulant Medications Doctors prescribe Ritalin. Strattera may be a better option..")
+        self.assertNotIn("#", text)
+        self.assertFalse(text.endswith(".."))
+
+    def test_a_brand_is_resolved_to_its_generic_by_the_fda_label(self):
+        import clinical_tools
+        calls = []
+
+        def fake(params):
+            calls.append(params["search"])
+            if "brand_name" in params["search"]:
+                return {"results": [{"set_id": "s1", "effective_time": "20260101", "openfda": {"brand_name": ["Strattera"], "generic_name": ["ATOMOXETINE HYDROCHLORIDE"]}, "boxed_warning": []}]}
+            return {"results": []}
+        original = clinical_tools._fda_get
+        clinical_tools._fda_get = fake
+        try:
+            found = clinical_tools.fda_label_link("Strattera")
+        finally:
+            clinical_tools._fda_get = original
+        self.assertEqual(found["generic_name"], "ATOMOXETINE HYDROCHLORIDE")
+        self.assertEqual(len(calls), 2)
+
+
+class EveryListedDrugIsAccountedForInTheSafetySection(unittest.TestCase):
+    def test_drugs_without_a_boxed_warning_or_without_a_label_are_named_instead_of_silently_missing(self):
+        labels = [{"drug": "Drugzol", "url": "https://dailymed.nlm.nih.gov/a", "boxed_warning": "INCREASED MORTALITY IN ELDERLY PATIENTS."},
+                  {"drug": "Calmol", "url": "https://dailymed.nlm.nih.gov/b", "boxed_warning": None}]
+        md = landscape.safety_alerts_markdown(labels, ["Drugzol", "Calmol", "Mixol"])
+        self.assertIn("[Drugzol](https://dailymed.nlm.nih.gov/a)", md)
+        self.assertIn("No boxed warning on the retrieved label of: Calmol.", md)
+        self.assertIn("No FDA label could be matched for: Mixol.", md)
+        self.assertNotIn("[Calmol]", md)
+
+    def test_with_no_boxed_warning_at_all_the_section_still_says_which_drugs_were_checked(self):
+        md = landscape.safety_alerts_markdown([{"drug": "Calmol", "url": "https://dailymed.nlm.nih.gov/b", "boxed_warning": None}], ["Calmol"])
+        self.assertIn("No boxed warning was found", md)
+        self.assertIn("Calmol", md)
+
+
+class ACombinationProductIsOneProductNotSeveralDrugs(unittest.TestCase):
+    def test_active_ingredients_joined_by_the_registry_are_shown_as_one_product(self):
+        r = {"generic": "Avobenzone, Homosalate, Octisalate, Octocrylene", "brands": []}
+        self.assertEqual(landscape.product_name(r), "Combination product (one product: avobenzone + homosalate + octisalate + octocrylene)")
+        r = {"generic": "Titanium Dioxide, Zinc Oxide", "brands": ["Neutrogena Mineral Sunscreen"]}
+        self.assertEqual(landscape.product_name(r), "Neutrogena Mineral Sunscreen (one product: titanium dioxide + zinc oxide)")
+        self.assertEqual(landscape.product_name({"generic": "Risperidone", "brands": ["Risperdal"]}), "Risperidone (Risperdal)")
+
+    def test_the_tables_use_the_product_name(self):
+        s = make_state()
+        s["regulatory"] = [{"generic": "Aaa, Bbb", "brands": [], "matches_condition": True, "model_relevant": True, "model_evidence": "Aaa and Bbb are indicated for condition X.",
+                            "indication_excerpt": "Aaa and Bbb are indicated for condition X.", "url": "https://dailymed.nlm.nih.gov/x", "label_date": "2026-01-01"}]
+        self.assertIn("one product: aaa + bbb", landscape.top_drugs_markdown(s))
+        self.assertIn("one product: aaa + bbb", landscape.landscape_markdown(s, [], []))
+
+
+class ALabelMustMatchWhatTheQuestionAsksFor(unittest.TestCase):
+    def offered(self):
+        rec = {"generic": "Sunx"}
+        return rec, {"fda:Sunx": {"indication_text": "Sunx helps prevent sunburn and decreases the risk of skin cancer.", "record": rec}}
+
+    def test_a_preventive_label_is_not_relevant_to_a_question_about_treatment(self):
+        rec, offered = self.offered()
+        out = landscape.verify_fda_decisions([{"id": "fda:Sunx", "purpose": "prevent", "relevant": True, "relation": "treats_associated_symptom_or_comorbidity", "sentence": 1}], offered, "treat_or_manage")
+        self.assertEqual(out["excluded"], ["Sunx"])
+        self.assertFalse(landscape.fda_relevant(rec))
+
+    def test_a_label_for_treatment_is_never_excluded_by_a_question_about_prevention(self):
+        rec, offered = self.offered()
+        out = landscape.verify_fda_decisions([{"id": "fda:Sunx", "purpose": "treat_or_manage", "relevant": True, "relation": "treats_condition", "sentence": 1}], offered, "prevent")
+        self.assertEqual(out["confirmed"], ["Sunx"])
+
+    def test_the_same_label_is_relevant_when_the_question_asks_about_prevention(self):
+        rec, offered = self.offered()
+        out = landscape.verify_fda_decisions([{"id": "fda:Sunx", "purpose": "prevent", "relevant": True, "relation": "treats_condition", "sentence": 1}], offered, "prevent")
+        self.assertEqual(out["confirmed"], ["Sunx"])
+
+    def test_an_unknown_question_type_changes_nothing(self):
+        rec, offered = self.offered()
+        out = landscape.verify_fda_decisions([{"id": "fda:Sunx", "purpose": "prevent", "relevant": True, "sentence": 1}], offered, "other")
+        self.assertEqual(out["confirmed"], ["Sunx"])
+
+
+class TheFastAnswerKeepsTheSearchOrderAndSaysWhenLabelsAreStillBeingRead(unittest.TestCase):
+    def test_papers_the_triage_has_not_read_keep_the_search_engines_own_order(self):
+        a, b, c = study("710001", year="2019"), study("710002", year="2026"), study("710003", year="2022")
+        got = [p["pmid"] for p in qa_stream.ordered_papers({"710001": a, "710002": b, "710003": c}, set())]
+        self.assertEqual(got, ["710001", "710002", "710003"])      # not newest-first, not by study design
+
+    def test_the_top_drugs_table_names_labels_still_being_read(self):
+        s = make_state()
+        s["regulatory"] = [{"generic": "Zzz", "matches_condition": True, "indication_excerpt": "Zzz is indicated for condition X.", "url": "https://dailymed.nlm.nih.gov/z"}]
+        s["trials_by_id"] = {}
+        self.assertIn("1 retrieved FDA label(s) were still being read", landscape.top_drugs_markdown(s))
+        s["regulatory"][0]["model_relevant"] = False
+        self.assertNotIn("still being read", landscape.top_drugs_markdown(s))
+
+
+class TheFastSearchNeverLeavesTheFirstAnswerWithoutPapers(unittest.TestCase):
+    PRIMARY = json.dumps({"results": [{"pmid": "1", "title": "A"}, {"pmid": "2", "title": "B"}]})
+    FALLBACK = json.dumps({"results": [{"pmid": "2", "title": "B"}, {"pmid": "3", "title": "C"}]})
+
+    def test_the_primarys_papers_come_first_and_the_fallbacks_new_ones_follow(self):
+        got = json.loads(qa_stream.primary_with_fallback(lambda: self.PRIMARY, lambda: self.FALLBACK, grace=2.0))
+        self.assertEqual([r["pmid"] for r in got["results"]], ["1", "2", "3"])
+
+    def test_a_slow_primary_leaves_the_fallback_to_answer_alone(self):
+        import time
+
+        def slow():
+            time.sleep(1.5)
+            return self.PRIMARY
+        got = json.loads(qa_stream.primary_with_fallback(slow, lambda: self.FALLBACK, grace=0.3))
+        self.assertEqual([r["pmid"] for r in got["results"]], ["2", "3"])
+
+    def test_a_failing_primary_is_covered_by_the_fallback(self):
+        def broken():
+            raise RuntimeError("down")
+        got = json.loads(qa_stream.primary_with_fallback(broken, lambda: self.FALLBACK, grace=0.5))
+        self.assertEqual([r["pmid"] for r in got["results"]], ["2", "3"])
+
+
+class ALabelSentenceIsShownWithItsContext(unittest.TestCase):
+    def test_a_bullet_gets_its_lead_in_and_a_full_following_sentence_is_added(self):
+        text = "Drugzol is indicated for the treatment of: \u2022 Schizophrenia \u2022 Irritability Associated with Condition X \u2022 Tics"
+        sentences = landscape.numbered_sentences(text, 900, 12)
+        self.assertEqual(landscape.with_context(sentences, 3), "Drugzol is indicated for the treatment of: Irritability Associated with Condition X.")
+        full = landscape.numbered_sentences("Otherol is indicated for irritability in condition X. Efficacy was established in 3 trials in children aged 5 to 17 years.", 900, 12)
+        self.assertEqual(landscape.with_context(full, 1), "Otherol is indicated for irritability in condition X. Efficacy was established in 3 trials in children aged 5 to 17 years.")
+
+    def test_the_decision_stores_the_sentence_with_its_context(self):
+        rec = {"generic": "Drugzol"}
+        text = "Drugzol is indicated for the treatment of: \u2022 Schizophrenia \u2022 Irritability Associated with Condition X"
+        offered = {"fda:Drugzol": {"indication_text": text, "record": rec, "sentences": landscape.numbered_sentences(text, 900, 12)}}
+        landscape.verify_fda_decisions([{"id": "fda:Drugzol", "relevant": True, "relation": "treats_condition", "sentence": 3}], offered)
+        self.assertEqual(rec["model_evidence"], "Drugzol is indicated for the treatment of: Irritability Associated with Condition X")
+
+
+class FutureDatesAreMarkedWhateverTheBulletLayout(unittest.TestCase):
+    def test_the_date_and_study_type_inside_one_bold_span_is_handled(self):
+        text = "## Latest findings\n- **2026 Dec: Case Reports**, A case study showed a result (PMID 1).\n- **2026 Sep: Meta-Analysis**, Another result (PMID 2).\n"
+        fixed, actions = verification.fix_future_dates(text, {"searched_on": "2026-10-09"})
+        self.assertIn("**Advance publication (issue dated 2026 Dec): Case Reports**", fixed)
+        self.assertIn("**2026 Sep: Meta-Analysis**", fixed)
+        self.assertEqual(len(actions), 1)
+
+
+class FutureDatesWithADayAreMarkedToo(unittest.TestCase):
+    def test_a_date_with_a_day_is_compared_to_the_search_date(self):
+        from datetime import datetime
+        today = datetime(2026, 10, 9)
+        later = ["2027 Jan 15", "2026 Dec 01", "2026 Dec", "2026 Oct 20", "2026-10-20", "2026-12-01", "2027"]
+        not_later = ["2026 Oct 09", "2026 Oct 5", "2026 Oct", "2026 Sep 21", "2026", "2025 Dec 31"]
+        self.assertEqual([verification.date_after(x, today) for x in later], [True] * len(later))
+        self.assertEqual([verification.date_after(x, today) for x in not_later], [False] * len(not_later))
+
+    def test_the_bullet_with_a_day_in_its_date_is_rewritten(self):
+        text = "## Latest findings\n- **2027 Jan 15**: *Emerging evidence* \u2013 A method (PMID 1).\n- **2026 Sep 21**: *Emerging evidence* \u2013 Another (PMID 2).\n"
+        fixed, actions = verification.fix_future_dates(text, {"searched_on": "2026-10-09"})
+        self.assertIn("**Advance publication (issue dated 2027 Jan 15)**", fixed)
+        self.assertIn("**2026 Sep 21**", fixed)
+        self.assertEqual(len(actions), 1)

@@ -41,7 +41,7 @@ def _get(url: str, params: dict) -> bytes:
     for attempt in range(4):
         if url.startswith(EUTILS):
             with _ncbi_lock:  # serialise NCBI calls across threads
-                wait = NCBI_MIN_GAP - (time.time() - _ncbi_last_call)
+                wait = (0.11 if os.getenv("NCBI_API_KEY") else 0.35) - (time.time() - _ncbi_last_call)      # about 10 requests a second with a key, 3 without
                 if wait > 0:
                     time.sleep(wait)
                 _ncbi_last_call = time.time()
@@ -337,10 +337,25 @@ def dosage_statement(text: str, stems: list[str], limit: int = 1300) -> str | No
 
 
 def _fda_record(generic: str, stems: list[str]) -> dict | None:
-    data = _fda_get({"search": f'openfda.generic_name.exact:"{generic}"', "limit": 1})
-    if not data or not data.get("results"):
-        return None
-    label = data["results"][0]
+    records = _fda_records(generic, stems, 1)
+    return records[0] if records else None
+
+
+def _fda_records(generic: str, stems: list[str], limit: int = 1) -> list[dict]:
+    """The FDA label records of one generic name. A drug the question names can have several labels for different indications (for example one for diabetes and one for weight
+    management): up to `limit` distinct labels are returned and the model decides which of them bear on the question."""
+    data = _fda_get({"search": f'openfda.generic_name.exact:"{generic}"', "limit": limit})
+    out, seen = [], set()
+    for label in (data or {}).get("results", []):
+        record = _record_from_label(label, generic, stems)
+        key = (record["indication_excerpt"][:120], tuple(record["brands"]))
+        if key not in seen:
+            seen.add(key)
+            out.append(record)
+    return out
+
+
+def _record_from_label(label: dict, generic: str, stems: list[str]) -> dict:
     text = re.sub(r"\s+", " ", " ".join(label.get("indications_and_usage") or [])).strip()
     low, hit = text.lower(), -1
     for stem in stems:
@@ -363,22 +378,47 @@ def _fda_record(generic: str, stems: list[str]) -> dict | None:
             "url": f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={set_id}" if set_id else None, "source_id": f"fda:{set_id}"}
 
 
+_MONTHS = "January|February|March|April|May|June|July|August|September|October|November|December"
+_FULL_DATE = rf"(?:{_MONTHS}) \d{{1,2}}, (?:19|20)\d\d|\b\d{{1,2}}/\d{{1,2}}/(?:19|20)\d\d\b"
+_LABELLED_DATE = re.compile(rf"(?:Content current as of|Posted|Published|Updated|Last updated|Release|Release date|Date)[^A-Za-z0-9]{{0,20}}({_FULL_DATE})")
+
+
+def page_date(url: str) -> str | None:
+    """The publication date a web page states about itself ('Release: September 22, 2025'), read from the page's own visible text; None when the page is not HTML or states none.
+    Parsing a date is mechanical: nothing here judges the page."""
+    try:
+        reply = _http.get(url, timeout=6)
+        if reply.status_code != 200 or "html" not in (reply.headers.get("content-type") or ""):
+            return None
+        text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", re.sub(r"(?is)<(?:script|style).*?</(?:script|style)>", " ", reply.content[:400000].decode("utf-8", "ignore"))))
+    except Exception:
+        return None
+    found = _LABELLED_DATE.search(text) or re.search(f"({_FULL_DATE})", text[:6000])
+    return (found.group(1) if found else None)
+
+
 def fda_label_link(generic: str) -> dict | None:
     """The DailyMed label of ONE named drug (any indication), so a table row can link to that drug's own page. None when openFDA has no label for the name."""
     name = re.sub(r"[^A-Za-z0-9 \-]", "", str(generic or "")).strip()
     if len(name) < 4:
         return None
     data = _fda_get({"search": f'openfda.generic_name:"{name}"', "limit": 1})
-    if not data or not data.get("results"):
-        return None
-    label = data["results"][0]
+    label = ((data or {}).get("results") or [None])[0]
+    generic_names = " ".join(((label or {}).get("openfda") or {}).get("generic_name") or []).lower()
+    via_brand = False
+    if not label or not label.get("set_id") or name.split()[0].lower() not in generic_names:
+        data = _fda_get({"search": f'openfda.brand_name:"{name}"', "limit": 1})      # the name may be a brand ('Strattera'): the label states its generic name
+        label = ((data or {}).get("results") or [None])[0]
+        brands = [b.lower() for b in ((label or {}).get("openfda") or {}).get("brand_name") or []]
+        if not label or not label.get("set_id") or name.lower() not in brands:
+            return None
+        via_brand = True
+        generic_names = " ".join(label.get("openfda", {}).get("generic_name") or []).lower()
     set_id = label.get("set_id")
-    generic_names = " ".join(label.get("openfda", {}).get("generic_name") or []).lower()
-    if not set_id or name.split()[0].lower() not in generic_names:
-        return None
     boxed = re.sub(r"\s+", " ", " ".join(label.get("boxed_warning") or [])).strip()
     when = str(label.get("effective_time") or "")
-    return {"generic": name, "set_id": set_id, "url": f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={set_id}",
+    return {"generic": name, "generic_name": (label.get("openfda", {}).get("generic_name") or [None])[0] if via_brand else None, "set_id": set_id,
+            "url": f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={set_id}",
             "brand": (label.get("openfda", {}).get("brand_name") or [None])[0], "boxed_warning": boxed or None,
             "label_date": f"{when[:4]}-{when[4:6]}-{when[6:8]}" if len(when) == 8 else None}
 
@@ -410,14 +450,13 @@ def search_fda_labels(condition_terms: list[str], drug_names: list[str] | None =
                         if base not in names:
                             names.append(base)
                     break
-        for d in drug_names or []:
-            if d.upper() not in [n.upper() for n in names]:
-                names.append(d.upper())
-        names = names[:max_drugs + len(drug_names or [])]
+        asked = [d.upper() for d in drug_names or []]
+        names = asked + [n for n in names if n.upper() not in asked][:max_drugs]      # the drugs the question names come first and are never cut off
         from concurrent.futures import ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=6) as pool:
-            records = [r for r in pool.map(lambda n: _fda_record(n, used), names) if r]
+            asked_set = set(asked)
+            records = [r for group in pool.map(lambda n: _fda_records(n, used, 4 if n in asked_set else 1), names) for r in group]
     except (urllib.error.URLError, TimeoutError, ValueError, KeyError) as error:
         return json.dumps({"error": f"FDA label search failed: {error}"})
-    return json.dumps({"results": records[:max_drugs + len(drug_names or [])], "searched_terms": used, "searched_drugs": drug_names or [],
+    return json.dumps({"results": records[:max_drugs + 4 * len(drug_names or [])], "searched_terms": used, "searched_drugs": drug_names or [],
                        "searched_at": _now(), "note": "empty results = searched, none found"}, ensure_ascii=False)

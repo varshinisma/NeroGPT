@@ -1517,3 +1517,35 @@ class FutureDatesWithADayAreMarkedToo(unittest.TestCase):
         self.assertIn("**Advance publication (issue dated 2027 Jan 15)**", fixed)
         self.assertIn("**2026 Sep 21**", fixed)
         self.assertEqual(len(actions), 1)
+
+
+class AStalledModelCallIsAbandoned(unittest.TestCase):
+    def test_a_generator_that_goes_silent_raises_instead_of_hanging(self):
+        import time
+
+        def silent():
+            yield "a"
+            time.sleep(5)
+            yield "b"
+        got = []
+        with self.assertRaises(TimeoutError):
+            for chunk in qa_stream._with_deadline(silent(), first=1.0, idle=0.5):
+                got.append(chunk)
+        self.assertEqual(got, ["a"])
+
+    def test_a_normal_generator_passes_through_and_an_error_is_re_raised(self):
+        self.assertEqual(list(qa_stream._with_deadline(iter(["x", "y"]), first=1.0, idle=1.0)), ["x", "y"])
+
+        def broken():
+            yield "x"
+            raise ValueError("boom")
+        with self.assertRaises(ValueError):
+            list(qa_stream._with_deadline(broken(), first=1.0, idle=1.0))
+
+
+class TablePaddingIsCollapsed(unittest.TestCase):
+    def test_padding_spaces_and_long_separator_rows_become_compact(self):
+        text = "## Current evidence\n| Approach                  | Evidence level      | Shows |\n|--------------------------|---------------------|-------|\n| Exercise                  | Emerging            | Improved [1]. |\n"
+        fixed = qa_stream.tidy_model_sections(text)
+        self.assertIn("| Approach | Evidence level | Shows |", fixed)
+        self.assertIn("|---|---|---|", fixed)

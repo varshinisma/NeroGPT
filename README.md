@@ -138,7 +138,7 @@ flowchart TD
  3 s   fast retrieval done (PubMed/Europe PMC, trials, FDA labels, web)
  5 s   FIRST USEFUL ANSWER: Clinical summary text; Top treatment drugs table follows within a few seconds
 10 s   deep retrieval done; triage of every paper and trial starts (2-3 s)
-13 s   Latest findings / Current evidence start streaming
+12 s   Latest findings start streaming (the other prose parts are already being written in parallel)
 22 s   Treatment Drug Landscape appears (it was built in the background)
 28 s   Key studies ... Evidence limitations; verification; final report + PDF
 ```
@@ -165,7 +165,7 @@ flowchart LR
 | Understand the question | `clinical-research-orchestrator` | The question | Intent, condition, search queries |
 | Fast answer | `clinical-answer-writer` | A few papers, trials, web items, FDA label indications | Bottom line, recent finding, context |
 | Paper and trial triage | `evidence-synthesis` | Every retrieved paper / registry record as numbered sentences | Relevance, evidence role, supporting sentence number |
-| Latest findings ... What remains | `evidence-synthesis` | The papers the triage judged relevant, with their roles and dates | The prose sections |
+| Latest findings ... What remains | `evidence-synthesis` | The papers the triage judged relevant, with their roles and dates | The prose sections, written by **three calls side by side** (Latest findings / Current evidence / Key studies + Conflicting evidence + What remains), shown in the document's order |
 | FDA label relevance | `drug-intelligence` | Each label's indication as numbered sentences | Relevant or not, relation to the condition, sentence number |
 | Drugs used in practice | `drug-intelligence` | Sources in groups of four, as numbered sentences | Drug, kind (generic / brand / class), statement type, category, sentence number |
 | Regulator pages | `drug-intelligence` | Page text as numbered sentences | Approval / label update / safety communication / other / not relevant, relation, sentence numbers |

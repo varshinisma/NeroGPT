@@ -20,6 +20,7 @@ import json
 import os
 import re
 import sys
+import queue
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
@@ -44,7 +45,7 @@ DEEP_TIMEOUT_S = 25.0         # per retrieval skill, DEEP path
 CLAUDE_MODE = os.getenv("NEUROGPT_LLM") == "claude_files"   # the text-writing steps are answered by Claude through files, not by an API model
 DEEP_BUDGET_S = 1e5 if CLAUDE_MODE else 100.0   # total deep-research budget (not applied while Claude writes the text)
 MAX_CONTEXT_PAPERS = 16
-FAST_TOKENS, DEEP_TOKENS = 330, 1700   # two output sizes only, so two warm connections
+FAST_TOKENS, DEEP_TOKENS = 330, 1600   # two output sizes only, so two warm connections
 STAGES = ["INITIAL", "EVIDENCE_ENRICHING", "DRUGS_ENRICHING", "TRIALS_ENRICHING", "VERIFICATION", "FINAL"]
 
 STOP = set("""a an the of in on for to and or with without about from by at as is are was were be been do does did can could should would
@@ -205,6 +206,7 @@ def tidy_model_sections(text: str) -> str:
     """Remove what a small model sometimes adds around its sections: letter labels like '(A)' / '**(B)**' and loose '---' separators."""
     text = re.sub(r"(?m)^[ \t]*\*{0,2}\(?[A-D]\)\*{0,2}[ \t]*$\n?", "", text)
     text = re.sub(r"(?m)^[ \t]*-{3,}[ \t]*$\n?", "", text)
+    text = chr(10).join(re.sub(r" {2,}", " ", re.sub(r"-{4,}", "---", ln)) if ln.lstrip().startswith("|") else ln for ln in text.split(chr(10)))      # table padding is only whitespace: single spaces, short separator row
     text = fix_reference_column(text)
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
@@ -392,24 +394,61 @@ def bridge_llm(instructions: str, prompt: str):
         yield text[i:i + 60]
 
 
+FIRST_CHUNK_S, IDLE_CHUNK_S = 20.0, 25.0      # a model call that has produced nothing for this long has stalled (a normal call starts within 1-3 s)
+
+
+def _with_deadline(source, first: float = FIRST_CHUNK_S, idle: float = IDLE_CHUNK_S):
+    """Yield what a (possibly stalling) generator produces. It runs in its own thread; if it is silent for longer than the limit the call is abandoned with a TimeoutError,
+    so one stalled model call can never hold the whole answer."""
+    box: queue.Queue = queue.Queue()
+
+    def pump():
+        try:
+            for item in source:
+                box.put(("chunk", item))
+            box.put(("done", None))
+        except Exception as error:
+            box.put(("error", error))
+    threading.Thread(target=pump, daemon=True).start()
+    waited = first
+    while True:
+        try:
+            kind, value = box.get(timeout=waited)
+        except queue.Empty:
+            raise TimeoutError(f"the model gave no answer for {waited:.0f} s")
+        if kind == "chunk":
+            waited = idle
+            yield value
+        elif kind == "error":
+            raise value
+        else:
+            return
+
+
 def stream_llm(instructions: str, prompt: str, max_tokens: int, attempts: int = 2, temperature: float | None = None):
-    """Yield text chunks from a FRESH agent (no shared history). Bounded retries only before the first chunk."""
+    """Yield text chunks from a FRESH agent (no shared history). Bounded retries only before the first chunk; a stalled call is abandoned (see _with_deadline)."""
     if CLAUDE_MODE:
         yield from bridge_llm(instructions, prompt)
         return
     from agno.agent import Agent
+
+    def one_attempt():
+        agent = Agent(model=model_for(max_tokens, temperature), instructions=[instructions], markdown=True)
+        got = False
+        for event in agent.run(prompt, stream=True):
+            kind, content = str(getattr(event, "event", "")), getattr(event, "content", None)
+            if "Error" in kind or (not got and str(content or "").startswith(("API error", "Error"))):
+                raise RuntimeError(str(content or kind)[:300])
+            if kind == "RunContent" and content:
+                got = True
+                yield str(content)
     last = None
     for _ in range(attempts):
         got = False
         try:
-            agent = Agent(model=model_for(max_tokens, temperature), instructions=[instructions], markdown=True)
-            for event in agent.run(prompt, stream=True):
-                kind, content = str(getattr(event, "event", "")), getattr(event, "content", None)
-                if "Error" in kind or (not got and str(content or "").startswith(("API error", "Error"))):
-                    raise RuntimeError(str(content or kind)[:300])
-                if kind == "RunContent" and content:
-                    got = True
-                    yield str(content)
+            for chunk in _with_deadline(one_attempt()):
+                got = True
+                yield chunk
             return
         except Exception as error:
             last = error
@@ -468,21 +507,31 @@ FAST_TASK = ("FAST INITIAL RESPONSE, under 120 words (do NOT write an 'Evidence 
              "Do NOT list drugs: the system adds the 'Top treatment drugs' table from FDA label data right after your text. Do not contradict it: if an FDA label in `fda_labels` names the question's condition "
              "or a symptom of it, never write that no approved or established treatment exists; you may say that FDA-approved drugs exist for that use, without naming them. " + GROUND)
 
-EVIDENCE_TASK = ("Write ONLY these parts, in this order, under 450 words in total, and finish every part. "
-                 "FIRST, the heading '## Latest findings' followed by at most 4 bullets, newest first; each bullet gives the exact date as given in the data, the study type, one sentence on the result and (PMID <the PMID printed in that study's cite field>). "
-                 "SECOND, the heading '## Current evidence' followed by ONE Markdown table with exactly these columns: | Approach | Evidence level | What the evidence shows | Reference |. One row per treatment approach "
-                 "(for example an intervention type or a symptom-directed treatment), at most 8 rows, strongest evidence first, each approach ONCE. "
-                 "Evidence level must be one of: Established (only a guideline or consistent high-quality evidence; a systematic review of studies of variable quality is NOT established), "
-                 "Evidence-supported but limited, Emerging, Experimental or preliminary, Indirect evidence (different or related population), Protocol - no results, Insufficient evidence. "
-                 "'What the evidence shows' is ONE sentence of what the cited source reports. Reference is (PMID <the PMID printed in that study's cite field>). "
-                 "THIRD, '## Key studies': a numbered list of up to 5 studies, each in the form '**<first author> et al. (<year>)**, <design>: <what it found, one sentence> (PMID <the PMID printed in that study's cite field>)' "
-                 "- fill every <...> from a study in the data; the design is for example meta-analysis, systematic review, randomized controlled trial or cohort study. "
-                 "FOURTH, '## Conflicting evidence' (only a real disagreement between two DIFFERENT sources, or negative results; otherwise say none was retrieved). "
-                 "FIFTH, '## What remains under investigation' (at most 5 short bullets, no sub-bullets). Distinguish efficacy, effectiveness, feasibility and association. "
-                 "Use ONLY papers whose `relation` and `triage` show they bear on the question; a paper about an associated condition or a different population answers a different question and belongs, if anywhere, "
-                 "in a row or bullet that says so. Use each paper's `triage.evidence_role` and `population` to label the evidence level and who it applies to; do not call evidence established unless its role is established. "
-                 "If a paper has `after_search_date` true its date is later than today: call it an advance publication and never present it as already published on that date. "
-                 "Do not discuss drug approval or drug availability. " + GROUND)
+EVIDENCE_RULES = ("Use ONLY papers whose `relation` and `triage` show they bear on the question; a paper about an associated condition or a different population answers a different question and belongs, if anywhere, "
+                  "in a row or bullet that says so. Use each paper's `triage.evidence_role` and `population` to label the evidence level and who it applies to; do not call evidence established unless its role is established. "
+                  "If a paper has `after_search_date` true its date is later than today: call it an advance publication and never present it as already published on that date. "
+                  "Never write a sample size ('n=...') or any other number that is not literally in the paper's abstract text: describe the population in words (for example 'children aged 2 to 6 years'). "
+                  "Do not discuss drug approval or drug availability. " + GROUND)
+LATEST_TASK = ("Write ONLY the heading '## Latest findings' followed by at most 5 bullets, newest first, and finish every bullet; each bullet gives the exact date as given in the data, the study type, and TWO sentences: "
+               "who or what was studied (population and design) and what it found, with the main limitation when the data states one; end with (PMID <the PMID printed in that study's cite field>). "
+               "Use only papers whose `relation` is direct, and only studies that report a result (never a protocol or a study without results); an indirect paper may be used only if fewer than 3 direct papers report a result, "
+               "and then the bullet must say it is indirect evidence. Every bullet starts with its own subject (what was studied), never with 'It' or 'The study'. " + EVIDENCE_RULES)
+CURRENT_TASK = ("Write ONLY the heading '## Current evidence' followed by ONE Markdown table with exactly these columns: | Approach | Evidence level | What the evidence shows | Reference |. One row per treatment approach "
+                "(for example an intervention type or a symptom-directed treatment), at most 8 rows, strongest evidence first, each approach ONCE. "
+                "Evidence level must be one of: Established (only a guideline or consistent high-quality evidence; a systematic review of studies of variable quality is NOT established), "
+                "Evidence-supported but limited, Emerging, Experimental or preliminary, Indirect evidence (different or related population), Protocol - no results, Insufficient evidence. "
+                "'What the evidence shows' is ONE or TWO sentences of what the cited source reports: the population, the result and, when stated, its limit. "
+                "Reference is (PMID <the PMID printed in that study's cite field>). "
+                "Give a row only to an approach that a paper with `relation` direct reports a result for; do not add rows for papers about another population, for caregivers, or for protocols. "
+                "Write the table compactly: single spaces around the cell text (never padding spaces) and the separator row exactly |---|---|---|---|. " + EVIDENCE_RULES)
+TAIL_TASK = ("Write ONLY these parts, in this order, and finish every part. "
+             "FIRST, '## Key studies': a numbered list of up to 5 studies, each in the form '**<first author> et al. (<year>)**, <design>: <what it found, in one or two sentences, with the population; copy any number exactly from the abstract and never write one that is not there> (PMID <the PMID printed in that study's cite field>)' "
+             "- fill every <...> from a study in the data; the design is for example meta-analysis, systematic review, randomized controlled trial or cohort study. "
+             "SECOND, '## Conflicting evidence' (only a real disagreement between two DIFFERENT sources, or negative results: 2 to 3 sentences naming what disagrees and on what; if there is none, one sentence saying what was compared "
+             "and that no disagreement was retrieved). "
+             "THIRD, '## What remains under investigation' (at most 6 bullets, no sub-bullets, each 1 to 2 sentences naming the specific open question: the population, outcome or comparison not yet answered). "
+             "Distinguish efficacy, effectiveness, feasibility and association. " + EVIDENCE_RULES)
+EVIDENCE_TASK = LATEST_TASK + " || " + CURRENT_TASK + " || " + TAIL_TASK      # the three tasks, in the document's order (each is sent as its own model call)
 
 HOLD_FROM = re.compile(r"(?im)^#{2,4}\s*(?:Key studies|Conflicting|What remains)")      # the specification puts Key studies, Conflicting evidence and What remains AFTER the drugs and trials
 
@@ -760,7 +809,7 @@ def build_fast_context(state: dict, question: str) -> dict:
 def build_evidence_context(state: dict, question: str) -> dict:
     """evidence-synthesis: usable papers (not retracted, on topic) with their relation to the question, plus a few trials."""
     stems = set(state["core_stems"])
-    return {"question": question, "papers": [paper_view(p, 450, stems) for p in ordered_papers(state["papers"], stems)[:MAX_CONTEXT_PAPERS]],
+    return {"question": question, "papers": [paper_view(p, 800, stems) for p in ordered_papers(state["papers"], stems)[:MAX_CONTEXT_PAPERS]],
             "trials": [trial_view(t) for t in [t for t in state["trials_by_id"].values() if (t.get("triage") or {}).get("relevance") not in ("not_relevant", "uncertain")][:4]],
             "source_status": compact_status(state)}
 
@@ -1076,45 +1125,6 @@ def stream_answer(question: str):
     opening = model_text
     sections: list[str] = []          # filled in the order the sections are STREAMED, so the final report is the same document that was shown growing
 
-    streamed_upto: dict[str, int] = {}
-
-    def stage_stream(stage: str, skill: str, task: str, data: dict, max_tokens: int, hold: re.Pattern | None = None, on_hold=None, between=None, on_start=None):
-        """One enrichment stage (a generator): ONE skill loaded lazily + that skill's own view, fresh model context, tokens yielded live.
-        With `hold`, tokens are shown only up to the first match of the pattern; the rest is kept back and shown later, in its place in the document.
-        Returns the text, or None if skipped/failed."""
-        if clock.now() > DEEP_BUDGET_S:
-            skipped.append(f"{stage} (100 s deep-research budget used)")
-            return None
-        prompt = f"TASK: {task}\n\nQUESTION: {question}\nRETRIEVED DATA (JSON):\n{json.dumps(data, ensure_ascii=False, separators=(',', ':'))}"
-        text, emitted, held = "", 0, False
-        if on_start:
-            on_start()      # independent work that only needs the retrieved data starts now, in the background
-        try:
-            for chunk in stream_llm(load_skill_text(skill), prompt, max_tokens):
-                text += chunk
-                if hold is None:
-                    yield event("token", stage=stage, text=chunk)
-                    emitted = len(text)
-                elif not held:
-                    m = hold.search(text)
-                    end = m.start() if m else max(emitted, len(text) - 40)        # keep a short tail back: a heading may be half-typed
-                    if m and on_hold:
-                        on_hold()      # the visible part is done: start the work that does not need the rest
-                    held = bool(m)
-                    if end > emitted:
-                        yield event("token", stage=stage, text=text[emitted:end])
-                        emitted = end
-                if between is not None and held:
-                    yield from between()      # other finished sections are shown while the model is still writing the held-back part
-            if hold is not None and not held and emitted < len(text):
-                yield event("token", stage=stage, text=text[emitted:])
-                emitted = len(text)
-        except Exception as error:
-            skipped.append(f"{stage} ({str(error)[:120]})")
-            streamed_upto[stage] = emitted
-            return None
-        streamed_upto[stage] = emitted
-        return text
 
     def prepare_landscape() -> str:
         """Merge the drug / trial / guideline retrieval, name the used-in-practice drugs, look up labels, condense doses and build the landscape. No streaming here:
@@ -1158,9 +1168,9 @@ def stream_answer(question: str):
                 offered[p["pmid"]] = {"title": p["title"][:160], "text": snippet(p["abstract"], 900), "label": f"PMID {p['pmid']} ({p['cite'].split(' [')[0]})", "url": "", "kind": "paper"}
         for w in state["web"][:16]:
             if w.get("url") and w.get("source") != "web_regulatory" and w.get("snippet"):      # regulator pages are classified by their own call below
-                offered[w["url"]] = {"title": (w.get("title") or "web page")[:160], "text": w["snippet"], "label": f"[{(w.get('title') or 'web page')[:160]}]({w['url']})", "url": w["url"], "kind": "web"}
+                offered[w["url"]] = {"title": (w.get("title") or "web page")[:160], "text": w["snippet"], "label": f"[{(w.get('title') or 'web page')[:70]}]({w['url']})", "url": w["url"], "kind": "web"}
         for g in state.get("guidelines", []):
-            offered[g["url"]] = {"title": g["title"][:160], "text": g.get("text") or g.get("excerpt") or "", "label": f"[{g['organisation']}: {g['title'][:160]}]({g['url']})", "url": g["url"], "kind": "guideline"}
+            offered[g["url"]] = {"title": g["title"][:160], "text": g.get("text") or g.get("excerpt") or "", "label": f"[{g['organisation']}: {g['title'][:60]}]({g['url']})", "url": g["url"], "kind": "guideline"}
         offered_reg: dict = {}
         for w in state["web"]:
             page = (w.get("url") or "").split("#", 1)[0].split("?", 1)[0].rstrip("/").lower()
@@ -1348,11 +1358,47 @@ def stream_answer(question: str):
     start_landscape()      # the landscape reads its own evidence (every retrieved source, each judged by the model): it does not wait for the triage
     yield event("token", stage="EVIDENCE_ENRICHING", text="\n\n")
     triage_thread.join(timeout=3.5)      # the writer is given what the triage has judged by now; a part still being read is offered as retrieved (it never delays the answer further)
-    gen_text = yield from stage_stream("EVIDENCE_ENRICHING", "evidence-synthesis", EVIDENCE_TASK, build_evidence_context(state, question), DEEP_TOKENS,
-                                       hold=HOLD_FROM, on_hold=start_landscape, between=emit_landscape_and_trials, on_start=start_landscape)
-    start_landscape()      # no held-back part (the model stopped early): start it now
+    context = build_evidence_context(state, question)
+    writing = {name: {"queue": queue.Queue(), "text": ""} for name in ("latest", "current", "tail")}
+
+    def write_part(name: str, task: str) -> None:
+        """One writing task in its own thread: its text goes into a queue as the model produces it. The three run side by side, so the report takes as long as the slowest of them, not the sum."""
+        prompt = f"TASK: {task}\n\nQUESTION: {question}\nRETRIEVED DATA (JSON):\n{json.dumps(context, ensure_ascii=False, separators=(',', ':'))}"
+        trace = writing[name].setdefault("trace", {"started": round(clock.now(), 1)})
+        try:
+            for chunk in stream_llm(load_skill_text("evidence-synthesis"), prompt, DEEP_TOKENS):
+                trace.setdefault("first_chunk", round(clock.now(), 1))
+                writing[name]["queue"].put(chunk)
+            trace["ended"] = round(clock.now(), 1)
+        except Exception as error:
+            skipped.append(f"evidence writing, part {name} ({str(error)[:100]})")
+        finally:
+            writing[name]["queue"].put(None)
+    for name, task in (("latest", LATEST_TASK), ("current", CURRENT_TASK), ("tail", TAIL_TASK)):
+        threading.Thread(target=write_part, args=(name, task), daemon=True).start()
+
+    def drain(name: str, live: bool = True):
+        """Everything one writing task produces, in order: shown as it arrives (live) or collected silently."""
+        while True:
+            chunk = writing[name]["queue"].get()
+            if chunk is None:
+                return
+            writing[name]["text"] += chunk
+            if live:
+                yield event("token", stage="EVIDENCE_ENRICHING", text=chunk)
+
+    yield from drain("latest")      # Latest findings first, live; the other two parts are already being written
+    yield event("token", stage="EVIDENCE_ENRICHING", text="\n\n")
+    yield from drain("current")
+    clock.mark("evidence_done_s")
+    # the drug landscape and the trials follow Current evidence as soon as they are ready; Key studies ... What remains come after them
     landscape_thread.join(timeout=max(10.0, DEEP_BUDGET_S - clock.now()))      # nothing else may read or change the papers while the thread works
-    yield from emit_landscape_and_trials()      # if it was not shown during the model's writing
+    yield from emit_landscape_and_trials()
+    gen_text = "\n\n".join(x for x in (writing["latest"]["text"].strip(), writing["current"]["text"].strip()) if x)
+    yield from drain("tail", live=False)      # normally finished long ago; its cleaned text is shown below
+    gen_text = gen_text + ("\n\n" + writing["tail"]["text"].strip() if writing["tail"]["text"].strip() else "")
+    state["writing_raw"] = {k: v["text"] for k, v in writing.items()}      # exactly what each writing task returned, kept in the saved state for audit
+    state["writing_trace"] = {k: v.get("trace") for k, v in writing.items()}
     state["synthesis"], cut_off = trim_incomplete(gen_text or "")
     state["synthesis"] = tidy_model_sections(state["synthesis"])      # no stray labels such as "(A)" and no loose separators
     if cut_off:

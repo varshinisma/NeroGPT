@@ -13,7 +13,7 @@ Hard requirements for every answer:
 - Answer the **exact question asked** first, not a generic overview.
 - Search for **recent evidence** every time (default last 24 months; "latest/new" means last 12 months). Never answer from memory alone.
 - Every finding carries its **publication year and a citation**.
-- Always run `drug-intelligence` and `clinical-trials`, even if the question is not about treatment, so a Treatment Drug Landscape is always returned.
+- Run the retrieval skills the question actually needs (Step 2c). A skill whose source is not needed returns no searches. The report keeps its Treatment Drug Landscape and Clinical trials sections; when the question does not call for them the section says so instead of being filled with unrelated content.
 - Never invent clinical facts. Never treat an ongoing trial as proof.
 
 ## Step 1: Start the research state
@@ -24,13 +24,33 @@ Create one `ResearchState` object (see `references/schemas.md`). Record `request
 
 Pick one primary intent: `disease_research`, `latest_findings`, `drug_treatment`, `clinical_trial`, `comparison`, `mechanism`, or `comprehensive_research`. If unclear, use `disease_research` + `latest_findings` and state the assumption in the answer. Do not stop to ask clarifying questions.
 
+## Step 2b: Understand the question
+
+Before searching, work out what the doctor is really asking:
+- **asked** - what is being asked, in one short sentence.
+- **purpose** - why they ask: the clinical decision or need behind it (choosing a treatment, checking safety, confirming a diagnosis, judging a plan). This is your reading, not a fact about the patient.
+- **info_needed** - the kinds of information that would answer it: `treatment_options`, `efficacy`, `safety`, `dosing`, `diagnosis`, `prognosis`, `mechanism`, `guideline_recommendation`, `trial_status`, `regulatory_status`, `drug_interaction`.
+- **answer_format** - how the answer is best organised: `options_comparison`, `stepwise_plan`, `summary`, `table` or `yes_no_with_evidence`.
+- **case_facts** - when the question describes a patient or a case study: the facts that matter, each copied word for word from the question. Never add a fact that is not written there.
+
+The program checks the case facts against the question.
+
+## Step 2c: Choose the skills that expand the question
+
+You are given a catalog of the retrieval skills (name and one-line description only). From the question and its intent, choose which of them must write expanded searches for THIS question. Reply with their names in `skills`.
+- `latest-evidence` - for almost every question: the literature (evaluation, work-up, differential diagnosis, treatment, management, latest findings, guidelines).
+- `clinical-trials` - when ongoing or recent trials, or emerging treatments, bear on the question.
+- `drug-intelligence` - when medicines, doses, safety, approvals or interactions bear on the question.
+
+A case study that asks for work-up and management usually needs `latest-evidence`, and `clinical-trials` and `drug-intelligence` only if trials or medicines bear on what it asks. A question about one drug's safety may need only `drug-intelligence` and `latest-evidence`. A question about how something works usually needs only `latest-evidence`. Choose a skill only for an information need the question really has; each chosen skill may still return no searches. Never choose a skill that is not in the catalog.
+
 ## Step 3: Extract entities
 
 Extract disease, drug, biomarker, population, intervention, outcome and date range. Normalize names (generic drug names, standard disease names) and keep synonyms. If no drug is named, record the condition or mechanism so `drug-intelligence` can find the relevant drugs.
 
 ## Step 4: Plan the routing
 
-Always include: `latest-evidence`, `drug-intelligence`, `clinical-trials`, then `evidence-synthesis`, `clinical-answer-writer`, `citation-verification`, `quality-control`. The intent changes emphasis only, never whether drugs and trials run. For comparisons, run retrieval once per item, in parallel.
+Include the retrieval skills the question needs, in any combination of `latest-evidence`, `drug-intelligence` and `clinical-trials` (none of them is required for every question), then `evidence-synthesis`, `clinical-answer-writer`, `citation-verification`, `quality-control`. The intent and the information needed decide which retrieval skills run. For comparisons, run retrieval once per item, in parallel.
 
 ## Step 5: Fast path (about 5 seconds)
 
@@ -38,7 +58,7 @@ Run `latest-evidence`, `drug-intelligence` and `clinical-trials` **in parallel**
 
 ## Step 6: Deep path
 
-Continue the three retrieval skills in DEEP mode in parallel. Pass data between skills yourself through the state:
+Continue the retrieval skills the question needs (Step 2c) in DEEP mode in parallel. Pass data between skills yourself through the state:
 - drug names found in `latest-evidence` sources go to `drug-intelligence`
 - investigational drugs found in `clinical-trials` go to `drug-intelligence` (emerging category)
 

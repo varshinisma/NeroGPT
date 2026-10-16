@@ -22,12 +22,8 @@ def load_config(path: Path = CONFIG_PATH) -> dict:
 
 
 def topics_for(question: str, config: dict | None = None) -> list[dict]:
-    """The neurodevelopmental override when the question matches it, otherwise the generic default."""
+    """The same generic topics for every question: nothing here depends on the condition."""
     config = config or load_config()
-    q = question.lower()
-    for override in config.get("overrides", {}).values():
-        if any(word in q for word in override["match"]):
-            return override["topics"]
     return config["default"]["topics"]
 
 
@@ -49,7 +45,7 @@ def _year(*texts: str) -> str | None:
             return m.group(1)
     return None
 
-
+     
 def _excerpt(snippet: str, limit: int = 280) -> str | None:
     text = re.sub(r"\s+", " ", snippet or "").strip()
     text = re.sub(r"^(?:[A-Z][a-z]{2,8}\.? \d{1,2}, \d{4}|\d{1,2} [A-Z][a-z]{2,8} \d{4})\s*\W{0,3}\s*", "", text)      # a leading page date such as 'Aug 28, 2013 -'
@@ -62,6 +58,40 @@ def _excerpt(snippet: str, limit: int = 280) -> str | None:
     cut = text[:limit]
     end = max(cut.rfind(". "), cut.rfind("? "), cut.rfind("! "))
     return cut[:end + 1] if end > 80 else cut.rsplit(" ", 1)[0] + " ..."
+
+
+def filter_authoritative(raw, config: dict | None = None) -> str:
+    """The guideline-site adapter's filter: keep only the pages of the authoritative organisations in config/care_topics.json (and attach the organisation). An error reply passes through unchanged, so a
+    failed search is never turned into an empty one; an empty list means the search completed and no page came from an authoritative organisation."""
+    config = config or load_config()
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else raw
+    except (json.JSONDecodeError, TypeError):
+        return raw
+    if not isinstance(data, list):
+        return raw if isinstance(raw, str) else json.dumps(raw)
+    kept = [{**item, "organisation": organisation_for(item.get("url") or "", config)} for item in data if isinstance(item, dict) and organisation_for(item.get("url") or "", config)]
+    return json.dumps(kept, ensure_ascii=False)
+
+
+def rows_from_results(items: list, config: dict | None = None, stems: list[str] | None = None, topic: str = "guideline", label: str = "Guideline", limit: int = 3) -> list[dict]:
+    """Guideline rows (title, organisation, year, url, a short verbatim excerpt, the page text) from search results: only pages of authoritative organisations, with a real excerpt and a title, that mention
+    the condition (when its stems are given). The same checks as find_guidelines, for any number of results."""
+    config = config or load_config()
+    rows, seen = [], set()
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        url = item.get("url") or ""
+        org = organisation_for(url, config)
+        excerpt = _excerpt(item.get("snippet") or "")
+        title = re.sub(r"\s+", " ", item.get("title") or "").strip()
+        blob = f"{title} {item.get('snippet') or ''}".lower()
+        if org and excerpt and title and url not in seen and (not stems or any(s in blob for s in stems)):
+            seen.add(url)
+            rows.append({"topic": topic, "label": label, "title": title, "organisation": org, "year": _year(title, item.get("snippet"), url), "url": url, "excerpt": excerpt,
+                         "text": re.sub(r"\s+", " ", item.get("snippet") or "")[:1500]})
+    return rows[:limit]
 
 
 def find_guidelines(question: str, condition_words: list[str], searcher, config: dict | None = None, max_workers: int = 3) -> dict:

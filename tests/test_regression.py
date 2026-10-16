@@ -198,6 +198,8 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(plan["drugs"], ["risperidone"])
         jobs = qa_stream.deep_jobs({**plan, "trial_intervention": ""}, "How to treat X?")   # used to raise TypeError and silently kill the deep retrieval
         self.assertIn("fda_deep", jobs)
+        routed = qa_stream.route_deep("How to treat X?", {**plan, "understanding": {}, "skills": []}, ask=lambda *a, **k: {"queries": []})      # the routed deep search must accept the same normalised plan
+        self.assertTrue(routed["ops"])
 
     def test16_italic_markers_do_not_hide_fabricated_numbers(self):
         s = make_state()
@@ -328,7 +330,7 @@ class RegressionTests(unittest.TestCase):
 
     def test37_confirms_is_softened_and_no_stranded_annotation_is_left(self):
         s = make_state()
-        answer = (BASE + "**Insufficient evidence**\n- A claim about 'social communication' improved (Smith et al., Test Journal, 2026 [PMID 111111]). *(Direct, terminated 2026)*\n"
+        answer = (BASE + "**Insufficient evidence**\n- A claim about 'mortality' improved (Smith et al., Test Journal, 2026 [PMID 111111]). *(Direct, terminated 2026)*\n"
                   "- The review confirms consistent improvement (Smith et al., Test Journal, 2026 [PMID 111111]).\n")
         r = verification.verify_and_repair(answer, s)
         self.assertNotIn("confirms", r["answer"])

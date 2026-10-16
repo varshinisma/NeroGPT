@@ -1,5 +1,5 @@
 {
-  "_note": "Topics searched for the 'Established care' section. Only authoritative guideline pages from these domains are ever used; nothing here is written by a model. 'default' applies to every condition; an entry in 'overrides' replaces it when one of its 'match' words is in the question.",
+  "_note": "Topics searched for the 'Established care' section. Only authoritative guideline pages from these domains are ever used; nothing here is written by a model. 'default' applies to every condition.",
   "excluded_hosts": [
     "ncbi.nlm.nih.gov",
     "pmc.ncbi.nlm.nih.gov",
@@ -47,7 +47,7 @@
       {
         "id": "medications",
         "label": "Medications used in practice",
-        "query": "medications used to treat symptoms in children, which drugs are prescribed",
+        "query": "medications used to treat symptoms, which drugs are prescribed",
         "drugs": true
       },
       {
@@ -72,78 +72,5 @@
         "query": "supportive care rehabilitation"
       }
     ]
-  },
-  "overrides": {
-    "neurodevelopmental": {
-      "match": [
-        "autis",
-        "asd",
-        "adhd",
-        "neurodevelopment",
-        "developmental delay",
-        "developmental disorder"
-      ],
-      "topics": [
-        {
-          "id": "assessment",
-          "label": "Developmental assessment",
-          "query": "developmental assessment diagnosis"
-        },
-        {
-          "id": "medications",
-          "label": "Medications used in practice",
-          "query": "medications used to treat symptoms in children, which drugs are prescribed",
-          "drugs": true
-        },
-        {
-          "id": "speech",
-          "label": "Speech-language therapy",
-          "query": "speech-language therapy communication intervention"
-        },
-        {
-          "id": "ot",
-          "label": "Occupational therapy",
-          "query": "occupational therapy sensory"
-        },
-        {
-          "id": "behavioural",
-          "label": "Behavioural and developmental interventions",
-          "query": "behavioral developmental interventions"
-        },
-        {
-          "id": "school",
-          "label": "School and educational support",
-          "query": "school educational support IEP"
-        },
-        {
-          "id": "sleep",
-          "label": "Co-occurring: sleep problems",
-          "query": "sleep problems management",
-          "drugs": true
-        },
-        {
-          "id": "anxiety",
-          "label": "Co-occurring: anxiety",
-          "query": "anxiety management",
-          "drugs": true
-        },
-        {
-          "id": "adhd",
-          "label": "Co-occurring: ADHD",
-          "query": "ADHD co-occurring management",
-          "drugs": true
-        },
-        {
-          "id": "gi",
-          "label": "Co-occurring: gastrointestinal problems",
-          "query": "gastrointestinal problems management"
-        },
-        {
-          "id": "feeding",
-          "label": "Co-occurring: feeding problems",
-          "query": "feeding problems management"
-        }
-      ]
-    }
   }
 }

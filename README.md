@@ -2,7 +2,7 @@
 
 NeuroGPT answers a clinical or medical research question with a **sourced, structured report**, shown in the browser as it is being written and saved as a **PDF**.
 
-It searches PubMed / Europe PMC, ClinicalTrials.gov, FDA drug labels (openFDA / DailyMed), regulator pages and guideline pages. Language-model **skills interpret** what was retrieved, and **deterministic code verifies** every interpretation against the original source text before anything reaches the report.
+It searches PubMed / Europe PMC, ClinicalTrials.gov, FDA drug labels (openFDA / DailyMed), regulator pages, guideline pages and the web. For the deep search a model first **understands the question and splits it into needs**, skills write one search per need and source, and the results are **ranked** (BM25 + embeddings + a cross-encoder). Language-model **skills interpret** what was retrieved, and **deterministic code verifies** every interpretation against the original source text before anything reaches the report.
 
 > **Research support, not medical advice.** The report summarises retrieved sources and links to them. It is not a substitute for clinical judgement, and it is not a complete safety review.
 
@@ -14,15 +14,17 @@ It searches PubMed / Europe PMC, ClinicalTrials.gov, FDA drug labels (openFDA / 
 2. [How it works (flow diagrams)](#how-it-works)
 3. [What the model does and what the code does](#what-the-model-does-and-what-the-code-does)
 4. [How a model answer is verified](#how-a-model-answer-is-verified)
-5. [Project structure](#project-structure)
-6. [Setup](#setup)
-7. [Environment variables (`.env`)](#environment-variables-env)
-8. [Run it](#run-it)
-9. [Outputs and API](#outputs-and-api)
-10. [Tests and audit](#tests-and-audit)
-11. [Speed: what the latency depends on](#speed-what-the-latency-depends-on)
-12. [Privacy](#privacy)
-13. [Known limits](#known-limits)
+5. [Deep search: question understanding and routing](#deep-search-question-understanding-and-routing)
+6. [Ranking: hybrid search and cross-encoder](#ranking-hybrid-search-and-cross-encoder)
+7. [Project structure](#project-structure)
+8. [Setup](#setup)
+9. [Environment variables (`.env`)](#environment-variables-env)
+10. [Run it](#run-it)
+11. [Outputs and API](#outputs-and-api)
+12. [Tests and audit](#tests-and-audit)
+13. [Speed: what the latency depends on](#speed-what-the-latency-depends-on)
+14. [Privacy](#privacy)
+15. [Known limits](#known-limits)
 
 ---
 
@@ -162,7 +164,8 @@ flowchart LR
 
 | Step | Skill file loaded (system prompt) | Receives | Returns |
 |---|---|---|---|
-| Understand the question | `clinical-research-orchestrator` | The question | Intent, condition, search queries |
+| Understand the question | `clinical-research-orchestrator` | The question and the skill catalogue | Intent, condition, the information needed (treatment options, safety, dosing, ...), which skills should write searches |
+| Write the deep searches | `latest-evidence`, `drug-intelligence`, `clinical-trials` (section "Query transformation by intent") | The question, its intent and what was understood | One search per need and source: `target`, query, arguments, priority |
 | Fast answer | `clinical-answer-writer` | A few papers, trials, web items, FDA label indications | Bottom line, recent finding, context |
 | Paper and trial triage | `evidence-synthesis` | Every retrieved paper / registry record as numbered sentences | Relevance, evidence role, supporting sentence number |
 | Latest findings ... What remains | `evidence-synthesis` | The papers the triage judged relevant, with their roles and dates | The prose sections, written by **three calls side by side** (Latest findings / Current evidence / Key studies + Conflicting evidence + What remains), shown in the document's order |
@@ -175,7 +178,7 @@ All JSON-reading calls run at **temperature 0**, so the same input gives the sam
 
 **Code only (no model):** retrieval, the FDA drug tables (indication text, label date, route, DailyMed links), boxed warnings in the label's own words, the trials table, evidence limitations, citation numbering, the Sources list, PDF rendering.
 
-**Skills in `skills/`:** eight `SKILL.md` files follow the specification (orchestrator, latest-evidence, drug-intelligence, clinical-trials, evidence-synthesis, citation-verification, clinical-answer-writer, quality-control). Four are sent to the model as instructions (orchestrator, clinical-answer-writer, evidence-synthesis, drug-intelligence). The other four stages (latest-evidence retrieval, clinical-trials retrieval, citation verification, quality control) are done by code and are kept as written contracts.
+**Skills in `skills/`:** nine `SKILL.md` files (orchestrator, latest-evidence, drug-intelligence, clinical-trials, evidence-synthesis, citation-verification, clinical-answer-writer, quality-control, figure-selection). The orchestrator, clinical-answer-writer, evidence-synthesis, drug-intelligence and figure-selection files, and the "Query transformation by intent" sections of latest-evidence, drug-intelligence and clinical-trials, are sent to the model as instructions. Citation verification and quality control are done by code and kept as written contracts.
 
 ---
 
@@ -198,11 +201,46 @@ If a source fails or times out, the report says so. It never turns a failed sear
 
 ---
 
+## Deep search: question understanding and routing
+
+The fast search (about 3 s, six searches) is fixed and never changed by anything below. The deep search is model-driven:
+
+1. **Plan call** (`plan_with_skill`, temperature 0, started after the first token of the fast answer): intent, condition, patient group, the *information needed* (for example `treatment_options`, `efficacy`, `safety`, `dosing`, `guideline_recommendation`, `regulatory_status`, `trial_status`) and the skills proposed.
+2. **Skill selection** (`retrieval_routing.select_skills`): the proposal is checked against the catalogue; a skill is added when its `covers:` line (in its `SKILL.md` front matter) matches an information need nobody covers.
+3. **Query transformation**: each chosen skill writes JSON `{"queries": [{need_id, need, serves, target, query, args, priority, alternate?}]}` (an empty list is allowed). Each query has exactly one `target`: `pubmed`, `europepmc`, `guideline_sites`, `regulator`, `fda_label`, `web` or `trials`. An essential need gets a query for every source that can answer it.
+4. **Validation in code** (`parse_operations`): the target must be on the allowlist, the query must keep the question's own subject words, a drug may be named only if the question names it, arguments are clamped, duplicates and near-duplicates are merged.
+5. **Coverage check** (`coverage_gaps`, data in `config/source_capabilities.json`): finds an information need with no search on a suitable source, a treatment question without a guideline or regulator search, too few web-discovery searches, or an essential need served by one source only. One bounded model call writes the missing searches; they are validated the same way.
+6. **Run** in parallel under a time budget, one retry for transient errors, late results recorded. The older ("legacy") deep jobs still run beside them (`LEGACY_DEEP=off` skips them).
+7. **Escalation**: a need that returned nothing, or nothing relevant after the relevance reading, is retried once on an alternate source (at most 4 retries, one hard deadline). Unfinished work is listed in the limitations.
+8. **Section states**: a report section with no content says why (not applicable / not retrieved / no relevant evidence / failed / timed out); a failed or unsearched source is never reported as "no evidence".
+
+The `target` names, arguments and thresholds are data and contracts; no disease, drug or population is named in code (a test scans for that).
+
+---
+
+## Ranking: hybrid search and cross-encoder
+
+The sources do the retrieving (PubMed matches words in titles, abstracts and index terms; the others use their own search). `hybrid_search.py` then ranks what came back; it cannot find a paper a source did not return, and there is no vector database (embeddings are made per run and discarded).
+
+| Step | Method | Model / library |
+|---|---|---|
+| Keyword | BM25 over every returned paper | Plain Python |
+| Semantic | Question and papers embedded, compared by meaning | `mistral-embed` (Mistral API; `EMBED_MODEL` overrides) |
+| Fusion | Reciprocal rank fusion of the two rankings and the sources' own order | Plain Python |
+| Cross-encoder | The top 36 papers re-scored by reading the question and each paper's title and abstract start together; the score is fused with the hybrid position | `Xenova/ms-marco-MiniLM-L-6-v2`, run locally with `fastembed` (ONNX, no GPU); `CROSS_ENCODER_MODEL` overrides |
+
+The cross-encoder also screens web, guideline and regulator results with a threshold; borderline results are left to the model-based relevance reading. Each stage switches itself off, and says why in the trace, when disabled, with fewer than three papers, or when the model is not ready in time.
+
+**Full text.** After ranking, the top 6 papers with a free full text (a PubMed Central ID in the open-access subset) have their methods, results and conclusion fetched in the background (`fulltext.py`, 6 s limit) and shown to the writer beside the abstract. Numbers from those sections count as retrieved text in verification. Other papers stay abstract-only; searching itself is still on titles and abstracts.
+
+---
+
 ## Project structure
 
 ```text
 .
-├── server.py            Local web server (port 8000): static files, /api/chat-stream, model builder, conversation log
+├── streamlit_app.py     Chat front end (Streamlit): stages, streamed answer, figures inside their sections, PDF download
+├── server.py            Local API server (port 8000): /api/chat-stream, /api/chat, conversation log
 ├── qa_stream.py         The orchestrator: stream_answer() runs retrieval, skills, assembly, verification; also a command-line runner
 ├── clinical_tools.py    Retrieval tools: PubMed / Europe PMC, ClinicalTrials.gov, openFDA labels + DailyMed links, page dates
 ├── landscape.py         Drug landscape, regulator announcements, boxed warnings, trials table, limitations; verification of model decisions
@@ -214,11 +252,16 @@ If a source fails or times out, the report says so. It never turns a failed sear
 ├── pdf_export.py        Markdown -> PDF (reportlab); this is where heading levels and tables are styled
 ├── pipeline.py          save_pdf / strip_preliminary (plus an older single-pass pipeline kept for reference)
 ├── audit.py             Independent audit script for a saved report (32 checks)
-├── stream_client.py     Small command-line client for the streaming endpoint
-├── index.html, app.js, style.css   Browser front end (stage bar, streamed answer, timing line)
+├── retrieval_routing.py Source-aware deep-search routing: validated operations (a `target` from a fixed allowlist), the seven search adapters, retry and time budget, coverage check, escalation, section states
+├── hybrid_search.py     BM25 + embedding ranking (RRF) and the cross-encoder re-ranking
+├── fulltext.py          Methods, results and conclusion of the best open-access papers (read after ranking)
+├── source_figures.py    Original figures of cited open-access papers (caption, licence, selection)
+├── tracing.py           Optional LangSmith tracing of model calls and tools
 ├── config/care_topics.json         Authoritative guideline domains and search topics
-├── skills/              The eight SKILL.md contracts (+ skills/README.md)
-├── tests/               Unit tests (no network or model needed) and a PHI-miss report script
+├── config/source_capabilities.json What each search target can answer and the minimum searches for treatment questions (data only)
+├── .streamlit/config.toml          Streamlit theme and server settings
+├── skills/              The nine SKILL.md contracts (+ skills/README.md)
+├── tests/               Offline unit tests (no network or model needed) and a PHI-miss report script
 ├── demo_output/         Saved reports: <slug>.md, <slug>.pdf, <slug>.state.json (cli_test_runs/ for command-line runs)
 ├── requirements.txt     Python dependencies
 └── .env.example         Template for your keys (copy to .env)
@@ -265,6 +308,15 @@ Never commit `.env`; `.gitignore` already excludes it. Copy `.env.example` and f
 | `TAVILY_API_KEY` | recommended | Main web search (regulator, guideline and medication pages). Without it, or when the plan limit is reached, the slower, less reliable DDGS search is used and the drug and regulator parts get fewer sources. One question uses roughly 10 searches. |
 | `NCBI_API_KEY` | recommended | Free key that raises PubMed's rate limit from about 3 to 10 requests a second. Get it at ncbi.nlm.nih.gov -> account -> Account settings -> API Key Management. |
 | `NEUROGPT_NO_BROWSER` | optional | Set to `1` to stop the server opening your browser on start. |
+| `HYBRID_SEARCH`, `CROSS_ENCODER` | optional | `off` turns the hybrid ranking or the cross-encoder off (default on). `EMBED_MODEL` and `CROSS_ENCODER_MODEL` change the models. |
+| `DEEP_ROUTING` | optional | `off` turns the model-written, source-aware deep searches off (default on; `QUERY_EXPANSION=off` does the same). |
+| `LEGACY_DEEP` | optional | `off` skips the older deep search jobs and runs only the routed searches (default on). |
+| `ROUTING_DEADLINE_S`, `ROUTING_BUDGET_S`, `ESCALATION_DEADLINE_S` | optional | Hard time limits in seconds for the routed searches (defaults 30, 18, 25). |
+| `COVERAGE_CHECK`, `COVERAGE_CALL_S` | optional | `off` skips the coverage check; the time its one model call may take (default 8). |
+| `SCREEN_THRESHOLD`, `SCREEN_MARGIN` | optional | Cross-encoder screen for web results (defaults -8 and 2). |
+| `FULL_TEXT`, `FULL_TEXT_PAPERS`, `FULL_TEXT_WAIT_S` | optional | Full-text sections of the best open-access papers: on/off, how many papers (6), time limit (6 s). |
+| `FIGURE_IMAGE_CHECK`, `VISION_PROVIDER`, `VISION_MODEL` | optional | Whether a vision model must confirm figure images (default off). |
+| `LANGSMITH_TRACING`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT` | optional | LangSmith tracing (default off). When on, questions, abstracts and prompts are sent to LangSmith. |
 
 No key is needed for ClinicalTrials.gov, openFDA, DailyMed, Europe PMC or the local name detector.
 
@@ -273,12 +325,12 @@ No key is needed for ClinicalTrials.gov, openFDA, DailyMed, Europe PMC or the lo
 ## Run it
 
 ```powershell
-.\.venv\Scripts\python.exe server.py
+.\.venv\Scripts\streamlit.exe run streamlit_app.py --server.port 8501
 ```
 
-The server opens `http://localhost:8000` in your browser. Type a clinical question and watch the stage bar (Fast answer -> Evidence -> Drugs -> Trials -> Verification -> Final). Stop it with `Ctrl+C`; only one server can use port 8000.
+Open `http://localhost:8501`, type a clinical question and watch the stages (Fast answer -> Evidence -> Drugs -> Trials -> Verification -> Final). Figures from open-access papers appear inside their report sections, and the PDF can be downloaded. Stop it with `Ctrl+C`.
 
-After editing code, restart the server and press `Ctrl+F5` in the browser, because the browser may keep the old page script.
+The streaming API alone (no page) runs with `.\.venv\Scripts\python.exe server.py` on port 8000 (only one server can use that port).
 
 Command-line run (writes to `demo_output/cli_test_runs/`, so it never overwrites a browser answer):
 
@@ -325,16 +377,17 @@ Each browser question saves three files in `demo_output/`, named from the questi
 .\.venv\Scripts\python.exe tests\phi_misses.py
 ```
 
-The tests cover verification of model decisions (quotes, sentence numbers, categories, dates), report structure and heading order, citation numbering, regulator classification, trial relevance, personal-identifier removal and the PDF-facing text.
+The suite has about 430 tests. They cover routing and query validation, the search adapters, escalation, the coverage check, section states, source families, guideline migration, full-text reading, verification of model decisions (quotes, sentence numbers, categories, dates), report structure and heading order, citation numbering, regulator classification, trial relevance, personal-identifier removal and the PDF-facing text.
 
 ---
 
 ## Speed: what the latency depends on
 
-The first useful answer takes about 5 seconds and the whole report 25-35 seconds in normal conditions. The time depends on:
+The first useful answer takes about 5 seconds. With the routed deep search the whole report took roughly 45-65 seconds in recent runs (the earlier 25-35 s was before it). The time depends on:
 
 - **the language model**: every written section and every decision call waits on it; a single call took 1-7 s and a stalled call can cost up to `MODEL_TIMEOUT_S`;
 - **the search services**: Europe PMC varied between 2 and 14 s, and web search falls back to a slow engine when the Tavily key is out of quota;
+- **the deep search**: the plan call, then the skills writing queries (10-12 s for the slowest), the coverage check (about 3 s), the searches, and the legacy jobs running beside them (up to 25 s); the phase ends with the slower of the two;
 - **the number of steps that must run in order**: retrieval -> fast answer -> triage -> prose. Everything else (drug landscape, regulator reading, label lookups, dose summaries) runs in parallel in a background thread.
 
 Built-in protections: the fast pass waits at most 4.5 s per source; Europe PMC has a PubMed fallback; the triage is waited for at most 3.5 s; label lookups and dose summaries get at most 4 s; results are cached for repeated questions.
@@ -354,5 +407,7 @@ Before anything is searched, sent to a model or saved, `phi.py` removes names, I
 - For a very broad question (for example "cancer"), the FDA label search returns labels that mention the condition most often, so the approved-drug table can contain supportive-care drugs; the main cancer drugs then appear under "Other drugs" from web and regulator pages.
 - Dose text is taken from the label section whose title names the condition; if none is found, the cell says so.
 - PubMed "dates" for early online articles are the scheduled issue date; they are shown as advance publications when later than the search date.
+- The semantic ranking re-orders what the sources return; it cannot retrieve a paper they did not return. Full text is read only for open-access papers; paywalled papers stay abstract-only.
+- Regulator pages are found only through web search, so their coverage varies between runs.
 - Search quality and speed depend on outside services (Mistral/Groq, Tavily, Europe PMC, NCBI, openFDA) and their rate limits.
 - Not a medical device and not validated for clinical use.

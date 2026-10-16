@@ -1,0 +1,17 @@
+[theme]
+base = "light"
+primaryColor = "#1d4ed8"
+font = "sans serif"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f1f5f9"
+textColor = "#0f172a"
+
+[server]
+fileWatcherType = "none"      # no file watching: the project folder is large and watching it slows the start
+runOnSave = false
+
+[client]
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false

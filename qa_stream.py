@@ -17,6 +17,7 @@ Events (dicts) are yielded as the work happens. Run from the command line:  pyth
 from __future__ import annotations
 
 import json
+from functools import lru_cache
 import os
 import re
 import sys
@@ -30,13 +31,19 @@ from pathlib import Path
 import phi
 import server
 from urllib.parse import urlparse
-from clinical_tools import page_date, fda_label_link, search_pubmed_quick, search_clinical_trials, search_europepmc_quick, search_fda_labels, search_pubmed
-from landscape import (drug_intelligence_status, landscape_markdown, limitations_markdown, record_source_status,
-                       top_drugs_markdown, trials_markdown, dose_summary_ok, verify_paper_triage, verify_trial_triage, dose_fallback, fda_relevant, numbered_sentences, verify_fda_decisions, verify_drug_decisions,
+import fulltext
+from clinical_tools import _article, page_date, fda_label_link, search_pubmed_quick, search_clinical_trials, search_europepmc_quick, search_fda_labels, search_pubmed
+from landscape import (drug_intelligence_status, family_status, landscape_markdown, limitations_markdown, record_source_status, source_family,
+                       top_drugs_markdown, trials_markdown, dose_candidates, verify_dose_picks, dose_summary_ok, verify_paper_triage, verify_trial_triage, dose_fallback, fda_relevant, numbered_sentences, verify_fda_decisions, verify_drug_decisions,
                        verify_regulator_decisions, REGULATOR_HOSTS)
 from pipeline import save_pdf, strip_preliminary
 from presentation import closing_note, numberize
-from guidelines import find_guidelines, load_config as load_care_config, topics_for
+import hybrid_search
+import retrieval_routing as rr
+from hybrid_search import cross_rerank, rerank as hybrid_rerank
+from tracing import traced
+from source_figures import apply_population_check, apply_strict_check, search_paper_figures, cut_for_model, display_records, explain_figures, select_figures
+from guidelines import filter_authoritative, find_guidelines, load_config as load_care_config, topics_for
 from report import DISCLAIMER, clean_model_key_studies, design_of, source_problems
 from verification import date_after, is_indirect, known_sources, verify_and_repair
 
@@ -45,7 +52,10 @@ DEEP_TIMEOUT_S = 25.0         # per retrieval skill, DEEP path
 CLAUDE_MODE = os.getenv("NEUROGPT_LLM") == "claude_files"   # the text-writing steps are answered by Claude through files, not by an API model
 DEEP_BUDGET_S = 1e5 if CLAUDE_MODE else 100.0   # total deep-research budget (not applied while Claude writes the text)
 MAX_CONTEXT_PAPERS = 16
-FAST_TOKENS, DEEP_TOKENS = 330, 1600   # two output sizes only, so two warm connections
+FULL_TEXT_PAPERS = int(os.getenv("FULL_TEXT_PAPERS", "6"))      # open-access papers among the best ranked whose methods, results and conclusion are read (fulltext.py)
+FULL_TEXT_WAIT_S = float(os.getenv("FULL_TEXT_WAIT_S", "6"))
+FAST_TOKENS, DEEP_TOKENS = 330, 1600
+PLAN_TOKENS = 650      # the plan also states what is asked and why and the case facts
 STAGES = ["INITIAL", "EVIDENCE_ENRICHING", "DRUGS_ENRICHING", "TRIALS_ENRICHING", "VERIFICATION", "FINAL"]
 
 STOP = set("""a an the of in on for to and or with without about from by at as is are was were be been do does did can could should would
@@ -91,6 +101,7 @@ def cached(kind: str, key: str, ttl: float, fn):
 _tavily_client = None
 
 
+@traced("web_search", "tool")
 def web_search(query: str, snippet_chars: int = 500) -> str:
     """Web search: Tavily first (fast, relevant, regulator pages), DDGS as the fallback. Same JSON shape as server.search_live_web."""
     global _tavily_client
@@ -169,8 +180,9 @@ def ingest_guidelines(state: dict, raw: dict) -> None:
         return
     data = _json(text)
     if isinstance(data, dict) and data.get("results") is not None:
-        state["guideline_rows"] = data["results"]
-        state["guidelines"] = [r for r in data["results"] if r.get("title")]
+        routed = [g for g in state.get("guidelines", []) if str(g.get("topic", "")).startswith("web_guideline_op")]      # rows from the routed guideline searches stay
+        state["guideline_rows"] = data["results"] + routed
+        state["guidelines"] = [r for r in data["results"] if r.get("title")] + [g for g in routed if g.get("url") not in {r.get("url") for r in data["results"]}]
         state["guideline_search_ok"] = True
         if data.get("failed"):
             state["source_status"]["guidelines_deep"] = {"retrieval_status": "partial", "evidence_status": "unavailable",
@@ -202,6 +214,27 @@ def fix_reference_column(text: str) -> str:
     return chr(10).join(out)
 
 
+def rows_to_table(text: str) -> str:
+    """The Current evidence rows the model wrote as 'Approach || Evidence level || What the evidence shows || Reference' lines -> the Markdown table, built here so no padding is possible. A line whose
+    citation is at the end of the evidence cell (three cells) gets it moved to the Reference column. Text that is already a table, or has no such lines, is returned unchanged."""
+    rows = []
+    for line in text.split(chr(10)):
+        cells = [c.strip().strip("|").strip() for c in line.split("||")]
+        if len(cells) == 4 and cells[3] == "" and all(cells[:3]):
+            cells = cells[:3]
+        if len(cells) == 3 and all(cells):
+            ids = re.findall(r"PMID\s*\[?(\d+)", cells[2])
+            if ids:
+                body = re.sub(r"\s*\([^()]*PMID[^()]*\)[\s.]*$", "", cells[2]).strip()
+                cells = cells[:2] + [body or cells[2], f"(PMID {ids[-1]})"]
+        if len(cells) == 4 and all(cells):
+            rows.append("| " + " | ".join(cells) + " |")
+    if not rows:
+        return text
+    heading = next((l for l in text.split(chr(10)) if l.lstrip().startswith("#")), "## Current evidence")
+    return heading.strip() + chr(10) * 2 + "| Approach | Evidence level | What the evidence shows | Reference |" + chr(10) + "|---|---|---|---|" + chr(10) + chr(10).join(rows)
+
+
 def tidy_model_sections(text: str) -> str:
     """Remove what a small model sometimes adds around its sections: letter labels like '(A)' / '**(B)**' and loose '---' separators."""
     text = re.sub(r"(?m)^[ \t]*\*{0,2}\(?[A-D]\)\*{0,2}[ \t]*$\n?", "", text)
@@ -212,6 +245,8 @@ def tidy_model_sections(text: str) -> str:
 
 
 def load_skill_text(name: str) -> str:
+    if name not in server.SKILL_ORDER:      # a skill used only inside the program (not offered to the orchestrator), such as figure-selection
+        return server.load_skills([name])
     return server.load_skill(name)  # lazy: reads only this skill, logs "[skills] loaded on demand"
 
 
@@ -267,14 +302,17 @@ def ingest(papers: dict, trials: dict, web: list, raw: dict) -> dict:
                 continue
             for p in data.get("results", []):
                 if p["pmid"] in papers:
+                    found_by = papers[p["pmid"]].setdefault("found_by", [papers[p["pmid"]].get("origin")])      # found again by another search: its provenance is kept
+                    if key not in found_by:
+                        found_by.append(key)
                     continue
                 surname = (p.get("authors") or ["Unknown"])[0].split(" ")[0]
                 types = [t for t in p.get("study_type", []) if t != "Journal Article"][:3]
                 papers[p["pmid"]] = {
-                    "source_id": f"pmid:{p['pmid']}", "pmid": p["pmid"], "doi": p.get("doi"), "url": p.get("url"), "year": p.get("year"),
+                    "source_id": f"pmid:{p['pmid']}", "pmid": p["pmid"], "doi": p.get("doi"), "pmcid": p.get("pmcid"), "url": p.get("url"), "year": p.get("year"),
                     "date": p.get("publication_date"), "journal": p.get("journal"), "authors": (p.get("authors") or [])[:3], "title": p.get("title"),
                     "type": types, "study_type": types, "abstract": p.get("abstract_excerpt") or "", "population": None, "finding": None, "limitations": None,
-                    "cite": f"{surname} et al., {p.get('journal')}, {p.get('year')} [PMID {p['pmid']}]", "origin": key,
+                    "cite": f"{surname} et al., {p.get('journal')}, {p.get('year')} [PMID {p['pmid']}]", "origin": key, "found_by": [key],
                     "retracted": any("retract" in str(t).lower() for t in p.get("study_type", [])),
                     "protocol": "protocol" in (p.get("title") or "").lower() or any("protocol" in str(t).lower() for t in p.get("study_type", [])),
                     "retrieved_at": datetime.now().isoformat(timespec="seconds")}
@@ -283,7 +321,13 @@ def ingest(papers: dict, trials: dict, web: list, raw: dict) -> dict:
                 errors[key] = data["error"]
                 continue
             for t in data.get("results", []):
-                trials.setdefault(t["nct_id"], {**t, "source_id": f"nct:{t['nct_id']}", "results_available": bool(t.get("results_posted")),
+                known = trials.get(t["nct_id"])
+                if known is not None:
+                    found_by = known.setdefault("found_by", [])
+                    if key not in found_by:
+                        found_by.append(key)
+                    continue
+                trials.setdefault(t["nct_id"], {"found_by": [key], **t, "source_id": f"nct:{t['nct_id']}", "results_available": bool(t.get("results_posted")),
                                                 "results_source": "ClinicalTrials.gov registry", "evidence_status": "registry_status_only"})
         elif key.startswith("web"):
             if isinstance(data, list):
@@ -333,6 +377,8 @@ def paper_view(p: dict, chars: int, stems: set[str] | None = None) -> dict:
     triage = p.get("triage") or {}
     view = {"cite": p["cite"], "year": p["year"], "date": p["date"], "type": p["type"], "title": p["title"], "abstract": snippet(p["abstract"], chars),
             "relation": {"indirect": "indirect (different or related population)", "background": "background"}.get(triage.get("relevance"), "direct"), "protocol_no_results": bool(p.get("protocol"))}
+    if p.get("body"):
+        view["full_text_sections"] = p["body"]      # the free full text of this paper (methods, results, conclusion), cut short; the abstract above stays the paper's summary
     if triage:
         view["triage"] = {"evidence_role": triage.get("role"), "population": triage.get("population")}
     if date_after(p.get("date") or p.get("year"), datetime.now()):
@@ -473,6 +519,7 @@ def warm_up() -> None:
     from agno.agent import Agent
     import clinical_tools
     threading.Thread(target=phi.warm_up, daemon=True).start()  # local name detector
+    threading.Thread(target=hybrid_search.load_cross_encoder, daemon=True).start()      # the cross-encoder model (downloaded once, then loaded from disk)
     threading.Thread(target=clinical_tools.warm_connections, daemon=True).start()  # PubMed / Europe PMC / registry connections
     for size, temperature in ((FAST_TOKENS, None), (DEEP_TOKENS, None), (700, 0.0), (300, None), (900, 0.0), (600, 0.0)):      # 700 / 900 / 600: interpretation calls, 300: dose summaries
         try:
@@ -482,8 +529,9 @@ def warm_up() -> None:
             pass
 
 
-def run_llm(instructions: str, prompt: str, max_tokens: int) -> str:
-    return "".join(stream_llm(instructions, prompt, max_tokens))
+@traced("run_llm (skill model call)", "llm")
+def run_llm(instructions: str, prompt: str, max_tokens: int, temperature: float | None = None) -> str:
+    return "".join(stream_llm(instructions, prompt, max_tokens, temperature=temperature))
 
 
 # ------------------------------------------------------------------ prompts
@@ -516,14 +564,15 @@ LATEST_TASK = ("Write ONLY the heading '## Latest findings' followed by at most 
                "who or what was studied (population and design) and what it found, with the main limitation when the data states one; end with (PMID <the PMID printed in that study's cite field>). "
                "Use only papers whose `relation` is direct, and only studies that report a result (never a protocol or a study without results); an indirect paper may be used only if fewer than 3 direct papers report a result, "
                "and then the bullet must say it is indirect evidence. Every bullet starts with its own subject (what was studied), never with 'It' or 'The study'. " + EVIDENCE_RULES)
-CURRENT_TASK = ("Write ONLY the heading '## Current evidence' followed by ONE Markdown table with exactly these columns: | Approach | Evidence level | What the evidence shows | Reference |. One row per treatment approach "
+CURRENT_TASK = ("Write ONLY the heading '## Current evidence' followed by ONE LINE per treatment approach, each line in exactly this form: Approach || Evidence level || What the evidence shows || Reference "
+                "(the code turns the lines into the table; write no table, no '|' bars, no separator row and no padding). One line per treatment approach "
                 "(for example an intervention type or a symptom-directed treatment), at most 8 rows, strongest evidence first, each approach ONCE. "
                 "Evidence level must be one of: Established (only a guideline or consistent high-quality evidence; a systematic review of studies of variable quality is NOT established), "
                 "Evidence-supported but limited, Emerging, Experimental or preliminary, Indirect evidence (different or related population), Protocol - no results, Insufficient evidence. "
                 "'What the evidence shows' is ONE or TWO sentences of what the cited source reports: the population, the result and, when stated, its limit. "
                 "Reference is (PMID <the PMID printed in that study's cite field>). "
                 "Give a row only to an approach that a paper with `relation` direct reports a result for; do not add rows for papers about another population, for caregivers, or for protocols. "
-                "Write the table compactly: single spaces around the cell text (never padding spaces) and the separator row exactly |---|---|---|---|. " + EVIDENCE_RULES)
+                + EVIDENCE_RULES)
 TAIL_TASK = ("Write ONLY these parts, in this order, and finish every part. "
              "FIRST, '## Key studies': a numbered list of up to 5 studies, each in the form '**<first author> et al. (<year>)**, <design>: <what it found, in one or two sentences, with the population; copy any number exactly from the abstract and never write one that is not there> (PMID <the PMID printed in that study's cite field>)' "
              "- fill every <...> from a study in the data; the design is for example meta-analysis, systematic review, randomized controlled trial or cohort study. "
@@ -562,16 +611,268 @@ FDA_TASK = ("Using ONLY the RETRIEVED DATA, decide for each FDA drug label wheth
 DRUG_INTERPRET_TASK = ("Using ONLY the RETRIEVED DATA, interpret the drug evidence for the question. Every source is given as a numbered list of `sentences` (the first sentence is number 1). "
                        "Reply with ONE JSON object {\"drugs\": [...]} and nothing else. "
                        "drugs: the drugs the `sources` describe as used in clinical practice for the question's condition, its symptoms or co-occurring conditions, other than the drugs already in `fda_labelled`. "
-                       "One object per drug, at most 8: {\"drug\": the name of ONE specific drug exactly as the sentence writes it, \"drug_kind\": \"generic\" | \"brand\" | \"class\" (a group of drugs such as a family or a type), \"source_id\": the exact id of the source, \"sentence\": the number of the sentence in that source that names the drug and what it is used for, "
+                       "One object per drug, at most 14: {\"drug\": the name of ONE specific drug exactly as the sentence writes it, \"drug_kind\": \"generic\" | \"brand\" | \"class\" (a group of drugs such as a family or a type), \"source_id\": the exact id of the source, \"sentence\": the number of the sentence in that source that names the drug and what it is used for, "
                        "\"relevance\": \"treats_condition\" | \"treats_associated_symptom_or_comorbidity\" | \"not_relevant\" | \"undetermined\", "
                        "\"statement_type\": \"used_in_practice\" (the sentence says the drug is used, prescribed, given, recommended or licensed for it in practice, guidance or a label) | "
                        "\"study_result\" (it reports what happened in a study or analysis: improved, better than placebo, an effect size) | \"other\", "
                        "\"category\": \"Guideline-recommended\" (only if that source is a guideline or an organisation's recommendation) | \"Off-label\", "
-                       "\"indication\": what the drug is used for, a short phrase (at most 8 words) copied from that sentence, \"population\": the patients, in the words of that sentence, or \"\"}. "
-                       "A drug counts only if the sentence says it is USED, PRESCRIBED, GIVEN or RECOMMENDED in practice; a sentence that only reports a study result (improved, better than placebo, effect size) does not count: leave that drug out. "
+                       "\"indication\": what the drug is used for, a short phrase (at most 8 words) copied from that sentence, \"population\": the patients, in the words of that sentence, or \"\", \"dose_sentence\": the number of a sentence in the SAME source that states this drug's dose, route or frequency for this use, or 0 if no sentence does}. "
+                       "A drug counts if the sentence says it is USED, PRESCRIBED, GIVEN or RECOMMENDED in practice (statement_type used_in_practice), or reports a clinical study of it in patients with the condition (statement_type study_result); never call a study result used_in_practice. "
                        "Leave out drugs that are only being tested in a trial or protocol, animal or laboratory work, drugs named as a risk or an exposure, side effects, supplements, therapies and devices. "
                        "A drug counts only if the sentence says what it is used for in specific terms (a named symptom, behaviour or condition): a general phrase such as \"symptoms\" or \"co-occurring symptoms\" is not enough, leave that drug out. "
                        "Use \"undetermined\" when the text does not make the use clear. Never invent a drug, an id or a sentence number; if there are none, \"drugs\" is [].")
+DOSE_PICK_TASK = ("For each drug, choose the ONE candidate sentence that states the drug's dose, route of administration or frequency for the question's condition (and the patients the question names, "
+                  "if any). Reply with ONE JSON object {\"doses\": [...]} and nothing else, one object per drug: {\"drug\": the drug as given, \"candidate\": the id of the chosen candidate}. "
+                  "Leave a drug out when no candidate states a dose, route or frequency for this use (a candidate about a different condition or patient group does not count). Never invent an id.")
+TRIAGE_PAPERS = 36      # how many retrieved papers the relevance reading (triage) reads
+@lru_cache(maxsize=None)
+def skill_step(name: str, number: int) -> str:
+    """The text of `## Step <number>:` of a skill's SKILL.md (the rules live in that file, not in the code)."""
+    text = (Path(__file__).parent / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
+    found = re.search(rf"^## Step {number}:.*?(?=^## )", text, re.S | re.M)
+    return found.group(0).strip() if found else ""
+
+
+def with_rules(task: str, step: int) -> str:
+    """A figure task followed by the rules of its step in skills/figure-selection/SKILL.md. The rules go in the SAME message as the data (the text model followed them there and ignored them when they
+    were only the system instructions: it answered with no figure at all)."""
+    return task + "\n\nRULES (the figure-selection skill):\n" + skill_step("figure-selection", step)
+
+
+FIGURE_JOBS: dict = {}
+FIGURE_FOLDER = Path(__file__).parent / "demo_output" / "figures"
+FIGURE_TASK = ("Follow the figure-selection skill, Step 1: original figures from published open-access papers are offered for a doctor's question; choose only those that pass all five tests (at most 5, most useful first). "
+               "Reply with ONE JSON object {\"figures\": [{\"id\": the exact id, \"helps_answer\": true/false, \"clinically_meaningful\": true/false, \"adds_beyond_report\": true/false, "
+               "\"not_decorative\": true/false, \"answers_what_is_asked\": true/false, \"reason\": 4 to 15 consecutive words copied exactly from that figure's caption}]} and nothing else. If none qualifies, \"figures\" is [].")
+POPULATION_TASK = ("Follow the figure-selection skill, Step 2: decide whether each paper studied the patient population the question names. Reply with ONE JSON object and nothing else: "
+                   "{\"question_population\": ..., \"papers\": [{\"pmid\": the paper's pmid, \"study_population\": ..., \"evidence_quote\": ..., \"verdict\": \"match\" | \"broader\" | \"mismatch\" | \"unclear\"}]}.")
+EXPLAIN_TASK = ("Follow the figure-selection skill, Step 5: each of `figures` is an ORIGINAL figure that will be shown to the doctor; you are given its caption, its paper's title and abstract, and `image_description`, "
+                "what a vision model saw in the picture. Write the three lines for each. Reply with ONE JSON object and nothing else: {\"figures\": [{\"id\": the exact id, \"how_to_read\": ..., \"how_to_read_quote\": ..., "
+                "\"shows_for_question\": ..., \"shows_quote\": ..., \"helps_treatment\": ..., \"helps_quote\": ...}]}.")
+STRICT_TASK = ("Follow the figure-selection skill, Step 3: decide for each figure whether the figure ITSELF presents the kind of information the question asks for. Reply with ONE JSON object and nothing else: "
+               "{\"asked_kind\": ..., \"figures\": [{\"id\": the exact id, \"presents_it\": true/false, \"what_it_presents\": up to 12 words}]}.")
+VISION_PROMPT = ("This image is a figure from a published paper. The question asked: {question} The paper's caption: {caption} "
+                 "Look at the image itself. Reply with JSON only: {{\"shows\": what the image actually shows, in one sentence, \"matches_caption\": true if it is what the caption describes, "
+                 "\"relevant_to_question\": true if it shows results, data or a diagram that bears on the question, \"legible\": true if its text, labels and axes are readable}}. "
+                 "Do not say whether a treatment works; only describe what the image shows.")
+
+
+GROQ_VISION_MODEL = "qwen/qwen3.8-27b"
+MISTRAL_VISION_MODEL = "mistral-medium-latest"
+
+
+def vision_settings() -> tuple[str, str]:
+    """(provider, model) of the vision step. VISION_PROVIDER (groq or mistral) wins; without it Groq is used when a GROQ_API_KEY is set, otherwise Mistral. VISION_MODEL overrides the model."""
+    provider = os.getenv("VISION_PROVIDER", "").strip().lower() or ("groq" if os.getenv("GROQ_API_KEY") else "mistral")
+    default = {"groq": GROQ_VISION_MODEL, "mistral": MISTRAL_VISION_MODEL}.get(provider, "")
+    return provider, os.getenv("VISION_MODEL", "").strip() or default
+
+
+def vision_image(figure: dict) -> tuple[str, str]:
+    """(mime type, base64) of the image to show the vision model: the saved original (or its lossless PNG copy); a very large one is shrunk first because providers limit the request size."""
+    import base64
+    import io
+    from PIL import Image
+    path = Path(figure.get("pdf_path") or figure["path"])
+    raw = path.read_bytes()
+    mime = "image/png" if path.suffix == ".png" else "image/jpeg"
+    if len(raw) > 2_500_000:
+        image = Image.open(io.BytesIO(raw)).convert("RGB")
+        image.thumbnail((1800, 1800))
+        buffer = io.BytesIO()
+        image.save(buffer, "JPEG", quality=88)
+        raw, mime = buffer.getvalue(), "image/jpeg"
+    return mime, base64.b64encode(raw).decode()
+
+
+def vision_ask(text: str, figures: list[dict], max_tokens: int = 400):
+    """One call to the vision model with one or more of the saved pictures (the originals, or their lossless PNG copies). Returns the reply text, or None when it could not be reached or refused (rate
+    limit, error, no key). A provider's token limit is waited out: when Groq says 'try again in N seconds' the call is repeated."""
+    try:
+        provider, model = vision_settings()
+        images = [vision_image(f) for f in figures]
+        if provider == "groq":
+            from groq import Groq
+            client = Groq(api_key=os.environ["GROQ_API_KEY"], timeout=40.0, max_retries=0)
+            extra = {"reasoning_effort": "none"} if model.startswith("qwen") else {}      # the answer is a short JSON: no thinking phase
+            content = [{"type": "text", "text": text}] + [{"type": "image_url", "image_url": {"url": f"data:{mime};base64,{data}"}} for mime, data in images]
+            waited = 0.0
+            for attempt in range(4):
+                try:
+                    reply = client.chat.completions.create(model=model, temperature=0, max_tokens=max_tokens, messages=[{"role": "user", "content": content}], **extra)
+                    return reply.choices[0].message.content
+                except Exception as error:
+                    pause = re.search(r"try again in ([\d.]+)s", str(error))
+                    if "rate" not in str(error).lower() or not pause or attempt == 3 or waited > 24:
+                        raise
+                    time.sleep(min(float(pause.group(1)) + 0.5, 12.0))      # a free-tier token limit: wait as long as Groq says, then ask again
+                    waited += float(pause.group(1)) + 0.5
+        try:
+            from mistralai import Mistral
+        except ImportError:      # mistralai 2.x keeps the client in a sub-package
+            from mistralai.client import Mistral
+        client = Mistral(api_key=os.environ["MISTRAL_API_KEY"], timeout_ms=40000)
+        content = [{"type": "text", "text": text}] + [{"type": "image_url", "image_url": f"data:{mime};base64,{data}"} for mime, data in images]
+        reply = client.chat.complete(model=model, temperature=0, max_tokens=max_tokens, messages=[{"role": "user", "content": content}])
+        return reply.choices[0].message.content
+    except Exception:
+        return None
+
+
+def vision_inspect(figure: dict, question: str):
+    """A vision model looks at the downloaded ORIGINAL image. Returns its reply as text, or None when it could not be reached or refused: the figure is then skipped. Used only to verify the image,
+    never as clinical evidence."""
+    return vision_ask(VISION_PROMPT.format(question=question, caption=cut_for_model(figure["caption"], 600)), [figure])
+
+
+def written_evidence(markdown: str, limit: int = 3500) -> str:
+    """What the report already says in words about the evidence: its summary, current evidence and key studies sections."""
+    parts = [m.group(0) for m in re.finditer(r"(?ms)^## (?:Clinical summary|Current evidence|Key studies)\s*\n.*?(?=^## |\Z)", markdown or "")]
+    return cut_for_model(" ".join("\n".join(parts).split()), limit)
+
+
+def find_figures(question: str, papers: dict, report: str, found: list, trace: dict, condition: str = "") -> list:
+    """The whole selection of figures, run BESIDE the writing of the report (not after it): the gates, the population check, the relevance test, the vision check and the two plain-language lines.
+    `report` is the evidence the report has written so far (used by the relevance test to see what a figure adds). Any failure, refusal or timeout only means fewer figures or none."""
+    direct = {pmid for pmid, p in papers.items() if (p.get("triage") or {}).get("relevance") == "direct"}
+    indirect = {pmid for pmid, p in papers.items() if (p.get("triage") or {}).get("relevance") == "indirect"}      # a related condition or population: allowed, and labelled as indirect evidence
+
+    def rubric(available: list) -> list:
+        ordered = sorted(available, key=lambda f: (f.get("relation") != "direct", available.index(f)))      # direct papers first
+        chunks = [ordered[k:k + 10] for k in range(0, min(len(ordered), 40), 10)]      # a reply about many more figures than this does not fit the model's output limit: several calls, side by side
+
+        def judge(chunk: list) -> list:
+            payload = {"question": question, "written_report": report, "figures": [{"id": f["id"], "paper": (f.get("title") or "")[:140], "design": f.get("design") or "not stated",
+                                                                                      "relation": f.get("relation") or "direct", "caption": cut_for_model(f["caption"], 600)} for f in chunk]}
+            try:
+                return ask_json(question, with_rules(FIGURE_TASK, 1), payload, 900, skill="evidence-synthesis").get("figures") or []
+            except Exception:
+                return []
+        with ThreadPoolExecutor(max_workers=max(len(chunks), 1)) as judge_pool:
+            return [item for part in judge_pool.map(judge, chunks) for item in part]
+
+    def population(available: list) -> list:
+        related = [{**f, "population_note": "related condition or population: " + (((papers.get(str(f["pmid"])) or {}).get("triage") or {}).get("population") or "see the paper")}
+                   for f in available if f.get("relation") == "indirect"]      # indirect evidence is labelled, not matched to the question's population
+        available = [f for f in available if f.get("relation") != "indirect"]
+        if not available:
+            return related
+        texts, views = {}, []
+        for pmid in sorted({str(f["pmid"]) for f in available}):
+            p = papers.get(pmid) or {}
+            note = (p.get("triage") or {}).get("population") or ""
+            texts[pmid] = " ".join(x for x in (p.get("title"), p.get("abstract"), note) if x)
+            views.append({"pmid": pmid, "title": p.get("title"), "abstract": cut_for_model(p.get("abstract") or "", 1500), "population_noted_by_relevance_step": note or None})
+        return apply_population_check(available, ask_json(question, with_rules(POPULATION_TASK, 2), {"question": question, "papers": views}, 700, skill="evidence-synthesis"), texts, question, trace, condition=condition) + related
+    figures: list = []
+    try:
+        check = (lambda fig: vision_inspect(fig, question)) if os.getenv("FIGURE_IMAGE_CHECK", "off").strip().lower() == "on" else None
+        figures = select_figures(found, set(), direct, rubric, check, FIGURE_FOLDER, trace=trace, population=population, indirect_pmids=indirect)
+    except Exception as error:
+        trace["error"] = f"{type(error).__name__}: {str(error)[:80]}"
+    if figures:
+        try:      # a second, focused judgement: does each figure itself present the kind of information the question asks for? (a figure that only describes the problem is dropped)
+            payload = {"question": question, "figures": [{"id": f["id"], "caption": cut_for_model(f["caption"], 500), "paper_title": f.get("title"), "image_description": f.get("image_check") or ""} for f in figures]}
+            answer = {}
+            for attempt in range(2):
+                try:
+                    answer = ask_json(question, with_rules(STRICT_TASK, 3), payload, 700, skill="evidence-synthesis")
+                except Exception:
+                    answer = {}
+                if answer.get("figures"):
+                    break
+            before = list(figures)
+            figures = apply_strict_check(figures, answer, trace)
+            for f in before:
+                if not any(k["id"] == f["id"] for k in figures):
+                    trace.setdefault("figure_fates", []).append({"id": f["id"], "label": f.get("label"), "fate": "dropped by the strict check: it does not itself present what the question asks"})
+        except Exception as error:
+            trace["strict_check_error"] = f"{type(error).__name__}: {str(error)[:80]}"      # the extra check could not run: the figures stay
+    if figures:
+        try:      # two plain-language lines per figure, each kept only if it can be verified against the figure's caption and the paper's own text (source_figures.explain_figures)
+            texts = {str(f["pmid"]): " ".join(x for x in ((papers.get(str(f["pmid"])) or {}).get("title"), (papers.get(str(f["pmid"])) or {}).get("abstract")) if x) for f in figures}
+
+            def one(f: dict):      # one figure per call, side by side: a single reply covering several figures can be cut off at the model's output limit
+                payload = {"question": question, "figures": [{"id": f["id"], "caption": cut_for_model(f["caption"], 900), "paper_title": f.get("title"),
+                                                             "paper_abstract": cut_for_model(texts[str(f["pmid"])], 1800), "image_description": f.get("image_check") or ""}]}
+                for attempt in range(2):      # a reply that is missing or unusable is asked for once more
+                    try:
+                        got = ask_json(question, with_rules(EXPLAIN_TASK, 5), payload, 1300, skill="evidence-synthesis").get("figures") or []
+                    except Exception:
+                        got = []
+                    if got:
+                        return got
+                return []
+            with ThreadPoolExecutor(max_workers=len(figures)) as explain_pool:
+                answers = [item for part in explain_pool.map(one, figures) for item in part]
+            figures = explain_figures(figures, {"figures": answers}, texts, trace)
+        except Exception as error:
+            trace["explanations_error"] = f"{type(error).__name__}: {str(error)[:80]}"
+    return figures
+
+
+def collect_figures(state: dict, markdown: str = "", timeout: float = 15.0) -> list:
+    """The figures found beside the writing: normally ready by the time the report is final, so this is a short wait (at most `timeout` seconds). If they are not ready by then the report goes out
+    without them: the report is never held up for figures. What happened is kept in state['figure_trace']."""
+    job = FIGURE_JOBS.get(state.get("figure_job"))
+    if job is None:
+        return state.get("source_figures") or []
+    thread, box = job
+    thread.join(timeout=timeout)
+    ready = not thread.is_alive()
+    state["figure_trace"] = {**box.get("trace", {}), "ready_when_the_report_was_final": ready}
+    if not ready:      # not ready yet: the report goes out now, the job is kept and its figures are delivered later (late_figures)
+        state["source_figures"] = []
+        return []
+    FIGURE_JOBS.pop(state.get("figure_job"), None)
+    state["source_figures"] = list(box.get("figures") or [])
+    return state["source_figures"]
+
+
+def figures_pending(final: dict) -> bool:
+    """True when the figure job of this answer has not finished yet (its figures will be delivered later)."""
+    return final["state"].get("figure_job") in FIGURE_JOBS
+
+
+def deliver_outputs(question: str, final: dict):
+    """After the final event, the events that follow it, shared by every front end (the web page and the Chainlit app): `figures` (the papers' original figures, unless still being prepared),
+    `pdf` (the saved report), and, when the figures were not ready, a late `figures` event (late=True) followed by a `pdf` event for the PDF rebuilt with them."""
+    def items(records: list) -> list:
+        return [{k: v for k, v in f.items() if k != "pdf_path"} for f in records]
+    figures = prepare_figures(final)      # found beside the writing: normally ready already, otherwise a short wait
+    pending = figures_pending(final)
+    if not pending:
+        yield {"type": "figures", "items": items(figures)}
+    paths = save_outputs(question, final, figures=figures)
+    yield {"type": "pdf", "name": paths["pdf"].name if paths["pdf"] else None}
+    if pending:
+        late = late_figures(final)
+        yield {"type": "figures", "items": items(late), "late": True}
+        if late:
+            paths = save_outputs(question, final, figures=late)
+            yield {"type": "pdf", "name": paths["pdf"].name if paths["pdf"] else None}
+
+
+def late_figures(final: dict, timeout: float = 150.0) -> list:
+    """The records of the figures that were not ready when the report was final, waited for at most `timeout` more seconds (the report itself was shown long before). [] when they never come."""
+    job = FIGURE_JOBS.get(final["state"].get("figure_job"))
+    if job is None:
+        return []
+    thread, box = job
+    thread.join(timeout=timeout)
+    if thread.is_alive():
+        return []
+    FIGURE_JOBS.pop(final["state"].get("figure_job"), None)
+    final["state"]["figure_trace"] = {**box.get("trace", {}), "ready_when_the_report_was_final": False, "delivered_late": True}
+    final["state"]["source_figures"] = list(box.get("figures") or [])
+    return display_records(final["state"]["source_figures"], final["state"].get("reference_numbers"), final["markdown"])
+
+
+def prepare_figures(final: dict) -> list:
+    """The records of the figures for the page and the PDF (one list for both): what is ready when the report is final, with where each belongs in the report."""
+    return display_records(collect_figures(final["state"], final["markdown"]), final["state"].get("reference_numbers"), final["markdown"])
+
+
 REGULATOR_TASK = ("Using ONLY the RETRIEVED DATA, read each regulator page in `items` for the question. Each page is given as numbered `sentences` (the first is number 1). "
                   "Reply with ONE JSON object {\"items\": [...]} and nothing else. One object per page: {\"id\": its id, "
                   "\"classification\": \"approval\" | \"label_update\" | \"safety_communication\" | \"other_regulatory_action\" | \"not_relevant\" | \"uncertain\", "
@@ -582,6 +883,38 @@ REGULATOR_TASK = ("Using ONLY the RETRIEVED DATA, read each regulator page in `i
                   "A page that merely mentions the question's condition is not an approval for it: read what the action actually concerns. "
                   "Medical devices, diagnostic tests, meetings, transcripts, testimony, written requests, review documents, guidance, calendars and general information pages are not_relevant: an action is a decision "
                   "by the regulator about a drug (approval, new indication, label change, safety communication, restriction or withdrawal). Never invent a date, a drug or a sentence number.")
+def lookup_doses(rows: list[dict], condition: str, question: str, cap: float = 9.0, stems: list[str] | None = None) -> None:
+    """Dose and route for every listed drug that has none yet: one extra web search per drug (in parallel, at most `cap` seconds), the sentences that name the drug and state an amount, a route
+    or a frequency are offered to the model, which picks one per drug (landscape.verify_dose_picks). A drug without a verified sentence keeps 'not stated'."""
+    targets = [r for r in rows if not r.get("dose")][:14]
+    if not targets:
+        return
+    pool = ThreadPoolExecutor(max_workers=len(targets))
+    futures = {pool.submit(web_search, f"{r['drug']} dose and route of administration for {condition}", 1500): r for r in targets}
+    candidates: dict[str, list] = {}
+    try:
+        done, _ = wait(list(futures), timeout=cap)
+        for future in done:
+            try:
+                results = _json(future.result())
+            except Exception:
+                continue
+            found = dose_candidates(futures[future]["drug"], results if isinstance(results, list) else [], stems=stems)
+            if found:
+                candidates[futures[future]["drug"]] = found
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+    if not candidates:
+        return
+    payload = {"condition": condition, "drugs": [{"drug": d, "candidates": [{"id": c["id"], "text": c["text"]} for c in cs]} for d, cs in candidates.items()]}
+    chosen = verify_dose_picks(ask_json(question, DOSE_PICK_TASK, payload, 600).get("doses"), candidates)
+    for row in targets:
+        pick = chosen.get(row["drug"])
+        if pick:
+            row["dose"], row["dose_url"] = pick["text"], pick["url"]
+
+
+@traced("ask_json (skill model call)", "llm")
 def ask_json(question: str, task: str, payload: dict, max_tokens: int, skill: str = "drug-intelligence") -> dict:
     """One drug-intelligence call that must answer with a JSON object; the object is returned as parsed (nothing in it is trusted until the caller has verified it against the source)."""
     prompt = f"TASK: {task} Write the JSON compactly on a single line, with no indentation or line breaks.\n\nQUESTION: {question}\nRETRIEVED DATA (JSON):\n" + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
@@ -592,7 +925,7 @@ def ask_json(question: str, task: str, payload: dict, max_tokens: int, skill: st
         data = json.loads(text) if text else {}
     except json.JSONDecodeError:      # the answer ran into the token limit: keep the complete objects before the cut, never a half-written one
         data = {}
-        for key in ("fda_labels", "drugs", "items", "verdicts", "papers", "trials"):
+        for key in ("fda_labels", "drugs", "items", "verdicts", "papers", "trials", "queries"):
             part = re.search(rf'"{key}"\s*:\s*\[(.*)', raw, re.S)
             if part:
                 objects, depth, start = [], 0, None
@@ -620,14 +953,230 @@ DRUG_TASK = ("Write ONLY this block. Heading '#### Other agents named in the ret
              "Under 220 words. " + GROUND)
 
 PLAN_TASK = ("Follow the skill: classify the question and extract entities. Reply with ONE JSON object only. Keys: \"is_clinical\" (true if a medical question), "
-             "\"intent\" (disease_research|latest_findings|drug_treatment|clinical_trial|comparison|mechanism|comprehensive_research), \"condition\", "
-             "\"drugs\" (drug names in the question), \"pubmed_query\" (PubMed terms with AND/OR), \"trial_condition\", \"trial_intervention\" (drug or empty).")
+             "\"intent\" (disease_research|latest_findings|drug_treatment|clinical_trial|comparison|mechanism|diagnosis|safety|case_evaluation|comprehensive_research), \"condition\", "
+             "\"drugs\" (drug names in the question), \"pubmed_query\" (PubMed terms with AND/OR), \"trial_condition\", \"trial_intervention\" (drug or empty), "
+             "\"asked\" (what the doctor is asking, in one short sentence), \"purpose\" (why they are asking: the clinical decision or need behind the question, in one short sentence), "
+             "\"info_needed\" (the kinds of information needed, from: treatment_options|efficacy|safety|dosing|diagnosis|prognosis|mechanism|guideline_recommendation|trial_status|regulatory_status|drug_interaction), "
+             "\"answer_format\" (how the answer is best organised: options_comparison|stepwise_plan|summary|table|yes_no_with_evidence), "
+             "\"case_facts\" (when the question describes a patient or case: the facts that matter, each copied WORD FOR WORD from the question as a short phrase; [] when there is no case), "
+             "\"skills\" (which of the skills in the SKILL CATALOG must write expanded searches for this question: a list of their exact names; a case study may need several, a question about one drug's safety may need only one).")
+INFO_NEEDED = ("treatment_options", "efficacy", "safety", "dosing", "diagnosis", "prognosis", "mechanism", "guideline_recommendation", "trial_status", "regulatory_status", "drug_interaction")
+ANSWER_FORMATS = ("options_comparison", "stepwise_plan", "summary", "table", "yes_no_with_evidence")
+def _squash(text: str) -> str:
+    return " ".join(re.findall(r"[a-z0-9]+", str(text).lower()))
 
 
+def verified_understanding(plan: dict, question: str) -> dict:
+    """What the model understood about the question, kept only as far as the question itself supports it: `case_facts` must be word for word in the question; the kinds of information, the answer
+    format and the sources must come from the fixed lists; the drug names of a sub-question must be written in the question. `asked` and `purpose` are the model's own reading (short sentences) and are
+    labelled as interpretation, never as fact about the patient."""
+    own = _squash(question)
+
+    def sentence(value) -> str:
+        return " ".join(str(value or "").split())[:220]
+    facts = [" ".join(str(f).split())[:140] for f in (plan.get("case_facts") if isinstance(plan.get("case_facts"), list) else []) if str(f).strip()]
+    facts = [f for f in dict.fromkeys(facts) if _squash(f) and _squash(f) in own][:12]
+    info = [i for i in (plan.get("info_needed") if isinstance(plan.get("info_needed"), list) else []) if i in INFO_NEEDED]
+    fmt = plan.get("answer_format") if plan.get("answer_format") in ANSWER_FORMATS else "summary"
+    return {"asked": sentence(plan.get("asked")), "purpose": sentence(plan.get("purpose")), "info_needed": list(dict.fromkeys(info)), "answer_format": fmt, "case_facts": facts}
+
+
+EXPANDER_SKILLS = ("latest-evidence", "clinical-trials", "drug-intelligence")      # the skills that write expanded searches (each has a "Query transformation by intent" section)
+EXPANSION_TOTAL_S = float(os.getenv("ROUTING_DEADLINE_S", "30"))      # HARD DEADLINE: from the start of the deep search, the evidence group waits at most this long for the routed searches; unfinished work is recorded, never waited for
+EXPAND_TASK = ("Follow the section below to write the expanded searches of the {skill} skill for this question. `intent` and `understanding` say what the question needs; keep the patient and the condition of the "
+               "question in every search. Reply with ONE JSON object and nothing else, in the format the section gives.")
+
+
+def routing_enabled() -> bool:
+    """DEEP_ROUTING=off turns the source-aware deep routing off (QUERY_EXPANSION=off is accepted too)."""
+    return all(os.getenv(name, "on").strip().lower() not in {"off", "0", "false", "no"} for name in ("DEEP_ROUTING", "QUERY_EXPANSION"))
+
+
+def legacy_deep_enabled() -> bool:
+    """LEGACY_DEEP=off skips the legacy deep search jobs, so the deep search is the routed one only (used to measure the target configuration and to compare coverage; the fast search is never affected)."""
+    return os.getenv("LEGACY_DEEP", "on").strip().lower() not in {"off", "0", "false", "no"}
+
+
+ROUTING_BUDGET_S = float(os.getenv("ROUTING_BUDGET_S", "18"))      # the time the routed searches get after their queries are written
+
+
+@lru_cache(maxsize=None)
+def skill_description(name: str) -> str:
+    text = (Path(__file__).parent / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
+    found = re.search(r"(?ms)^description:\s*(.+?)\n---", text)
+    return " ".join(found.group(1).split()) if found else ""
+
+
+def retrieval_catalog() -> str:
+    """The catalog the quick plan call reads: only each retrieval skill's name and one-line description (progressive loading: the full files are loaded afterwards, only for the skills chosen)."""
+    return "\n".join(f"- {name}: {skill_description(name)[:260]}" for name in EXPANDER_SKILLS)
+
+
+@lru_cache(maxsize=None)
+def skill_section(name: str, heading: str) -> str:
+    """The text of the `## <heading>` section of a skill's SKILL.md (the rules live in the file, not in the code)."""
+    text = (Path(__file__).parent / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
+    found = re.search(rf"^## {re.escape(heading)}.*?(?=^## |\Z)", text, re.S | re.M)
+    return found.group(0).strip() if found else ""
+
+
+@lru_cache(maxsize=None)
+def skill_catalog() -> dict:
+    return rr.load_skill_catalog(Path(__file__).parent / "skills")
+
+
+def ingest_guideline_ops(state: dict, raw: dict) -> None:
+    """The routed `guideline_sites` searches (keys web_guideline_op_*) -> state['guidelines'] rows (authoritative organisations only, the condition named in the page), merged with any rows already there."""
+    from guidelines import rows_from_results
+    stems = [x for x in (state.get("core_stems") or []) if len(x) >= 4]
+    known = {g.get("url") for g in state.get("guidelines", [])}
+    for key, text in raw.items():
+        if not key.startswith("web_guideline_op"):
+            continue
+        data = _json(text)
+        if isinstance(data, dict) and data.get("error"):
+            continue      # recorded as a failed source by record_source_status; never an empty result
+        rows = [r for r in rows_from_results(data if isinstance(data, list) else [], load_care_config(), stems, topic=key, label="Guideline (searched for this question)") if r["url"] not in known]
+        for r in rows:
+            known.add(r["url"])
+            state.setdefault("guidelines", []).append(r)
+            state.setdefault("guideline_rows", []).append(r)
+        if isinstance(data, list):
+            state["guideline_search_ok"] = True
+
+
+def real_adapters(anchors: set[str]) -> dict:
+    """The seven targets, wired to the existing search functions and the pipeline's result cache."""
+    return rr.make_adapters(search_pubmed=search_pubmed, search_europepmc_quick=search_europepmc_quick, search_clinical_trials=search_clinical_trials, search_fda_labels=search_fda_labels,
+                            guideline_search=guideline_search, regulator_search=regulator_search, web_search=web_search, anchors=anchors, cache=cached,
+                            guideline_filter=filter_authoritative)
+
+
+def _write_queries(question: str, plan: dict, skill: str, anchors: set[str], ask, attempts: int = 2) -> dict:
+    """One retrieval skill, loaded from its SKILL.md, writes its searches. Returns {'ops', 'rejected', 'outcome', 'seconds'}. outcome: wrote | declined (the source is not needed: not an error) |
+    all_rejected | malformed | error. A reply that could not be used is retried once; a decline is never retried."""
+    began = time.time()
+    rules = skill_section(skill, "Query transformation by intent")
+    if not rules:
+        return {"ops": [], "rejected": [], "outcome": "error", "seconds": 0.0, "error": "the skill has no query transformation section"}
+    payload = {"question": question, "intent": plan.get("intent"), "understanding": {k: v for k, v in (plan.get("understanding") or {}).items() if v}}
+    task = EXPAND_TASK.format(skill=skill) + "\n\nSECTION (the " + skill + " skill):\n" + rules
+    outcome, rejected, error = "error", [], ""
+    for _ in range(attempts):
+        try:
+            reply = ask(question, task, payload, 1500, skill=skill)
+        except Exception as exc:
+            outcome, error = "error", f"{type(exc).__name__}: {str(exc)[:80]}"
+            continue
+        ops, rejected = rr.parse_operations(skill, reply, question, anchors)
+        if ops:
+            return {"ops": ops, "rejected": rejected, "outcome": "wrote", "seconds": round(time.time() - began, 1)}
+        if rr.declined(reply) or (isinstance(reply, dict) and reply.get("queries") == []):
+            return {"ops": [], "rejected": [], "outcome": "declined", "seconds": round(time.time() - began, 1)}
+        outcome = "all_rejected" if isinstance(reply, dict) and isinstance(reply.get("queries"), list) else "malformed"
+    return {"ops": [], "rejected": rejected, "outcome": outcome, "seconds": round(time.time() - began, 1), "error": error}
+
+
+COVERAGE_CALL_S = float(os.getenv("COVERAGE_CALL_S", "8"))      # the time the one bounded call that fills coverage gaps may take
+MAX_COVERAGE_ADDITIONS = 4      # the most searches that call may add
+COVERAGE_TASK = ("Some information needs of this question have too few searches before retrieval starts. Write the missing searches for the gaps below, at most {n} in all. Each must differ in purpose, source or substance "
+                 "from the searches already written (`already_written`), keep the condition and the patient details of the question, and use ONLY a target from the list in the section. For a `discovery_shortfall` write `missing` "
+                 "`web` searches, one for each of the listed `purposes` that the `have` searches do not already cover. For a `need_without_suitable_source` write one search for that need on one of the `suitable` sources "
+                 "and set `serves` to that need. For an `authority_source_missing` write one search for each target in `missing_targets` (the guideline organisations' pages, or the regulators' pages), about the treatments or medicines for the "
+                 "question's condition and patient group. For a `single_source_need` decide which of its `other_sources` (see `offers`) could really hold evidence for that need, and write one search for each of those, "
+                 "using the same `need_id`, `need` and `serves`; skip a source that cannot hold it. A gap that cannot be filled gets nothing. Reply with ONE JSON object and nothing else: "
+                 "{{\"queries\": [{{\"need_id\": ..., \"need\": ..., \"serves\": ..., \"target\": ..., \"query\": ..., \"args\": {{}}, \"priority\": \"essential\" or \"supporting\"}}]}}.")
+
+
+@lru_cache(maxsize=None)
+def source_capabilities() -> dict:
+    return rr.load_capabilities()
+
+
+def coverage_check_enabled() -> bool:
+    return os.getenv("COVERAGE_CHECK", "on").strip().lower() not in {"off", "0", "false", "no"}
+
+
+def fill_coverage(question: str, plan: dict, gaps: list[dict], ops: list, anchors: set[str], ask=ask_json, call_s: float | None = None) -> dict:
+    """ONE bounded model call that writes the missing searches for the gaps found before retrieval. Everything it writes is validated like any other search (allowlisted target, the question's terms kept) and
+    near-duplicates of the searches already written are dropped. Returns {'ops', 'outcome', 'seconds', 'rejected'}; a slow or failed call adds nothing and says so."""
+    began = time.time()
+    limit = COVERAGE_CALL_S if call_s is None else call_s
+    section = skill_section("latest-evidence", "Query transformation by intent")
+    sources = section[section.find("### Sources you may target"):section.find("### Output")] if "### Sources you may target" in section else section
+    discovery = any(g["kind"] == "discovery_shortfall" for g in gaps)
+    payload = {"question": question, "understanding": {k: v for k, v in (plan.get("understanding") or {}).items() if v}, "gaps": gaps,
+               "already_written": [{"need": o.need, "serves": o.serves, "target": o.target, "query": o.query[:110]} for o in ops]}
+    box: dict = {}
+
+    def call():
+        try:
+            box["reply"] = ask(question, COVERAGE_TASK.format(n=MAX_COVERAGE_ADDITIONS) + "\n\nSECTION:\n" + sources, payload, 900, skill="drug-intelligence" if discovery else "latest-evidence")
+        except Exception as error:
+            box["error"] = f"{type(error).__name__}: {str(error)[:80]}"
+    thread = threading.Thread(target=call, daemon=True)
+    thread.start()
+    thread.join(timeout=limit)
+    seconds = round(time.time() - began, 1)
+    if thread.is_alive():
+        return {"ops": [], "outcome": "timed_out", "seconds": seconds, "rejected": 0}
+    if "reply" not in box:
+        return {"ops": [], "outcome": "error", "seconds": seconds, "rejected": 0, "error": box.get("error", "")}
+    new, rejected = rr.parse_operations("coverage", box["reply"], question, anchors, max_ops=MAX_COVERAGE_ADDITIONS)
+    kept = []
+    for op in new:
+        if any(rr.near_duplicate(op, existing) or op.key == existing.key for existing in list(ops) + kept):
+            rejected.append({"item": None, "reason": "duplicate of a search already written"})
+            continue
+        op.origin = "coverage"
+        if discovery and op.target == "web":
+            op.skill = "drug-intelligence"      # a discovery search of the drug skill: it counts toward the minimum and belongs to the drug section
+        kept.append(op)
+    return {"ops": kept, "outcome": "added" if kept else "nothing_added", "seconds": seconds, "rejected": len(rejected)}
+
+
+@traced("route deep search (skills write source-aware queries)", "chain")
+def route_deep(question: str, plan: dict, ask=ask_json) -> dict:
+    """The model-driven part of the deep search: validate the plan's skills against what the information needs require, let each chosen skill write its searches IN PARALLEL (it may write none),
+    validate every search and its target, merge duplicates, and add the minimal baselines (the original question as a literature search; a minimal search for a skill whose queries could not be written)."""
+    understanding = plan.get("understanding") or {}
+    skills, select_trace = rr.select_skills(plan.get("skills"), understanding.get("info_needed"), skill_catalog())
+    anchors = rr.anchor_words(question, plan.get("condition", ""), understanding.get("case_facts"))
+    with ThreadPoolExecutor(max_workers=max(1, len(skills))) as pool:
+        written = dict(zip(skills, pool.map(lambda s: _write_queries(question, plan, s, anchors, ask), skills)))
+    baselines = []
+    for skill, result in written.items():
+        if result["outcome"] in ("malformed", "error", "all_rejected"):      # a query-generation failure, NOT a decline and NOT an empty result
+            baselines += rr.baseline_for(skill, question, anchors, plan.get("condition", ""), plan.get("drugs"))
+    literature = rr.baseline_operations(question, skills, fallback=bool(select_trace.get("fallback")))
+    ops, duplicates = rr.merge_operations(literature, baselines, *[r["ops"] for r in written.values()])
+    coverage: dict = {"gaps": [], "outcome": "not_needed"}
+    if coverage_check_enabled():
+        gaps = rr.coverage_gaps(ops, understanding.get("info_needed"), skills, source_capabilities())      # before anything is retrieved
+        coverage = {"gaps": gaps, "outcome": "no_gaps" if not gaps else "pending"}
+        if gaps:
+            filled = fill_coverage(question, plan, gaps, ops, anchors, ask=ask)
+            before = len(ops)
+            ops, more = rr.merge_operations(ops, filled["ops"], cap=rr.MAX_OPERATIONS + MAX_COVERAGE_ADDITIONS)
+            duplicates = duplicates + more
+            coverage.update({"outcome": filled["outcome"], "added": len(ops) - before, "seconds": filled["seconds"], "rejected": filled["rejected"]})
+    return {"ops": ops, "anchors": anchors, "skills": skills, "rejected": [x for r in written.values() for x in r["rejected"]],
+            "trace": {"select_skills": select_trace, "coverage": coverage, "skills": {s: {k: v for k, v in r.items() if k in ("outcome", "seconds", "error")} | {"operations": len(r["ops"])} for s, r in written.items()},
+                      "duplicates_removed": len(duplicates), "baselines": [o.id for o in literature + baselines]}}
+
+
+def run_routing_stage(question: str, plan: dict, make_adapters=real_adapters, budget_s: float = ROUTING_BUDGET_S, ask=ask_json) -> dict:
+    """Write the routed searches, run them in parallel under the budget, and return everything the pipeline and the saved state need."""
+    routed = route_deep(question, plan, ask=ask)
+    execution = rr.Execution(routed["ops"], make_adapters(routed["anchors"]), budget_s)
+    return {**routed, "execution": execution, "raw": rr.raw_for_ingest(routed["ops"], execution.results)}
+
+
+@traced("plan: understanding", "chain")
 def plan_with_skill(question: str) -> dict:
     """clinical-research-orchestrator: classify and extract entities (skill loaded on demand)."""
     try:
-        text = run_llm(load_skill_text("clinical-research-orchestrator"), f"TASK: {PLAN_TASK}\nQuestion: {question}", FAST_TOKENS)
+        text = run_llm(load_skill_text("clinical-research-orchestrator"), f"TASK: {PLAN_TASK}\nSKILL CATALOG (name: what it is for):\n{retrieval_catalog()}\nQuestion: {question}", PLAN_TOKENS, temperature=0.0)
         plan = json.loads(re.search(r"\{.*\}", text, re.S).group(0))
     except Exception:
         plan = {}
@@ -639,7 +1188,11 @@ def plan_with_skill(question: str) -> dict:
     plan.setdefault("pubmed_query", pubmed_query_from_question(question)[0])
     plan.setdefault("trial_condition", plan["condition"])
     plan.setdefault("trial_intervention", ", ".join(map(str, plan["drugs"][:1])) if isinstance(plan["drugs"], list) else str(plan["drugs"]))
-    return normalize_plan(plan)
+    plan = normalize_plan(plan)
+    plan["understanding"] = verified_understanding(plan, question)
+    proposed = plan.get("skills")
+    plan["skills"] = [s for s in proposed if isinstance(s, str)] if isinstance(proposed, list) else []      # what the model proposed; rr.select_skills validates it against the catalog and the information needs
+    return plan
 
 
 def trim_incomplete(text: str) -> tuple[str, bool]:
@@ -770,16 +1323,24 @@ def deep_jobs(plan: dict, question: str) -> dict:
     jobs = {
         "pubmed_recent": lambda: cached("pm", f"{pq}|r", 900, lambda: search_pubmed(pq, max_results=8, years_back=2, sort="date")),
         "pubmed_quality": lambda: cached("pm", f"{pq}|q", 900, lambda: search_pubmed(f"({pq}) AND {quality}", max_results=5, years_back=5, sort="relevance")),
+        "pubmed_bestmatch": lambda: cached("pm", f"{question}|bm", 900, lambda: search_pubmed(re.sub(r"[?\"]", " ", question).strip(), max_results=6, years_back=5, sort="relevance")),      # the plain question, ranked by PubMed's own Best Match: a second, non-keyword-AND retriever for the hybrid pool
+        "pubmed_freefull": lambda: cached("pm", f"{pq}|ff", 900, lambda: search_pubmed(f"({pq}) AND pubmed pmc[sb] AND {quality}", max_results=5, years_back=5, sort="relevance")),      # papers with a free PubMed Central copy: they can show their figures
         "pubmed_negative": lambda: cached("pm", f"{pq}|n", 900, lambda: search_pubmed(f"({pq}) AND {negative}", max_results=4, years_back=5, sort="relevance")),
         "pubmed_drugs": lambda: cached("pm", f"{pq}|dr", 900, lambda: search_pubmed(
             f"({pq}) AND (pharmacological[tiab] OR medication[tiab] OR \"drug therapy\"[tiab] OR drug[tiab]) AND {quality}", max_results=5, years_back=5, sort="relevance")),
+        "pubmed_drugs_review": lambda: cached("pm", f"{pq}|drr", 900, lambda: search_pubmed(
+            f"({pq}) AND (treatment[ti] OR therapy[ti] OR management[ti]) AND (review[pt] OR guideline[pt] OR \"clinical trial\"[pt])", max_results=5, years_back=5, sort="relevance")),
         "trials_drugs": with_retry(lambda: cached("ct", f"{plan['trial_condition']}|drug-only", 300, lambda: search_clinical_trials(plan["trial_condition"], "", "", 12, drug_only=True))),
         "trials_deep": with_retry(lambda: cached("ct", f"{plan['trial_condition']}|{plan['trial_intervention']}", 300,
                                                  lambda: search_clinical_trials(plan["trial_condition"], plan["trial_intervention"], "", 10))),
         "fda_deep": with_retry(lambda: cached("fda", f"{' '.join(fda_terms)}|{','.join(plan.get('drugs') or [])}", 3600,
                                               lambda: search_fda_labels(fda_terms, plan.get("drugs") or []))),
         "web_approvals": with_retry(lambda: cached("web", f"{cond}|a", 300, lambda: web_search(f"{cond} newly approved drug FDA EMA approval {year - 1} {year}"))),
-        "web_medications": with_retry(lambda: cached("web", f"{cond}|m", 300, lambda: web_search(f"medications commonly prescribed to children with {cond}: which drugs are used for irritability, sleep, anxiety and ADHD", snippet_chars=1500))),
+        "web_medications": with_retry(lambda: cached("web", f"{cond}|m", 300, lambda: web_search(f"medications commonly prescribed for {cond}: which drugs are used for its symptoms and related conditions", snippet_chars=1500))),
+        "web_named_drugs": with_retry(lambda: cached("web", f"{cond}|nd", 300, lambda: web_search(f"{cond} treatment: the specific drugs by generic name, including anti-infective, immune-directed, anti-inflammatory and symptom-directed medications", snippet_chars=1500))),
+        "web_symptom_drugs": with_retry(lambda: cached("web", f"{cond}|sd", 300, lambda: web_search(f"{cond} co-occurring conditions and associated symptoms: which medications are prescribed for each and in which patients", snippet_chars=1500))),
+        "pubmed_drugs_symptoms": lambda: cached("pm", f"{pq}|dsy", 900, lambda: search_pubmed(
+            f"({pq}) AND (comorbid*[tiab] OR symptom*[tiab] OR \"co-occurring\"[tiab]) AND (pharmacotherapy[tiab] OR medication*[tiab] OR drug*[tiab])", max_results=5, years_back=5, sort="relevance")),
         "web_regulatory": with_retry(lambda: cached("web", f"{cond}|reg", 300, lambda: regulator_search_many([f"FDA press announcement action treatment {cond}", f"{cond} drug approval label expansion safety communication FDA"]))),
         "web_standard": with_retry(lambda: cached("web", f"{cond}|s", 300, lambda: web_search(f"{cond} treatment guideline first-line drugs dosage"))),
     }
@@ -809,7 +1370,9 @@ def build_fast_context(state: dict, question: str) -> dict:
 def build_evidence_context(state: dict, question: str) -> dict:
     """evidence-synthesis: usable papers (not retracted, on topic) with their relation to the question, plus a few trials."""
     stems = set(state["core_stems"])
-    return {"question": question, "papers": [paper_view(p, 800, stems) for p in ordered_papers(state["papers"], stems)[:MAX_CONTEXT_PAPERS]],
+    understood = {k: v for k, v in (state.get("understanding") or {}).items() if v}
+    return {"question": question, **({"how_the_question_was_understood": understood} if understood else {}),
+            "papers": [paper_view(p, 800, stems) for p in ordered_papers(state["papers"], stems)[:MAX_CONTEXT_PAPERS]],
             "trials": [trial_view(t) for t in [t for t in state["trials_by_id"].values() if (t.get("triage") or {}).get("relevance") not in ("not_relevant", "uncertain")][:4]],
             "source_status": compact_status(state)}
 
@@ -890,15 +1453,21 @@ def fast_drug_decisions(state: dict, question: str) -> None:
                 state["fast_decision_trace"].append({"error": f"{type(error).__name__}: {str(error)[:100]}"})
 
 
-def triage_evidence(state: dict, question: str, skipped: list[str]) -> None:
+def triage_evidence(state: dict, question: str, skipped: list[str], only: set[str] | None = None) -> None:
     """evidence-synthesis reads ALL retrieved papers and trial records (not a keyword-filtered subset) and decides, for the question: relevance, evidence role, population.
     Code checks every decision against the record's own text (landscape.verify_*_triage) and stores the verified decision on the record (p['triage'] / t['triage']).
     A part whose call fails is left without a decision (its records are then offered to the model as they are) and is reported."""
     from landscape import numbered_sentences
     today = f"{datetime.now():%Y-%m-%d}"
-    papers = [p for p in state["papers"].values() if not p.get("retracted")][:36]      # retrieval order (the search groups interleave recent, high-quality, negative-result and drug papers), not date or design
+    if only is None:
+        papers = [p for p in state["papers"].values() if not p.get("retracted")][:TRIAGE_PAPERS]
+    else:      # only the NEW records (found after the first reading): the others keep their decisions, and nothing outside this set is marked uncertain
+        papers = [state["papers"][i] for i in only if i in state["papers"] and not state["papers"][i].get("retracted") and not state["papers"][i].get("triage")][:TRIAGE_PAPERS]      # retrieval order (the search groups interleave recent, high-quality, negative-result and drug papers), not date or design
     offered_p = {p["pmid"]: {"sentences": [p["title"]] + numbered_sentences(p["abstract"], 700)} for p in papers}
-    trials = [t for t in list(state["trials_by_id"].values())[:12] if not t.get("triage")]      # the fast pass has already read some of them
+    if only is None:
+        trials = [t for t in list(state["trials_by_id"].values())[:12] if not t.get("triage")]      # the fast pass has already read some of them
+    else:
+        trials = [state["trials_by_id"][i] for i in only if i in state["trials_by_id"] and not state["trials_by_id"][i].get("triage")][:12]
     offered_t = {t["nct_id"]: {"sentences": [t["title"] or "", "Conditions: " + "; ".join(t.get("conditions") or []), "Interventions: " + "; ".join(t.get("interventions") or []),
                                              "Primary outcome: " + str(t.get("primary_endpoint") or "not stated")]} for t in trials}
     jobs = []
@@ -932,20 +1501,226 @@ def triage_evidence(state: dict, question: str, skipped: list[str]) -> None:
             record["triage"] = decisions.get(k) or ({"relevance": "uncertain", "role": None, "population": "", "evidence": ""} if kind == "papers" else {"relevance": "uncertain", "kind": "other", "evidence": ""})
     with ThreadPoolExecutor(max_workers=max(1, len(jobs))) as pool:
         results = list(pool.map(run, jobs))
-    state["triage_trace"] = trace      # kept in the saved state for audit
+    state["triage_trace"] = trace if only is None else list(state.get("triage_trace") or []) + trace      # kept in the saved state for audit
     failed = 0
     for kind, part, items in results:
         if items is None:
             failed += 1
-    if not failed:
+    if not failed and only is None:
         for p in state["papers"].values():      # records beyond the triaged set were not read: they are not offered to the writer
             if not p.get("triage") and not p.get("retracted"):
                 p["triage"] = {"relevance": "uncertain", "role": None, "population": "", "evidence": ""}
+    if only is not None:
+        for p in papers:      # a record of this set that got no verified decision is not shown as relevant
+            p.setdefault("triage", {"relevance": "uncertain", "role": None, "population": "", "evidence": ""})
+        for t in trials:
+            t.setdefault("triage", {"relevance": "uncertain", "kind": "other", "evidence": ""})
     if failed:
         skipped.append(f"the relevance reading of {failed} part(s) of the retrieved evidence did not complete; those records were offered to the writer as retrieved")
 
 
 # ------------------------------------------------------------------ the streaming pipeline
+ESCALATION_DEADLINE_S = float(os.getenv("ESCALATION_DEADLINE_S", "25"))      # HARD DEADLINE for the whole phase before the evidence writer: the relevance reading, the escalation searches and the reading of their results
+ESCALATION_MIN_S = 2.0      # an escalation step is not started with less than this left of the deadline
+SCREEN_THRESHOLD = float(os.getenv("SCREEN_THRESHOLD", "-8.0"))      # CALIBRATED on 285 saved web snippets: scores run from -11.5 to +8.4 (median -4.7, 25th percentile -9.3). Pages that were later USED as sources had a median of -4.3, so the
+SCREEN_MARGIN = float(os.getenv("SCREEN_MARGIN", "2.0"))      # screen only rejects the clearly off-topic bottom (below -10); results from -10 to -6 are borderline and count as relevant for coverage, left to the model-based assessment
+ALTERNATES_TASK = ("Each need below was searched in one source and no relevant evidence came back (the search found nothing, found nothing relevant, or failed). For each need write ONE search in a DIFFERENT, suitable "
+                   "source from the list in the section, keeping the condition and the patient details of the question. A regulatory approval or drug label need must use a regulatory or label source; a literature need may "
+                   "use another literature index or a targeted web search. Reply with ONE JSON object and nothing else, in the same format as the section gives, with the same `need_id` for each; write no search for a need that has no suitable second source.")
+
+
+def propose_alternates(question: str, plan: dict, wanted: list, anchors: set[str], all_ops: list, ask=ask_json) -> dict:
+    """ONE batched model call for the essential needs that have no second source yet. Every search is validated like any other (allowlisted target, anchored query) and must use a different source than the one tried."""
+    if not wanted:
+        return {}
+    section = skill_section("latest-evidence", "Query transformation by intent")
+    sources = section[section.find("### Sources you may target"):section.find("### Output")] if "### Sources you may target" in section else section
+    payload = {"question": question, "understanding": {k: v for k, v in (plan.get("understanding") or {}).items() if v},
+               "needs": [{"need_id": n.need_id, "need": n.need, "tried": [{"target": o.target, "query": o.query[:120]} for o in all_ops if o.id in n.op_ids], "outcome": n.state} for n in wanted]}
+    try:
+        reply = ask(question, ALTERNATES_TASK + "\n\nSECTION:\n" + sources, payload, 700, skill="latest-evidence")
+    except Exception:
+        return {}
+    names = {n.need_id: n.need for n in wanted}
+    items = reply.get("queries") if isinstance(reply, dict) and isinstance(reply.get("queries"), list) else (reply.get("alternates") if isinstance(reply, dict) and isinstance(reply.get("alternates"), list) else [])
+    items = [{**i, "need": i.get("need") or names.get(i.get("need_id"), "")} for i in items if isinstance(i, dict)]
+    ops, _ = rr.parse_operations("alternates", {"queries": items}, question, anchors)
+    tried = {n.need_id: {o.target for o in all_ops if o.id in n.op_ids} for n in wanted}
+    out = {}
+    for op in ops:
+        if op.need_id in tried and op.target not in tried[op.need_id] and op.need_id not in out:
+            out[op.need_id] = {"target": op.target, "query": op.query, "args": op.args}
+    return out
+
+
+def relevance_counter(state: dict, question: str, scorer=None, *, optimistic: bool = False):
+    """How many records of a routed search were judged relevant. Before the relevance reading (`optimistic`) any record counts, so only empty and failed searches escalate. Afterwards: papers and trials by their
+    verified reading; web, guideline and regulator results by the local cross-encoder screen (borderline results count: they are left to the model-based assessment); FDA labels count as found (their
+    decision comes with the drug stage)."""
+    def count(op, result) -> int:
+        if result.status != "completed_found":
+            return 0
+        if optimistic or op.target == "fda_label":
+            return result.n
+        try:
+            data = json.loads(result.raw)
+        except (TypeError, ValueError):
+            return 0
+        rows = data if isinstance(data, list) else (data.get("results") or [])
+        if op.target in ("pubmed", "europepmc"):
+            return sum(1 for r in rows if (state["papers"].get(r.get("pmid"), {}).get("triage") or {}).get("relevance") in ("direct", "indirect"))
+        if op.target == "trials":
+            return sum(1 for r in rows if (state["trials_by_id"].get(r.get("nct_id"), {}).get("triage") or {}).get("relevance") in ("direct", "indirect"))
+        if op.target == "guideline_sites":      # already restricted to the authoritative organisations: a page from one is what the need asks for (a topical score would reject official pages)
+            return len(rows)
+        if op.target == "regulator":      # regulators' own pages (checked against their hosts): relevance to the drug is the model's decision in the drug stage, not a web-search score
+            return sum(1 for r in rows if any((urlparse(r.get("url") or "").hostname or "").lower().endswith(h) for h in REGULATOR_HOSTS))
+        screened = rr.screen_results(op.query or question, rows, scorer, SCREEN_THRESHOLD, SCREEN_MARGIN) if scorer else {"relevant": [], "borderline": rows}
+        return len(screened["relevant"]) + len(screened["borderline"])
+    return count
+
+
+def ingest_routed(state: dict, raw: dict) -> set[str]:
+    """Merge routed results into the state exactly as the first round was merged; returns the ids (PMIDs and NCT ids) of the records that are NEW."""
+    before = set(state["papers"]) | set(state["trials_by_id"])
+    state["retrieval_errors"].update(ingest(state["papers"], state["trials_by_id"], state["web"], raw))
+    ingest_regulatory(state, raw)
+    ingest_guideline_ops(state, raw)
+    record_source_status(state, raw)
+    return (set(state["papers"]) | set(state["trials_by_id"])) - before
+
+
+SECTION_SOURCES = {"drugs": {"targets": {"fda_label", "regulator"}, "skills": {"drug-intelligence"}}, "trials": {"targets": {"trials"}, "skills": {"clinical-trials"}},
+                   "literature": {"targets": {"pubmed", "europepmc"}, "skills": {"latest-evidence"}}}
+
+
+def compute_section_states(record: dict) -> dict:
+    """Per report section: covered | not_applicable | not_retrieved | no_relevant_evidence | failed | timed_out | not_generated, from the needs the routed searches served. A section no search was written for
+    (its skill was not chosen, or declined) is not applicable; a section whose searches failed, timed out or never ran is never reported as 'no evidence'."""
+    ops, needs = record.get("all_ops") or [], record.get("needs") or {}
+    out = {}
+    for section, spec in SECTION_SOURCES.items():
+        ids = {nid for o in ops if o.target in spec["targets"] or o.skill in spec["skills"] for nid in o.needs()}
+        states = [needs[n]["state"] for n in ids if n in needs]
+        out[section] = {"state": rr.need_section_state(states, applicable=bool(states)), "needs": sorted(ids)}
+    return out
+
+
+@traced("escalation phase (relevance assessment + one alternate source per essential need)", "chain")
+def run_escalation_phase(state: dict, question: str, plan: dict, stage: dict, triage_thread, skipped: list[str], *, make_adapters=real_adapters, scorer=None, ask=ask_json,
+                         deadline_s: float = ESCALATION_DEADLINE_S, clock=time.monotonic) -> dict:
+    """Before the evidence is written: (1) searches of essential needs that found nothing or failed are tried once in an alternate source WHILE the relevance reading runs; (2) when the reading is done, needs
+    whose records were all judged irrelevant get one alternate-source search too; (3) the new records are read (never marking the old ones uncertain). Each need escalates at most once, supporting needs
+    never, and everything is bounded by one hard deadline: unfinished work is recorded and reported in the limitations, never waited for."""
+    record = {"waves": [], "skipped": [], "unfinished": [], "needs": {}}
+    began = clock()
+    deadline = began + deadline_s
+
+    def remaining() -> float:
+        return max(0.0, deadline - clock())
+    if not stage or not stage.get("execution"):
+        triage_thread.join(timeout=3.5)      # no routed stage (it is off, or its plan was late): the earlier behaviour
+        return record
+    ops, first_results = stage["ops"], dict(stage["execution"].results)
+    all_ops = list(ops)
+    results = dict(first_results)
+    adapters = make_adapters(stage["anchors"])
+    executed = {o.key for o in ops}
+    escalated: set[str] = set()
+    jobs: list[dict] = []
+
+    def launch(wave: int, new_ops: list) -> dict:
+        """Run one wave's searches in a thread so that the relevance reading can go on beside it."""
+        job = {"wave": wave, "ops": new_ops, "execution": None}
+
+        def work():
+            job["execution"] = rr.Execution(new_ops, adapters, max(0.05, remaining()))      # never longer than what is left of the hard deadline
+        thread = threading.Thread(target=work, daemon=True)
+        job["thread"] = thread
+        thread.start()
+        return job
+
+    def plan_wave(needs: dict, wave: int) -> list:
+        room = rr.MAX_ESCALATIONS - len(escalated)      # the cap is for the whole phase, not for each wave
+        new_ops, missing, skips = rr.plan_escalations(needs, all_ops, executed, already=escalated, max_escalations=max(0, room))
+        record["skipped"] += [{**s, "wave": wave} for s in skips]
+        if missing and remaining() > ESCALATION_MIN_S:
+            wanted = [needs[m] for m in missing]
+            alternates = propose_alternates(question, plan, wanted, stage["anchors"], all_ops, ask=ask)
+            for need_id, alt in alternates.items():
+                st = needs[need_id]
+                source = next((o for o in all_ops if o.id in st.op_ids), None)
+                op = rr.Operation(id=f"escalation:{need_id}", need_id=need_id, need=st.need, target=alt["target"], query=alt["query"], args=alt["args"], priority="essential", origin="escalation",
+                                  skill=source.skill if source else "", escalation={"from": source.id if source else "", "from_target": source.target if source else "", "reason": "failed" if st.state == "failed" else st.reason or "no_relevant", "round": 1})
+                if op.key not in executed and len(new_ops) < room:
+                    new_ops.append(op)
+        new_ops = [o for o in new_ops if o.key not in executed][:max(0, room)]
+        for op in new_ops:
+            executed.add(op.key)
+            escalated.add(op.need_id)
+            all_ops.append(op)
+        return new_ops
+
+    def finish(job: dict, wait_s: float) -> set[str]:
+        job["thread"].join(timeout=wait_s)
+        execution = job["execution"]
+        if execution is None:
+            record["unfinished"].append(f"wave {job['wave']}: the alternate-source searches did not finish before the deadline and were not used")
+            return set()
+        results.update(execution.results)
+        unfinished = [o for o in job["ops"] if execution.results[o.id].status in ("timed_out", "not_run")]
+        if unfinished:
+            record["unfinished"].append(f"wave {job['wave']}: {len(unfinished)} alternate-source search(es) did not finish within the deadline and were not used")
+        raw = rr.raw_for_ingest(job["ops"], execution.results, index_in=all_ops)
+        new_ids = ingest_routed(state, raw)
+        record["waves"].append({"wave": job["wave"], "searches": [{"need_id": o.need_id, "need": o.need, "from": o.escalation, "target": o.target, "query": o.query[:160], "status": execution.results[o.id].status,
+                                                                    "n": execution.results[o.id].n, "error": execution.results[o.id].error[:100]} for o in job["ops"]], "new_records": len(new_ids)})
+        return new_ids
+
+    def read_new(new_ids: set[str]) -> None:
+        if not new_ids or remaining() <= 0.5:
+            for i in new_ids:      # no time to read them: they are not offered as relevant
+                for table in ("papers", "trials_by_id"):
+                    if i in state[table]:
+                        state[table][i].setdefault("triage", {"relevance": "uncertain", "role": None, "population": "", "evidence": "", "kind": "other"})
+            if new_ids:
+                record["unfinished"].append(f"the relevance reading of {len(new_ids)} record(s) found by the alternate-source searches did not finish before the deadline; they are not shown as relevant")
+            return
+        thread = threading.Thread(target=lambda: triage_evidence(state, question, skipped, only=new_ids), daemon=True)
+        thread.start()
+        thread.join(timeout=remaining())
+        if thread.is_alive():
+            record["unfinished"].append("the relevance reading of the records found by the alternate-source searches did not finish before the deadline")
+
+    # ---- wave 1: needs whose searches found nothing or failed (no relevance reading is needed to know that); runs beside the relevance reading
+    needs = rr.evaluate_needs(all_ops, results, relevance_counter(state, question, optimistic=True))
+    wave1 = plan_wave(needs, 1)
+    job1 = launch(1, wave1) if wave1 else None
+    triage_thread.join(timeout=remaining())
+    triage_done = not triage_thread.is_alive()
+    if not triage_done:
+        record["unfinished"].append("the relevance reading of the retrieved records did not finish before the deadline; records without a verified decision were offered as retrieved")
+    new_ids = finish(job1, remaining()) if job1 else set()
+    read_new(new_ids)
+    # ---- wave 2: needs whose records were all judged irrelevant (needs the finished reading)
+    if triage_done and remaining() > ESCALATION_MIN_S:
+        scorer = scorer if scorer is not None else hybrid_search.cross_scorer()
+        needs = rr.evaluate_needs(all_ops, results, relevance_counter(state, question, scorer))
+        wave2 = plan_wave(needs, 2)
+        if wave2:
+            job2 = launch(2, wave2)
+            read_new(finish(job2, remaining()))
+    final = rr.evaluate_needs(all_ops, results, relevance_counter(state, question, scorer if scorer is not None else None, optimistic=not triage_done))
+    record["needs"] = {k: {"need": v.need, "priority": v.priority, "state": v.state, "reason": v.reason, "relevant": v.relevant} for k, v in final.items()}
+    record["seconds"] = round(clock() - began, 1)
+    record["all_ops"] = all_ops
+    record["results"] = results
+    for note in record["unfinished"]:
+        skipped.append(note)
+    return record
+
+
+@traced("stream_answer", "chain")
 def stream_answer(question: str):
     scrubbed = phi.scrub(question)          # identifiers never leave this machine: everything below sees only the scrubbed question
     question = scrubbed.text or question
@@ -966,6 +1741,7 @@ def stream_answer(question: str):
     #     so the two model calls do not compete; the plan then triggers DEEP retrieval in the background.
     plan_box: dict = {}
     plan_ready, deep_done = threading.Event(), threading.Event()
+    evidence_ready = threading.Event()      # set when the escalation phase is over: the drug landscape reads its evidence only then
 
     def plan_worker():
         try:
@@ -989,7 +1765,7 @@ def stream_answer(question: str):
             if "plan" not in plan_box:
                 plan_box["error"] = plan_box.get("error", "planning did not finish")
                 return
-            jobs = deep_jobs(plan_box["plan"], question)
+            jobs = deep_jobs(plan_box["plan"], question) if legacy_deep_enabled() else {}
             retry_pool = fast_jobs(question)
             for name, st in list(state["source_status"].items()):      # a fast-pass source that still failed gets one more try here, with the longer timeout
                 if st.get("retrieval_status") != "success" and name in retry_pool and name not in jobs:
@@ -1026,17 +1802,41 @@ def stream_answer(question: str):
                     ev_.set()
             deep_done.set()
 
-    EARLY_EVIDENCE_JOBS = {"pubmed_recent", "pubmed_quality", "pubmed_negative", "pubmed_drugs", "pubmed_nondrug"}
+    EARLY_EVIDENCE_JOBS = {"pubmed_recent", "pubmed_quality", "pubmed_negative", "pubmed_drugs", "pubmed_nondrug", "pubmed_bestmatch"}
 
     def start_early_evidence() -> None:
         """The deep PubMed searches are built from the question's own words, not from the planner, so they start as soon as the fast search is
         done and run while the first answer is being written; the evidence section can then start right after the first answer."""
         provisional = {"drugs": [], "condition": " ".join(keywords(question)[0]) or question, "trial_condition": "", "trial_intervention": "", "intent": "comprehensive_research"}
-        early = {n: fn for n, fn in deep_jobs(provisional, question).items() if n in EARLY_EVIDENCE_JOBS}
+        early = {n: fn for n, fn in deep_jobs(provisional, question).items() if n in EARLY_EVIDENCE_JOBS} if legacy_deep_enabled() else {}
+
+        routing_box: dict = {}
+        started = time.time()
+
+        def run_routing():
+            """Once the quick plan call has chosen the skills, each loads its SKILL.md and writes its searches (in parallel, possibly none); they are routed to their sources and run beside the main searches."""
+            try:
+                if not routing_enabled():
+                    routing_box["trace"] = {"skipped": "deep routing is off"}
+                elif not (plan_ready.wait(timeout=EXPANSION_TOTAL_S) and plan_box.get("plan")):
+                    routing_box["trace"] = {"skipped": "the plan was not ready in time"}
+                else:
+                    routing_box["t_plan_ready"] = round(time.time() - started, 1)
+                    routing_box.update(run_routing_stage(question, plan_box["plan"]))
+                    routing_box["t_executed"] = round(time.time() - started, 1)
+            except Exception as error:
+                routing_box["trace"] = {"error": f"{type(error).__name__}: {str(error)[:80]}"}
+        routing_thread = threading.Thread(target=run_routing, daemon=True)
+        routing_thread.start()
 
         def run():
             try:
-                plan_box["raw_evidence"], _ = run_jobs(early, DEEP_TIMEOUT_S, essential=[n for n in ("pubmed_recent", "pubmed_quality") if n in early], extra_until=8.0)
+                plan_box["raw_evidence"] = run_jobs(early, DEEP_TIMEOUT_S, essential=[n for n in ("pubmed_recent", "pubmed_quality") if n in early], extra_until=8.0)[0] if early else {}
+                routing_thread.join(timeout=max(0.0, EXPANSION_TOTAL_S - (time.time() - started)))      # the routed searches are waited for a bounded time; if they are not in, the main results go on without them
+                plan_box["raw_evidence"].update(routing_box.get("raw") or {})
+                routing_box["unfinished"] = routing_thread.is_alive()      # the deadline passed before the routed searches were in: recorded, and reported in the limitations
+                routing_box["waited_s"] = round(time.time() - started, 1)
+                plan_box["routing"] = dict(routing_box)      # a snapshot: whatever finishes later is not silently merged into a finished state
             except Exception as error:
                 plan_box["error_evidence"] = f"evidence retrieval crashed: {type(error).__name__}: {str(error)[:150]}"
             finally:
@@ -1112,9 +1912,14 @@ def stream_answer(question: str):
             return
         if plan:
             state.update(intent=plan["intent"], entities=plan)
+            state["understanding"] = plan.get("understanding") or {}
+            stage = plan_box.get("routing") or {}
+            state["routing"] = {"intent": plan.get("intent"), "timing": {k: stage.get(k) for k in ("t_plan_ready", "t_executed", "waited_s") if stage.get(k) is not None}, "unfinished": bool(stage.get("unfinished")),
+                                **(rr.routing_record(stage["ops"], stage["execution"].results, rejected=stage.get("rejected"), trace=stage.get("trace"),
+                                                     late=stage["execution"].late_results()) if stage.get("execution") else {"trace": stage.get("trace") or {}})}
         state["retrieval_errors"].update(ingest(papers, trials, web, raw))
-        if group == "drugs":
-            ingest_regulatory(state, raw)
+        ingest_regulatory(state, raw)      # FDA label records from any group (the routed fda_label searches run in the evidence group)
+        ingest_guideline_ops(state, raw)      # guideline pages from the routed guideline_sites searches
         record_source_status(state, raw)
         if group == "guidelines":
             ingest_guidelines(state, raw)          # after the status: a guideline search that failed for SOME topics is recorded as partial
@@ -1136,7 +1941,7 @@ def stream_answer(question: str):
         marks["drugs_in"] = round(clock.now(), 1)
         absorb("trials")
         marks["data_in"] = round(clock.now(), 1)
-        state["trial_status"] = "complete" if (state["source_status"].get("trials_deep") or state["source_status"].get("trials_fast") or {}).get("retrieval_status") == "success" else "partial"
+        state["trial_status"] = "complete" if family_status(state, "trials").get("retrieval_status") == "success" else "partial"
         state["trials"] = list(trials.values())
         label_pool = ThreadPoolExecutor(max_workers=14)      # label lookups must not queue behind the slower dose-summary model calls
         fda_recs: list = []
@@ -1163,11 +1968,11 @@ def stream_answer(question: str):
         # drug-intelligence INTERPRETS the retrieved evidence (which drugs the sources describe as used, how relevant, which category, which regulator pages are approvals or safety items);
         # code then VERIFIES every answer against the source text (landscape.verify_*). Two interpretation calls run in parallel, in this background thread: the first answer is never waiting for them.
         offered: dict = {}      # the sources the model may cite: id -> text, label, address, kind
-        for p in sorted((p for p in list(papers.values()) if not p.get("retracted")), key=lambda p: p.get("origin") != "pubmed_drugs")[:20]:      # every retrieved paper, drug-treatment searches first; each source is judged by the model
+        for p in sorted((p for p in list(papers.values()) if not p.get("retracted")), key=lambda p: not str(p.get("origin", "")).startswith("pubmed_drugs"))[:24]:      # every retrieved paper, drug-treatment searches first; each source is judged by the model
             if not p.get("retracted") and not p.get("protocol") and p.get("abstract"):
                 offered[p["pmid"]] = {"title": p["title"][:160], "text": snippet(p["abstract"], 900), "label": f"PMID {p['pmid']} ({p['cite'].split(' [')[0]})", "url": "", "kind": "paper"}
-        for w in state["web"][:16]:
-            if w.get("url") and w.get("source") != "web_regulatory" and w.get("snippet"):      # regulator pages are classified by their own call below
+        for w in state["web"][:22]:
+            if w.get("url") and source_family(w.get("source") or "") != "regulator" and w.get("snippet"):      # regulator pages are classified by their own call below
                 offered[w["url"]] = {"title": (w.get("title") or "web page")[:160], "text": w["snippet"], "label": f"[{(w.get('title') or 'web page')[:70]}]({w['url']})", "url": w["url"], "kind": "web"}
         for g in state.get("guidelines", []):
             offered[g["url"]] = {"title": g["title"][:160], "text": g.get("text") or g.get("excerpt") or "", "label": f"[{g['organisation']}: {g['title'][:60]}]({g['url']})", "url": g["url"], "kind": "guideline"}
@@ -1175,7 +1980,7 @@ def stream_answer(question: str):
         for w in state["web"]:
             page = (w.get("url") or "").split("#", 1)[0].split("?", 1)[0].rstrip("/").lower()
             host = (urlparse(w.get("url") or "").hostname or "").lower()
-            if w.get("source") == "web_regulatory" and w.get("snippet") and any(host == h or host.endswith("." + h) for h in REGULATOR_HOSTS) \
+            if source_family(w.get("source") or "") == "regulator" and w.get("snippet") and any(host == h or host.endswith("." + h) for h in REGULATOR_HOSTS) \
                     and not any(v["url"].split("#", 1)[0].split("?", 1)[0].rstrip("/").lower() == page for v in offered_reg.values()) and len(offered_reg) < 8:
                 offered_reg[f"reg:{len(offered_reg) + 1}"] = {"title": re.sub(r"\s*/\s*FDA\s*$", "", re.sub(r"\s+", " ", w.get("title") or w["url"]).strip()), "url": w["url"], "text": w["snippet"][:1200]}
         for v in offered.values():      # the model is shown each source as numbered sentences and answers with a number: the quote shown is always the source's own sentence
@@ -1210,7 +2015,7 @@ def stream_answer(question: str):
                     result["error"] = answers[0]["_error"]
                     break
                 result["items"] += [d for a in answers for d in (a.get("drugs") or [])]
-                result["rows"], result["rejected"] = verify_drug_decisions(result["items"], offered, state, limit=8)
+                result["rows"], result["rejected"] = verify_drug_decisions(result["items"], offered, state, limit=14)
                 if result["rows"] or not offered or clock.now() > 24.0:      # a second ask only when nothing passed the source check, and only while it still costs little
                     break
             return result
@@ -1256,6 +2061,16 @@ def stream_answer(question: str):
         if fda_result["unreviewed"]:
             skipped.append(f"{len(fda_result['unreviewed'])} retrieved FDA label(s) got no verified relevance decision from the interpretation step and are not listed")
         used_rows, regulator_items = drug_result["rows"], reg_result["items"]
+        try:      # one more search per listed drug: its dose and route for this condition; the model picks a sentence, the code keeps it only if it names the drug and states an amount, a route or a frequency
+            lookup_doses(used_rows, condition, question, stems=[x for x in (state.get("core_stems") or []) if len(x) >= 4])
+        except Exception as error:
+            skipped.append(f"dose lookup for the listed drugs did not complete ({type(error).__name__}); doses are shown only where a source gave one")
+        known_urls = {w.get("url") for w in state["web"]}
+        for row in used_rows:      # a page that gave a dose is a retrieved source from now on: its numbers and its address pass the verification
+            if row.get("dose_url") and row["dose_url"] not in known_urls:
+                state["web"].append({"title": "dose page for " + row["drug"], "url": row["dose_url"], "snippet": row["dose"], "source": "web_dose"})
+                known_urls.add(row["dose_url"])
+        marks["doses"] = round(clock.now(), 1)
 
         trial_rows: list = []      # trials are shown in the Clinical trials section (registry facts); they are not repeated as drug rows
         state['trial_drugs'] = []
@@ -1307,6 +2122,7 @@ def stream_answer(question: str):
 
     def run_prepare():
         try:
+            evidence_ready.wait(timeout=ESCALATION_DEADLINE_S + 10)      # the alternate-source results (labels, regulator pages) are part of its evidence
             landscape_box["md"] = prepare_landscape()
         except Exception as error:
             landscape_box["error"] = f"{type(error).__name__}: {str(error)[:120]}"
@@ -1322,7 +2138,24 @@ def stream_answer(question: str):
     state["answer_status"] = "ENRICHING"
     yield event("stage", stage="EVIDENCE_ENRICHING")
     absorb("evidence")
+    try:
+        hybrid_rerank(question, papers, state.setdefault("hybrid_trace", {}))      # hybrid search on EVERY retrieved paper: semantic + lexical + the sources' own order, fused (hybrid_search.py); the triage reads the best TRIAGE_PAPERS first
+        cross_rerank(question, papers, state["hybrid_trace"], top=TRIAGE_PAPERS)      # second stage: a cross-encoder reads the question and each of the first papers together
+    except Exception as error:
+        state["hybrid_trace"] = {"error": f"{type(error).__name__}: {str(error)[:80]}"}
     state["deep_evidence"] = list(papers.values())
+    fulltext_box: dict = {}
+
+    def run_fulltext():
+        try:      # beside the triage and the escalation: the free full text of the best-ranked open-access papers (methods, results, conclusion) for the writer; others stay abstract-only
+            best = [p for p in list(papers.values())[:TRIAGE_PAPERS] if p.get("pmcid") and not p.get("retracted")][:FULL_TEXT_PAPERS]
+            fulltext_box["record"] = fulltext.attach(best, _article, cap_s=FULL_TEXT_WAIT_S)
+            state["full_text"] = fulltext_box["record"]
+        except Exception as error:
+            fulltext_box["error"] = f"{type(error).__name__}: {str(error)[:80]}"
+    fulltext_thread = threading.Thread(target=run_fulltext, daemon=True)
+    if fulltext.enabled():
+        fulltext_thread.start()
     clock.mark("retrieval_deep_s")
     yield event("milestone", name="retrieval_complete", seconds=clock.marks["retrieval_deep_s"])
     def run_triage():
@@ -1357,22 +2190,97 @@ def stream_answer(question: str):
 
     start_landscape()      # the landscape reads its own evidence (every retrieved source, each judged by the model): it does not wait for the triage
     yield event("token", stage="EVIDENCE_ENRICHING", text="\n\n")
-    triage_thread.join(timeout=3.5)      # the writer is given what the triage has judged by now; a part still being read is offered as retrieved (it never delays the answer further)
+    figure_box: dict = {"figures": []}
+
+    def run_figures() -> None:
+        """BESIDE the writing: reads the figures of the retrieved open-access papers that were judged relevant, waits for the evidence the report has written, and runs the whole selection
+        (find_figures), so that the figures are ready about when the report is. A failure means no figures."""
+        trace = figure_box.setdefault("trace", {})
+        try:
+            triage_thread.join(timeout=25)      # the relevance judgement of every paper
+            order = {"direct": 0, "indirect": 1}
+            ranked = sorted((p for p in papers.values() if p.get("pmcid") and not p.get("retracted") and (p.get("triage") or {}).get("relevance") in order),
+                            key=lambda p: order.get((p.get("triage") or {}).get("relevance"), 2))      # every retrieved paper the relevance reading judged direct or indirect, direct first
+            views = [{"pmid": p["pmid"], "pmcid": p["pmcid"], "doi": p.get("doi"), "title": p.get("title"), "cite": p.get("cite"),
+                      "design": ", ".join(p.get("type") or p.get("study_type") or []) or None} for p in ranked[:24]]
+            fetched = json.loads(search_paper_figures(json.dumps(views), want=16, batches=3))
+            trace.setdefault('reading', {})['page_status'] = fetched.get('page_status', [])
+            found = fetched.get('figures') or []
+            writing["current"]["done"].wait(timeout=30)      # the relevance test compares a figure with what the report already says
+            report = cut_for_model(" ".join("".join(writing[n]["produced"]) for n in ("latest", "current")), 3500)
+            figure_box["figures"] = find_figures(question, papers, report, found, trace, condition=(state.get("entities") or {}).get("condition") or "")
+        except Exception as error:
+            trace["error"] = f"{type(error).__name__}: {str(error)[:80]}"
+    figures_thread = threading.Thread(target=run_figures, daemon=True)
+    try:      # option (a): the relevance reading and the escalation finish BEFORE the evidence is written, under one hard deadline (ESCALATION_DEADLINE_S); unfinished work is reported in the limitations
+        escalation = run_escalation_phase(state, question, plan_box.get("plan") or {}, plan_box.get("routing") or {}, triage_thread, skipped)
+        state["escalations"] = {k: v for k, v in escalation.items() if k not in ("all_ops", "results")}
+        if escalation.get("all_ops"):
+            state["section_states"] = compute_section_states(escalation)      # the report shows WHY a section has no content (not applicable, not retrieved, no evidence found, failed)
+        if escalation.get("all_ops"):
+            stage = plan_box.get("routing") or {}
+            late = stage["execution"].late_results() if stage.get("execution") else {}
+            state["routing"] = {**(state.get("routing") or {}), **rr.routing_record(escalation["all_ops"], escalation["results"], rejected=stage.get("rejected"), trace=stage.get("trace"), late=late)}
+    except Exception as error:
+        skipped.append(f"the escalation phase did not complete ({type(error).__name__}); the evidence is written from what was retrieved")
+        triage_thread.join(timeout=3.5)
+    if (plan_box.get("routing") or {}).get("unfinished"):
+        skipped.append("the source-aware searches did not finish before the deadline and were not used (the evidence was written from the searches that had finished)")
+    evidence_ready.set()
+    if fulltext_thread.is_alive():
+        fulltext_thread.join(timeout=2.0)      # normally finished long ago (it ran beside the triage); a late one is simply not used
     context = build_evidence_context(state, question)
-    writing = {name: {"queue": queue.Queue(), "text": ""} for name in ("latest", "current", "tail")}
+    writing = {name: {"queue": queue.Queue(), "text": "", "produced": [], "done": threading.Event()} for name in ("latest", "current", "tail")}
+    figures_thread.start()      # the figures are found while the three parts are written
 
     def write_part(name: str, task: str) -> None:
         """One writing task in its own thread: its text goes into a queue as the model produces it. The three run side by side, so the report takes as long as the slowest of them, not the sum."""
         prompt = f"TASK: {task}\n\nQUESTION: {question}\nRETRIEVED DATA (JSON):\n{json.dumps(context, ensure_ascii=False, separators=(',', ':'))}"
         trace = writing[name].setdefault("trace", {"started": round(clock.now(), 1)})
-        try:
-            for chunk in stream_llm(load_skill_text("evidence-synthesis"), prompt, DEEP_TOKENS):
+        compact = "\n\nWrite the table compactly: ONE space on each side of every '|' and a plain '|---|---|' separator row. Never pad cells with spaces to align columns."
+        held: list[str] = []      # the Current evidence part is released only when it is complete: a retry must not leave a half table on the screen
+
+        def emit(text: str) -> None:
+            if name == "current":
+                held.append(text)
+            else:
+                writing[name]["produced"].append(text)
+                writing[name]["queue"].put(text)
+
+        def run(task_prompt: str, temperature: float | None) -> bool:
+            """Stream one attempt, squeezing runs of spaces (table padding is only whitespace). Returns False when the model fell into endless padding and the attempt was abandoned."""
+            blanks, last = 0, "\n"
+            for chunk in stream_llm(load_skill_text("evidence-synthesis"), task_prompt, DEEP_TOKENS, temperature=temperature):
                 trace.setdefault("first_chunk", round(clock.now(), 1))
-                writing[name]["queue"].put(chunk)
+                squeezed = re.sub(r"[ \t]{2,}", " ", chunk)
+                if last in " \t" and squeezed.startswith(" "):
+                    squeezed = squeezed[1:]
+                blanks = blanks + len(chunk) if not chunk.strip(" \t") else 0
+                if blanks > 400:
+                    return False
+                if squeezed:
+                    last = squeezed[-1]
+                    emit(squeezed)
+            return True
+        try:
+            finished = run(prompt, None)
+            if name == "current":
+                held[:] = [rows_to_table("".join(held))]      # the rows the model wrote as lines become the table here, in code
+                if not finished or not re.search(r"(?m)^\|\s*-{3}", held[0]):
+                    trace["retried"] = True      # endless padding, or no rows at all: the part is written again once, deterministically
+                    held.clear()
+                    run(prompt + compact, 0.0)
+                    held[:] = [rows_to_table("".join(held))]
+                writing[name]["produced"][:] = ["".join(held)]
+                writing[name]["queue"].put("".join(held))
+            elif not finished:
+                trace["retried"] = True
+                run(prompt + compact, 0.0)
             trace["ended"] = round(clock.now(), 1)
         except Exception as error:
             skipped.append(f"evidence writing, part {name} ({str(error)[:100]})")
         finally:
+            writing[name]["done"].set()
             writing[name]["queue"].put(None)
     for name, task in (("latest", LATEST_TASK), ("current", CURRENT_TASK), ("tail", TAIL_TASK)):
         threading.Thread(target=write_part, args=(name, task), daemon=True).start()
@@ -1445,21 +2353,26 @@ def stream_answer(question: str):
     state["citations"] = [papers[p]["cite"] for p in set(re.findall(r"PMID[:\s]*([0-9]{6,9})", full)) if p in papers]
     full, cited_order = numberize(full, papers)      # [1], [2] in the text and one reference list; the mapping is kept in the state
     state["reference_numbers"] = {str(i): pmid for i, pmid in enumerate(cited_order, 1)}
+    state["figure_job"] = str(id(figure_box))      # the figures are still being found and read; the answer is not held for them. They are collected when the PDF is made (collect_figures)
+    FIGURE_JOBS[state["figure_job"]] = (figures_thread, figure_box)
     footer = closing_note(result["status"])
     pool.shutdown(wait=False, cancel_futures=True)
     yield event("final", markdown=full + footer, timings=dict(clock.marks), state=state, skipped=skipped)
 
 
 # ------------------------------------------------------------------ save + command line
-def save_outputs(question: str, final: dict, subfolder: str = "") -> dict:
+def save_outputs(question: str, final: dict, subfolder: str = "", figures: list | None = None) -> dict:
     """Browser runs (the server) save to demo_output/. Command-line test runs pass subfolder="cli_test_runs", so a test can never overwrite a browser answer or its PDF."""
     out = Path(__file__).parent / "demo_output" / subfolder
     out.mkdir(parents=True, exist_ok=True)
     slug = re.sub(r"[^a-z0-9]+", "-", question.lower())[:50].strip("-") or "answer"
     (out / f"{slug}.md").write_text(f"# {question}\n\n{final['markdown']}\n", encoding="utf-8")
     (out / f"{slug}.state.json").write_text(json.dumps(final["state"], indent=2, ensure_ascii=False, default=str), encoding="utf-8")
-    pdf = save_pdf(question, final["markdown"], out, slug)
-    return {"md": out / f"{slug}.md", "pdf": pdf}
+    if figures is None:
+        figures = prepare_figures(final)      # the page and the PDF get the SAME records
+    (out / f"{slug}.state.json").write_text(json.dumps(final["state"], indent=2, ensure_ascii=False, default=str), encoding="utf-8")
+    pdf = save_pdf(question, final["markdown"], out, slug, figures=figures)
+    return {"md": out / f"{slug}.md", "pdf": pdf, "figures": figures}
 
 
 def main() -> None:

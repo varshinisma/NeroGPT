@@ -16,7 +16,7 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.platypus import CondPageBreak, HRFlowable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import CondPageBreak, KeepTogether, Image, HRFlowable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 INK, MUTED, ACCENT = colors.HexColor("#1f2933"), colors.HexColor("#52606d"), colors.HexColor("#0b5cab")
 FONT_DIR = os.path.join(os.environ.get("WINDIR", "C:/Windows"), "Fonts")
@@ -47,7 +47,7 @@ def clean(text: str) -> str:
     return re.sub("[\U00010000-\U0010ffff\u2600-\u27bf\ufe0f]", "", text)  # symbols/emoji the font cannot draw
 
 
-def markdown_to_pdf(markdown: str, dst: str, title: str) -> str:
+def markdown_to_pdf(markdown: str, dst: str, title: str, figures: list | None = None) -> str:
     body, bold, italic = _fonts()
     base = ParagraphStyle("base", fontName=body, fontSize=9.5, leading=13.5, textColor=INK, alignment=TA_LEFT, spaceAfter=5)
     styles = {
@@ -57,6 +57,10 @@ def markdown_to_pdf(markdown: str, dst: str, title: str) -> str:
         "h4": ParagraphStyle("h4", parent=base, fontName=bold, fontSize=9.8, leading=13, textColor=MUTED, spaceBefore=6, spaceAfter=2, keepWithNext=1),
         "summary": ParagraphStyle("summary", parent=base, backColor=colors.HexColor("#eef4fb"), borderPadding=(5, 6, 5, 6), leftIndent=6, rightIndent=6, spaceBefore=3, spaceAfter=9),
         "sub": ParagraphStyle("sub", parent=base, fontSize=8.5, textColor=MUTED, spaceAfter=3),
+        "figlabel": ParagraphStyle("figlabel", parent=base, fontName=bold, fontSize=10, leading=13, textColor=ACCENT, spaceBefore=10, spaceAfter=4, keepWithNext=1),
+        "figtext": ParagraphStyle("figtext", parent=base, fontSize=9.2, leading=13, spaceBefore=3, spaceAfter=2),
+        "figcap": ParagraphStyle("figcap", parent=base, fontName=italic, fontSize=8.4, leading=11.4, textColor=MUTED, spaceBefore=6, spaceAfter=3),
+        "figsrc": ParagraphStyle("figsrc", parent=base, fontSize=7.8, leading=10.6, textColor=MUTED, spaceAfter=3),
         "ref": ParagraphStyle("ref", parent=base, fontSize=8.2, leading=10.4, spaceAfter=2, leftIndent=16, bulletIndent=0),
         "bullet": ParagraphStyle("bullet", parent=base, leftIndent=14, bulletIndent=3, spaceAfter=3),
         "cell": ParagraphStyle("cell", parent=base, fontSize=7.6, leading=9.6, spaceAfter=0),
@@ -93,6 +97,69 @@ def markdown_to_pdf(markdown: str, dst: str, title: str) -> str:
              HRFlowable(width="100%", thickness=0.8, color=ACCENT, spaceAfter=8)]
     in_summary = False
     in_refs = False
+    section = {"name": None}
+
+    headings = {m.group(1).strip().lower() for m in re.finditer(r"(?m)^## (.+)$", markdown)}
+    last_heading = None
+    for m in re.finditer(r"(?m)^## (.+)$", markdown):
+        last_heading = m.group(1).strip().lower()
+    home = {}      # where each figure goes: the section that cites its paper; a figure whose section is missing goes to Key studies, otherwise to the last section
+    for fig in figures or []:
+        target = (fig.get("section") or "").lower()
+        home.setdefault(target if target in headings else ("key studies" if "key studies" in headings else last_heading), []).append(fig)
+
+    def source_figure_blocks(group: list) -> list:
+        """The original figures that passed every check (source_figures.display_records, the same records the web page shows): the unaltered image, its original caption and the attribution
+        details that exist. A missing detail is left out. No figure at all means no heading either."""
+        blocks = []
+        for fig in group:
+            try:
+                inner = width - 16      # room for the frame's padding
+                scale = min(inner / fig["width"], 5.6 * inch / fig["height"], 1.6)      # as large as the page allows (full width, up to 5.6 inches tall); a small original is enlarged at most 1.6 times
+                picture = Image(fig["pdf_path"], width=fig["width"] * scale, height=fig["height"] * scale)
+                image = Table([[picture]], colWidths=[width], hAlign="CENTER")      # a light frame; the picture sits in the middle of the text width
+                image.setStyle(TableStyle([("ALIGN", (0, 0), (-1, -1), "CENTER"), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#c5d0db")),
+                                           ("BACKGROUND", (0, 0), (-1, -1), colors.white), ("TOPPADDING", (0, 0), (-1, -1), 8), ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                                           ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8)]))
+                caption = fig["caption"] if re.match(r"(Figure|Fig\.?)\s*\d", fig["caption"] or "") else f"{fig['label']}. {fig['caption']}"
+                described = fig.get("shows_for_question") or (fig.get("image_description") if fig.get("image_description") and not re.search(r"\d", fig["image_description"]) else None)      # a verified line, else what the vision model saw (only when it quotes no numbers)
+                explain = []
+                if described:
+                    explain.append(Paragraph(inline(f"**What this figure shows:** {described}"), styles["figtext"]))
+                if fig.get("helps_treatment"):
+                    explain.append(Paragraph(inline(f"**How it helps with treatment options:** {fig['helps_treatment']}"), styles["figtext"]))
+                if fig.get("how_to_read"):
+                    explain.append(Paragraph(inline(f"**How to read this figure:** {fig['how_to_read']}"), styles["figtext"]))
+                if fig.get("why"):
+                    explain.append(Paragraph(inline(f"**Why this figure was chosen:** {fig['why']}"), styles["figsrc"]))
+                blocks.append(KeepTogether([Spacer(1, 6), image, Spacer(1, 4)]))      # the lines and the caption below may continue on the next page
+                blocks += [*explain, Paragraph(inline(f"*{caption}*"), styles["figcap"]), Spacer(1, 10)]
+            except Exception:
+                continue
+        return blocks
+
+    def figure_credits() -> list:
+        """One list at the end of the report with the attribution of every figure shown (author, paper, links, licence), which the figures' open licences ask for: the figures themselves carry no source line."""
+        if not figures:
+            return []
+        out = [Paragraph("Figure credits", styles["h3"])]
+        for fig in figures:
+            links = [f"[PMID {fig['pmid']}](https://pubmed.ncbi.nlm.nih.gov/{fig['pmid']}/)"] if fig.get("pmid") else []
+            if fig.get("doi"):
+                links.append(f"[DOI {fig['doi']}](https://doi.org/{fig['doi']})")
+            if fig.get("source_url"):
+                links.append(f"[PubMed Central ({fig['pmcid']})]({fig['source_url']})")
+            line = (f"{fig['label']}: " + (f"{fig['title'].rstrip('.')}. " if fig.get("title") else "") + (f"{fig['design']}. " if fig.get("design") else "") + ", ".join(links)
+                    + (f". Cited in this report as [{fig['reference']}]" if fig.get("reference") else ". Not discussed in the report text") + "."
+                    + (f" Licence: [{fig['licence_label']}]({fig['licence_url']}); original image, unaltered." if fig.get("licence_label") else "")
+                    + (" Indirect evidence: a related condition or population." if fig.get("relation") == "indirect" else ""))
+            out.append(Paragraph(inline(line), styles["figsrc"]))
+        out.append(Paragraph(inline("*Each figure shows one study's result; it does not by itself establish that a treatment works or justify a recommendation.*"), styles["figsrc"]))
+        return out
+
+    def end_of_section() -> None:
+        if section["name"] and home.get(section["name"].lower()):
+            story.extend(source_figure_blocks(home.pop(section["name"].lower())))
     if lines and lines[0].startswith("# "):
         i = 1
     while i < len(lines):
@@ -119,6 +186,9 @@ def markdown_to_pdf(markdown: str, dst: str, title: str) -> str:
         elif re.match(r"^#{1,6} ", line):
             level = len(line) - len(line.lstrip("#"))
             text_h = line.lstrip("#").strip()
+            if level <= 2:
+                end_of_section()
+                section["name"] = text_h
             story.append(CondPageBreak((1.7 if level <= 2 else 1.2) * inch))
             in_refs = text_h.lower() == "references"
             if level <= 2:
@@ -141,6 +211,9 @@ def markdown_to_pdf(markdown: str, dst: str, title: str) -> str:
                 para.append(lines[i].strip())
                 i += 1
             story.append(Paragraph(inline(" ".join(para)), styles["summary"] if in_summary else base))
+
+    end_of_section()
+    story.extend(figure_credits())
 
     def footer(canvas, doc_):
         canvas.saveState()

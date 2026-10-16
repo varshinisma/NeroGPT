@@ -198,29 +198,12 @@ OFFSITE = {"title": "Autism treatment blog", "url": "https://random-blog.example
 
 
 class EstablishedCare(unittest.TestCase):
-    def test_topics_come_from_config_with_neurodevelopmental_override(self):
-        autism = [t["id"] for t in guidelines.topics_for("How to treat autism in children?")]
-        other = [t["id"] for t in guidelines.topics_for("What is first-line therapy for hypertension?")]
-        for needed in ("speech", "ot", "behavioural", "school", "sleep", "anxiety", "adhd", "gi", "feeding", "assessment"):
-            self.assertIn(needed, autism)
-        self.assertNotIn("speech", other)
-        self.assertIn("first_line", other)
-
-    def test_only_allow_listed_organisations_are_used_with_verbatim_excerpt(self):
-        res = guidelines.find_guidelines("How to treat autism in children?", ["autism"], fake_search({"medications": [OFFSITE, GOOD]}))
-        rows = {r["topic"]: r for r in res["results"]}
-        self.assertEqual(rows["medications"]["organisation"], "NICE (UK)")
-        self.assertEqual(rows["medications"]["year"], "2021")
-        self.assertIn(rows["medications"]["excerpt"], GOOD["snippet"])       # verbatim (here: the whole snippet)
-        self.assertTrue(rows["sleep"].get("none"))                       # nothing retrieved for this topic
-        md = guidelines.established_care_markdown(res["results"], True)
-        self.assertIn("No guideline retrieved", md)
-        self.assertNotIn("random-blog", md)
-
-    def test_off_topic_guideline_is_not_used(self):
-        wrong = {"title": "Hypertension guideline", "url": "https://www.nice.org.uk/guidance/ng136", "snippet": "This guideline covers diagnosing and managing hypertension in adults."}
-        res = guidelines.find_guidelines("How to treat autism in children?", ["autism"], fake_search({"medications": [wrong]}))
-        self.assertTrue(all(not r.get("title") for r in res["results"]))
+    def test_every_question_gets_the_same_generic_topics_from_the_config(self):
+        first = [t["id"] for t in guidelines.topics_for("How to treat autism in children?")]
+        second = [t["id"] for t in guidelines.topics_for("What is first-line therapy for hypertension?")]
+        self.assertEqual(first, second)
+        for needed in ("assessment", "medications", "first_line", "monitoring"):
+            self.assertIn(needed, first)
 
     def test_failed_search_is_reported_unavailable_not_none(self):
         res = guidelines.find_guidelines("How to treat autism in children?", ["autism"], lambda q: "Web search failed: timeout")
@@ -229,10 +212,27 @@ class EstablishedCare(unittest.TestCase):
         self.assertIn("search unavailable", md)
         self.assertNotIn("No guideline retrieved", md)
 
+    def test_off_topic_guideline_is_not_used(self):
+        wrong = {"title": "Hypertension guideline", "url": "https://www.nice.org.uk/guidance/ng136", "snippet": "This guideline covers diagnosing and managing hypertension in adults."}
+        res = guidelines.find_guidelines("How to treat autism in children?", ["autism"], fake_search({"medications": [wrong]}))
+        self.assertTrue(all(not r.get("title") for r in res["results"]))
+
+    def test_only_allow_listed_organisations_are_used_with_verbatim_excerpt(self):
+        res = guidelines.find_guidelines("How to treat autism in children?", ["autism"], fake_search({"medications": [OFFSITE, GOOD]}))
+        rows = {r["topic"]: r for r in res["results"]}
+        self.assertEqual(rows["medications"]["organisation"], "NICE (UK)")
+        self.assertEqual(rows["medications"]["year"], "2021")
+        self.assertIn(rows["medications"]["excerpt"], GOOD["snippet"])       # verbatim (here: the whole snippet)
+        self.assertTrue(rows["first_line"].get("none"))                       # nothing retrieved for this topic
+        md = guidelines.established_care_markdown(res["results"], True)
+        self.assertIn("No guideline retrieved", md)
+        self.assertNotIn("random-blog", md)
+
+
     def test_verifier_rejects_an_established_care_row_without_a_retrieved_guideline(self):
         s = make_state()
         s["guidelines"] = [{"url": GOOD["url"], "title": GOOD["title"], "organisation": "NICE (UK)", "excerpt": GOOD["snippet"], "year": "2021"}]
-        table = ("### Established care\n\n| Topic | Guideline | Organisation | Year | Excerpt |\n|---|---|---|---|---|\n"
+        table = ("### Established care\n\n| Topic | Guideline | Organisation | Year | Excerpt |\n|---|---|---|---|\n"
                  f"| Speech | [NICE]({GOOD['url']}) | NICE (UK) | 2021 | “Guideline text.” |\n"
                  "| Sleep | Melatonin is first-line for every child | | | |\n"
                  "| OT | No guideline retrieved | | | |\n")
@@ -266,12 +266,6 @@ if __name__ == "__main__":
 
 
 class GuidelineHosts(unittest.TestCase):
-    def test_pubmed_and_pmc_articles_are_not_guidelines(self):
-        cfg = guidelines.load_config()
-        self.assertIsNone(guidelines.organisation_for("https://pmc.ncbi.nlm.nih.gov/articles/PMC10422951/", cfg))
-        self.assertIsNone(guidelines.organisation_for("https://pubmed.ncbi.nlm.nih.gov/123456/", cfg))
-        self.assertEqual(guidelines.organisation_for("https://www.nichd.nih.gov/health/topics/autism", cfg), "US National Institute of Child Health and Human Development")
-
     def test_a_rate_limited_topic_is_retried_once(self):
         calls = []
 
@@ -281,6 +275,13 @@ class GuidelineHosts(unittest.TestCase):
         res = guidelines.find_guidelines("autism", ["autism"], search, guidelines.load_config() | {"default": {"topics": [{"id": "t", "label": "T", "query": "q"}]}, "overrides": {}})
         self.assertEqual(len(calls), 2)
         self.assertEqual(res["results"][0]["organisation"], "NICE (UK)")
+
+    def test_pubmed_and_pmc_articles_are_not_guidelines(self):
+        cfg = guidelines.load_config()
+        self.assertIsNone(guidelines.organisation_for("https://pmc.ncbi.nlm.nih.gov/articles/PMC10422951/", cfg))
+        self.assertIsNone(guidelines.organisation_for("https://pubmed.ncbi.nlm.nih.gov/123456/", cfg))
+        self.assertEqual(guidelines.organisation_for("https://www.nichd.nih.gov/health/topics/autism", cfg), "US National Institute of Child Health and Human Development")
+
 
 
 class OpeningAndGuidelineBanner(unittest.TestCase):
@@ -440,7 +441,7 @@ class ClickableLinks(unittest.TestCase):
         s["drug_labels"] = [{"drug": "Quetiapine", "url": "https://dailymed.nlm.nih.gov/q", "boxed_warning": "Increased mortality in elderly patients."}]
         md = landscape.landscape_markdown(s, rows, [{"drug": "NTI164", "nct": "NCT07257939", "phase": "Phase 3", "status": "Recruiting", "updated": "2026-09-30",
                                                       "url": "https://clinicaltrials.gov/study/NCT07257939", "fda_label": None, "conditions": "Autism", "primary": "ABC score", "ages": "from 6 Years"}])
-        self.assertIn("| Drug | Indication | Dose / route (if sourced) | Approval status / date | Key evidence |", md)      # the specification's six columns
+        self.assertIn("| Drug | Indication | Dose / route (if sourced) | Key evidence |", md)      # the specification's six columns
         self.assertNotIn("FDA label of this drug", md)
         used_part = md.split("### Safety warnings")[0]
         self.assertIn("[Quetiapine](https://dailymed.nlm.nih.gov/q)", used_part)      # the drug name opens that drug's own DailyMed page
@@ -497,7 +498,7 @@ class SafetyAndRegulatorUpdates(unittest.TestCase):
         s["drug_labels"] = [{"drug": "sertraline", "url": "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=00179766-980b-44b0-99d3-1fee2bb27e37", "boxed_warning": "Suicidality in children."}]
         text = (BASE + "#### Safety alerts (FDA boxed warnings of the drugs listed above)\n\n| Drug | Boxed warning | Label |\n|---|---|---|\n"
                 "| sertraline | \"Suicidality in children.\" | [DailyMed label: sertraline](https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=00179766-980b-44b0-99d3-1fee2bb27e37) |\n"
-                "\n#### Recently approved or updated (regulator announcements retrieved)\n\n| Date | Type | Announcement | Page says | Link |\n|---|---|---|---|---|\n"
+                "\n#### Recently approved or updated (regulator announcements retrieved)\n\n| Date | Type | Announcement | Page says | Link |\n|---|---|---|---|\n"
                 "| date not stated | Approval or regulatory action | T | The FDA approved a label update for autism symptoms. | [fda.gov](https://www.fda.gov/x) |\n")
         s["web"] = [{"source": "web_regulatory", "title": "T", "url": "https://www.fda.gov/x", "snippet": "The FDA approved a label update."}]
         issues = [i for i in verification.find_issues(text, s) if i["severity"] in ("high", "medium")]
@@ -683,9 +684,8 @@ class FollowsTheSpecification(unittest.TestCase):
                 {"drug": "Drugzol", "excerpt": "Drugzol is recommended for irritability.", "label": "[AAP](https://aap.org/x)", "purpose": "irritability", "population": "children", "relevance": "treats_condition", "category": "Guideline-recommended"}]
         trial = [{"drug": "NTI164", "nct": "NCT07", "phase": "Phase 3", "status": "Recruiting", "updated": "2026-09-30", "url": "https://clinicaltrials.gov/study/NCT07", "conditions": "Autism", "primary": "Score", "ages": "6+"}]
         md = landscape.landscape_markdown(st, used, trial)
-        header = "| Drug | Indication | Dose / route (if sourced) | Approval status / date | Key evidence |"
-        self.assertEqual(md.count(header), 1)      # six columns in the treatment table
-        self.assertEqual(md.count("| Drug | Indication | Key evidence |"), 1)      # only three in the other-drugs table
+        header = "| Drug | Indication | Dose / route (if sourced) | Key evidence |"
+        self.assertEqual(md.count(header), 2)      # the same four columns in the treatment table and the other-drugs table
         first_heading = "### Drugs used for treatment of this condition"
         second_heading = "### Other drugs: used for symptoms (not established treatments of this condition)"
         self.assertLess(md.index(first_heading), md.index(second_heading))
@@ -850,7 +850,7 @@ class OnlyDrugTopicsAreSearched(unittest.TestCase):
             return json.dumps([])
         res = guidelines.find_guidelines("How to treat autism in children?", ["autism"], search)
         topics = {r["topic"] for r in res["results"]}
-        self.assertEqual(topics, {"medications", "sleep", "anxiety", "adhd"})
+        self.assertEqual(topics, {"medications", "first_line"})
         self.assertLessEqual(len(asked), 8)      # four topics, each at most one retry: not the eleven searches that took 14 s
 
 
@@ -1015,8 +1015,7 @@ class TheReportHierarchyIsUnchanged(unittest.TestCase):
         self.assertEqual(headings, ["## Treatment Drug Landscape", "### Drugs used for treatment of this condition",
                                     "### Other drugs: used for symptoms (not established treatments of this condition)",
                                     "### Recently approved or updated (FDA, EMA and CDSCO announcements)", "### Safety warnings (FDA boxed warnings)"])
-        self.assertIn("| Drug | Indication | Dose / route (if sourced) | Approval status / date | Key evidence |", md)
-        self.assertIn("| Drug | Indication | Key evidence |", md)
+        self.assertIn("| Drug | Indication | Dose / route (if sourced) | Key evidence |", md)
         self.assertIn("| Date | Type | Announcement | What the regulator's page says |", md)
         self.assertIn("melatonin is commonly prescribed for sleep problems", md.split("### Other drugs")[1])
 
@@ -1310,11 +1309,15 @@ class OnlyUseInPracticeAndOnlyTheConditionItselfGoInTheTreatmentTable(unittest.T
         base.update(kw)
         return base
 
-    def test_a_sentence_reporting_a_study_result_is_not_a_drug_used_in_practice(self):
+    def test_a_sentence_reporting_a_study_result_is_listed_as_studied_never_as_used_in_practice(self):
         study = self.item(drug="Atomoxetine", sentence=2, statement_type="study_result", indication="improved core symptoms in children", category="Off-label")
-        rows, rejected = landscape.verify_drug_decisions([study, self.item(drug="Zzzzol", statement_type=None)], self.SRC, make_state())
-        self.assertEqual(rows, [])
-        self.assertIn("study_result", rejected[0][1])
+        s = make_state()
+        rows, rejected = landscape.verify_drug_decisions([study, self.item(drug="Zzzzol", statement_type=None)], self.SRC, s)
+        self.assertEqual([r["drug"] for r in rows], ["Atomoxetine"])
+        self.assertTrue(rows[0]["category"].startswith("Studied"))
+        self.assertIn("neither a statement of use", rejected[0][1])
+        md = landscape.landscape_markdown(s, rows, [])
+        self.assertNotIn("Atomoxetine", md.split("### Other drugs")[0])      # a studied drug is never in the table of drugs used for treatment
 
     def test_a_guideline_drug_for_an_associated_symptom_is_in_the_other_drugs_table_and_says_so(self):
         s = make_state()
@@ -1549,3 +1552,968 @@ class TablePaddingIsCollapsed(unittest.TestCase):
         fixed = qa_stream.tidy_model_sections(text)
         self.assertIn("| Approach | Evidence level | Shows |", fixed)
         self.assertIn("|---|---|---|", fixed)
+
+
+class DoseLookupIsPickedByTheModelAndCheckedByCode(unittest.TestCase):
+    PAGES = [{"title": "Drugzol: how to take it", "url": "https://example.org/drugzol", "snippet": "The usual dose is 50 mg at bedtime. Drugzol is a medicine. Tell your doctor about other medicines."},
+             {"title": "Unrelated", "url": "https://example.org/x", "snippet": "Drugzol was studied in 120 adults who slept well. Other drugs are given 5 mg daily."}]
+
+    def test_only_sentences_with_an_amount_or_route_from_a_page_about_the_drug_are_offered(self):
+        found = landscape.dose_candidates("Drugzol", self.PAGES)
+        texts = [c["text"] for c in found]
+        self.assertIn("The usual dose is 50 mg at bedtime.", texts)
+        self.assertNotIn("Drugzol is a medicine.", texts)
+        self.assertFalse(any("Other drugs are given 5 mg daily" in t for t in texts))      # another page, and it names no Drugzol dose
+
+    def test_a_pick_counts_only_for_a_candidate_of_that_drug(self):
+        candidates = {"Drugzol": landscape.dose_candidates("Drugzol", self.PAGES)}
+        good = landscape.verify_dose_picks([{"drug": "drugzol", "candidate": "c1"}, {"drug": "Drugzol", "candidate": "c99"}, {"drug": "Other", "candidate": "c1"}, "x"], candidates)
+        self.assertEqual(list(good), ["Drugzol"])
+        self.assertEqual(good["Drugzol"]["url"], "https://example.org/drugzol")
+        self.assertEqual(landscape.verify_dose_picks([{"drug": "Drugzol", "candidate": "c99"}], candidates), {})
+
+
+class OriginalFiguresAreIncludedOnlyWhenTheyQualify(unittest.TestCase):
+    CAPTION = "Figure 1. Forest plot of the mean difference in symptom score for drug A versus placebo."
+
+    @staticmethod
+    def fig(**over):
+        base = {"id": "PMC1:f1", "label": "Figure 1", "caption": OriginalFiguresAreIncludedOnlyWhenTheyQualify.CAPTION, "image": "https://cdn.ncbi.nlm.nih.gov/pmc/blobs/aa/1/bb/x-f001.png",
+                "page_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC1/", "pmid": "111", "pmcid": "PMC1", "doi": None, "title": "A trial of drug A", "cite": "Smith et al., J, 2026 [PMID 111]",
+                "design": "Randomized Controlled Trial", "licence": {"url": "https://creativecommons.org/licenses/by/4.0/", "label": "CC BY 4.0"}}
+        base.update(over)
+        return base
+
+    @staticmethod
+    def png_bytes():
+        import io
+        from PIL import Image
+        buffer = io.BytesIO()
+        Image.new("RGB", (40, 30), (200, 30, 30)).save(buffer, "PNG")
+        return buffer.getvalue()
+
+    def run_select(self, found, rubric=None, inspect=None, cited=("111",), direct=("111",)):
+        import tempfile
+        from pathlib import Path
+        import source_figures
+        data = self.png_bytes()
+
+        class Reply:
+            status_code, headers, content = 200, {"content-type": "image/png"}, data
+        good_rubric = lambda available: [{"id": f["id"], "helps_answer": True, "clinically_meaningful": True, "adds_beyond_report": True, "not_decorative": True, "answers_what_is_asked": True,
+                                          "reason": "Forest plot of the mean difference in symptom score"} for f in available]
+        good_inspect = lambda fig: '{"shows": "A forest plot of drug effects", "matches_caption": true, "relevant_to_question": true, "legible": true}'
+        trace = {}
+        folder = Path(tempfile.mkdtemp())
+        out = source_figures.select_figures(found, set(cited), set(direct), rubric or good_rubric, inspect or good_inspect, folder, trace=trace, get=lambda url: Reply())
+        return out, trace, folder
+
+    def test_a_relevant_cited_licensed_verified_figure_is_included_with_its_attribution(self):
+        out, trace, _ = self.run_select([self.fig()])
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["caption"], self.CAPTION)      # the original caption, whole
+        self.assertEqual(out[0]["licence"]["label"], "CC BY 4.0")
+        self.assertIsNone(out[0]["doi"])      # a missing detail stays missing
+        self.assertEqual(trace["image_check"], {"downloaded": 1, "looked_at": 1, "could_not_check": 0, "kept": 1})
+
+    def test_an_irrelevant_figure_is_rejected_by_the_relevance_test(self):
+        def rubric(available):
+            return [{"id": f["id"], "helps_answer": False, "clinically_meaningful": True, "adds_beyond_report": True, "not_decorative": True, "answers_what_is_asked": True, "reason": "Forest plot of the mean difference"} for f in available]
+        self.assertEqual(self.run_select([self.fig()], rubric=rubric)[0], [])
+
+    def test_a_justification_that_is_mostly_a_verbatim_caption_run_is_accepted_but_a_paraphrase_is_not(self):
+        import source_figures
+        caption = self.CAPTION
+        self.assertTrue(source_figures.quote_in_caption("Forest plot of the mean difference in symptom score, which is big", caption))
+        self.assertFalse(source_figures.quote_in_caption("this chart shows how much better drug A works than placebo overall", caption))
+        self.assertFalse(source_figures.quote_in_caption("mean difference", caption))      # fewer than four consecutive words
+
+    def test_a_justification_that_is_not_in_the_caption_is_rejected(self):
+        def rubric(available):
+            return [{"id": f["id"], "helps_answer": True, "clinically_meaningful": True, "adds_beyond_report": True, "not_decorative": True, "answers_what_is_asked": True, "reason": "dramatic survival benefit in all patients"} for f in available]
+        self.assertEqual(self.run_select([self.fig()], rubric=rubric)[0], [])
+
+    def test_a_figure_from_an_uncited_but_relevant_paper_is_kept_and_labelled_and_an_irrelevant_paper_is_rejected(self):
+        import source_figures
+        out, trace, _ = self.run_select([self.fig()], cited=())
+        self.assertEqual(len(out), 1)
+        self.assertFalse(out[0]["cited"])      # the report does not cite this paper: its figure says so
+        self.assertEqual(self.run_select([self.fig()], cited=("111",))[0][0]["cited"], True)
+        self.assertEqual(source_figures.eligible([self.fig()], set(), {"111"}, require_cited=True), [])      # the strict mode is still available
+        out, trace, _ = self.run_select([self.fig()], direct=())      # neither directly nor indirectly relevant
+        self.assertEqual(out, [])
+        self.assertEqual(trace["removed_by_gate"]["paper_not_direct"], 1)
+
+    def test_unclear_licence_or_a_reproduced_figure_is_rejected(self):
+        self.assertEqual(self.run_select([self.fig(licence=None)])[0], [])
+        reproduced = self.fig(caption="Figure 1. Forest plot of the mean difference in symptom score. Reproduced from Jones et al. with permission.")
+        out, trace, _ = self.run_select([reproduced])
+        self.assertEqual(out, [])
+        self.assertEqual(trace["removed_by_gate"]["reproduced_or_permission"], 1)
+
+    def test_a_figure_whose_image_cannot_be_verified_is_skipped(self):
+        out, trace, _ = self.run_select([self.fig()], inspect=lambda fig: None)      # rate-limited or unreachable
+        self.assertEqual(out, [])
+        self.assertEqual(trace["image_check"]["could_not_check"], 1)
+        mismatch = lambda fig: '{"shows": "A photograph", "matches_caption": false, "relevant_to_question": true, "legible": true}'
+        self.assertEqual(self.run_select([self.fig()], inspect=mismatch)[0], [])
+        unreadable = lambda fig: '{"shows": "A blur", "matches_caption": true, "relevant_to_question": true, "legible": false}'
+        self.assertEqual(self.run_select([self.fig()], inspect=unreadable)[0], [])
+        self.assertEqual(self.run_select([self.fig()], inspect=lambda fig: "I cannot see an image")[0], [])
+
+    def test_with_the_image_check_off_the_figure_is_kept_but_labelled_not_machine_checked(self):
+        import tempfile
+        from pathlib import Path
+        import source_figures
+        data = self.png_bytes()
+
+        class Reply:
+            status_code, headers, content = 200, {"content-type": "binary/octet-stream"}, data      # the bucket labels every file like this: the type is read from the file
+        rubric = lambda available: [{"id": f["id"], "helps_answer": True, "clinically_meaningful": True, "adds_beyond_report": True, "not_decorative": True, "answers_what_is_asked": True,
+                                     "reason": "Forest plot of the mean difference in symptom score"} for f in available]
+        trace = {}
+        out = source_figures.select_figures([self.fig()], {"111"}, {"111"}, rubric, None, Path(tempfile.mkdtemp()), trace=trace, get=lambda url: Reply())
+        self.assertEqual(len(out), 1)
+        self.assertEqual(trace["image_check"]["mode"], "off")
+        record = source_figures.display_records(out, {"1": "111"})[0]
+        self.assertFalse(record["image_checked"])
+        self.assertIsNone(record["image_check"])
+        # the other gates still apply with the check off
+        self.assertEqual(source_figures.select_figures([self.fig(licence=None)], {"111"}, {"111"}, rubric, None, Path(tempfile.mkdtemp()), get=lambda url: Reply()), [])
+        self.assertEqual(source_figures.select_figures([self.fig()], {"111"}, set(), rubric, None, Path(tempfile.mkdtemp()), get=lambda url: Reply()), [])      # a paper that is not relevant
+
+    QUESTION = "How do you manage migraine in adults?"
+    TEXTS = {"111": "Migraine prevention in adults: a randomized trial. We enrolled adults with chronic migraine.", "222": "Nerve blocks in adolescents with refractory migraine: a retrospective study."}
+
+    def population_answer(self, **papers):
+        return {"question_population": "in adults", "papers": [{"pmid": pmid, "study_population": "x", **item} for pmid, item in papers.items()]}
+
+    def test_a_paper_whose_own_population_matches_the_question_is_kept(self):
+        import source_figures
+        answer = self.population_answer(**{"111": {"verdict": "match", "evidence_quote": "We enrolled adults with chronic migraine"}})
+        trace = {}
+        out = source_figures.apply_population_check([self.fig()], answer, self.TEXTS, self.QUESTION, trace)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(trace["population"]["question_population"], "in adults")
+
+    def test_a_broader_population_is_kept_with_a_caveat_only_when_its_text_is_quoted(self):
+        import source_figures
+        quoted = self.population_answer(**{"111": {"verdict": "broader", "study_population": "adults and adolescents with migraine", "evidence_quote": "We enrolled adults with chronic migraine"}})
+        out = source_figures.apply_population_check([self.fig()], quoted, self.TEXTS, self.QUESTION)
+        self.assertEqual(len(out), 1)
+        self.assertTrue(out[0]["population_note"].startswith("broader than the question:"))
+        unquoted = self.population_answer(**{"111": {"verdict": "broader", "study_population": "everyone", "evidence_quote": "patients of every kind took part in the study"}})
+        self.assertEqual(source_figures.apply_population_check([self.fig()], unquoted, self.TEXTS, self.QUESTION), [])
+
+    def test_a_paper_with_a_clearly_different_population_is_rejected(self):
+        import source_figures
+        answer = self.population_answer(**{"222": {"verdict": "mismatch", "evidence_quote": "in adolescents with refractory migraine"}})
+        trace = {}
+        self.assertEqual(source_figures.apply_population_check([self.fig(pmid="222")], answer, self.TEXTS, self.QUESTION, trace), [])
+        self.assertEqual(trace["population"]["mismatch"], 1)
+
+    def test_an_unknown_population_is_skipped_never_assumed(self):
+        import source_figures
+        for answer in (self.population_answer(**{"111": {"verdict": "unclear", "evidence_quote": ""}}),
+                       self.population_answer(**{"111": {"verdict": "match", "evidence_quote": "all patients were treated successfully overall"}}),      # a quote that is not in the paper
+                       self.population_answer(),      # the paper was not mentioned
+                       None, "not json"):
+            trace = {}
+            self.assertEqual(source_figures.apply_population_check([self.fig()], answer, self.TEXTS, self.QUESTION, trace), [], answer)
+
+    def test_a_question_that_names_no_population_rejects_nothing_on_population(self):
+        import source_figures
+        figs = [self.fig(), self.fig(id="PMC2:f1", pmid="222")]
+        for named in ("not specified", "", "in elderly women"):      # the last is not in the question: it is not trusted
+            answer = {"question_population": named, "papers": []}
+            trace = {}
+            self.assertEqual(len(source_figures.apply_population_check(figs, answer, self.TEXTS, self.QUESTION, trace)), 2)
+            self.assertFalse(trace["population"]["question_names_a_population"])
+
+    def test_select_figures_applies_the_population_check_before_the_relevance_test_and_fails_safe(self):
+        import tempfile
+        from pathlib import Path
+        import source_figures
+        data = self.png_bytes()
+
+        class Reply:
+            status_code, headers, content = 200, {"content-type": "binary/octet-stream"}, data
+        asked = []
+
+        def rubric(available):
+            asked.append([f["id"] for f in available])
+            return [{"id": f["id"], "helps_answer": True, "clinically_meaningful": True, "adds_beyond_report": True, "not_decorative": True, "answers_what_is_asked": True,
+                     "reason": "Forest plot of the mean difference in symptom score"} for f in available]
+        adolescent = self.fig(id="PMC2:f1", pmid="222", pmcid="PMC2")
+        answer = self.population_answer(**{"111": {"verdict": "match", "evidence_quote": "We enrolled adults with chronic migraine"}, "222": {"verdict": "mismatch", "evidence_quote": "in adolescents"}})
+        population = lambda available: source_figures.apply_population_check(available, answer, self.TEXTS, self.QUESTION)
+        out = source_figures.select_figures([self.fig(), adolescent], {"111", "222"}, {"111", "222"}, rubric, None, Path(tempfile.mkdtemp()), get=lambda url: Reply(), population=population)
+        self.assertEqual([f["pmid"] for f in out], ["111"])
+        self.assertEqual(asked, [["PMC1:f1"]])      # the adolescent figure never reached the relevance test
+
+        def broken(available):
+            raise RuntimeError("model unavailable")
+        trace = {}
+        self.assertEqual(source_figures.select_figures([self.fig()], {"111"}, {"111"}, rubric, None, Path(tempfile.mkdtemp()), trace=trace, get=lambda url: Reply(), population=broken), [])
+        self.assertTrue(trace["population_check_failed"])
+
+    def test_no_candidates_or_a_failing_relevance_call_means_no_figures(self):
+        self.assertEqual(self.run_select([])[0], [])
+
+        def broken(available):
+            raise RuntimeError("model unavailable")
+        self.assertEqual(self.run_select([self.fig()], rubric=broken)[0], [])
+
+    def test_the_original_image_bytes_are_saved_unchanged_with_a_checksum(self):
+        import hashlib
+        from pathlib import Path
+        out, _, folder = self.run_select([self.fig()])
+        saved = Path(out[0]["path"]).read_bytes()
+        self.assertEqual(saved, self.png_bytes())
+        self.assertEqual(out[0]["sha256"], hashlib.sha256(self.png_bytes()).hexdigest())
+        self.assertEqual((out[0]["width"], out[0]["height"]), (40, 30))
+        self.assertEqual(out[0]["pdf_path"], out[0]["path"])      # a PNG needs no converted copy
+
+    def test_the_page_and_the_pdf_are_given_the_same_records_and_an_empty_list_adds_no_section(self):
+        import tempfile
+        from pathlib import Path
+        import pdf_export
+        import source_figures
+        out, _, _ = self.run_select([self.fig()])
+        records = source_figures.display_records(out, {"1": "111"})
+        self.assertEqual(records[0]["reference"], "1")
+        self.assertEqual(records[0]["licence_label"], "CC BY 4.0")
+        self.assertEqual(records[0]["caption"], self.CAPTION)
+        texts = []
+        original = pdf_export.Paragraph
+
+        class Spy(original):
+            def __init__(self, text, *args, **kwargs):
+                texts.append(text)
+                super().__init__(text, *args, **kwargs)
+        pdf_export.Paragraph = Spy
+        try:
+            folder = Path(tempfile.mkdtemp())
+            pdf_export.markdown_to_pdf("# Q\n\n## Key studies\n\n1. A study [1].\n", str(folder / "with.pdf"), "Q", figures=records)
+            with_text = " ".join(texts)
+            texts.clear()
+            pdf_export.markdown_to_pdf("# Q\n\n## Key studies\n\n1. A study [1].\n", str(folder / "without.pdf"), "Q", figures=[])
+            without_text = " ".join(texts)
+        finally:
+            pdf_export.Paragraph = original
+        self.assertIn("Figure credits", with_text)
+        self.assertNotIn("Source:", with_text)      # no source paragraph under the figure
+        self.assertIn("Forest plot of the mean difference in symptom score", with_text)
+        self.assertIn("CC BY 4.0", with_text)
+        self.assertIn("Cited in this report as [1]", with_text)
+        self.assertNotIn("Source:", without_text)
+
+    def test_the_article_xml_is_read_for_figures_captions_and_an_explicit_licence(self):
+        import source_figures
+        xml = ('<article><front><permissions><license xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="https://creativecommons.org/licenses/by/4.0/"><license-p>CC BY</license-p></license></permissions></front>'
+               '<body><fig id="f1"><label>Figure 1</label><caption><p>Forest plot of the mean difference in symptom score for drug A versus placebo.</p></caption>'
+               '<graphic xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="x-f001"/></fig>'
+               '<fig id="f2"><label>Figure 2</label><caption><p>A scan of one patient.</p></caption><graphic xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="x-f002"/></fig>'
+               '<fig id="f3"><label>Figure 3</label><caption><p>No image file in the bucket.</p></caption><graphic xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="x-f003"/></fig></body></article>')
+        keys = ["PMC1.1/x-f001.jpg", "PMC1.1/x-f002.png", "PMC1.1/PMC1.1.xml"]
+        figs = source_figures.parse_figures(xml, "PMC1", keys)
+        self.assertEqual([f["id"] for f in figs], ["PMC1:f1", "PMC1:f2"])      # a figure whose image file is not in the bucket is not a candidate
+        self.assertEqual(figs[0]["caption"], self.CAPTION)
+        self.assertEqual(figs[0]["image"], "https://pmc-oa-opendata.s3.amazonaws.com/PMC1.1/x-f001.jpg")
+        self.assertIn("A scan of one patient", figs[1]["caption"])
+        self.assertEqual(source_figures.open_licence(xml)["label"], "CC BY 4.0")
+        self.assertIsNone(source_figures.open_licence("<p>All rights reserved.</p>"))
+        self.assertEqual(source_figures.open_licence('<a href="https://creativecommons.org/publicdomain/zero/1.0/">x</a>')["label"], "CC0 1.0")
+
+
+import re
+
+
+class NoDiseaseOrDrugIsHardCoded(unittest.TestCase):
+    NAMES = re.compile(r"\b(?:autis\w*|adhd|tourette\w*|pandas|irritability|risperidone|aripiprazole|ibuprofen|naproxen|melatonin|insomnia|diabetes|hypertension|epilepsy|schizophrenia|asthma|"
+                       r"cancer|parkinson\w*|alzheimer\w*|migraine|arthritis|lupus|covid\w*|sertraline|fluoxetine|methylphenidate|atomoxetine)\b", re.I)
+
+    def test_no_production_file_or_config_names_a_disease_or_a_drug(self):
+        import pathlib
+        root = pathlib.Path(__file__).resolve().parent.parent
+        skip = {"audit.py", "phi.py"}      # a development audit script, and the privacy filter whose name lists stop a disease name from being removed as a person's name
+        found = []
+        for path in list(root.glob("*.py")) + [root / "config" / "care_topics.json"]:
+            if path.name in skip:
+                continue
+            text = path.read_text(encoding="utf-8")
+            if path.suffix == ".json":
+                text = text.split('"authoritative_domains"')[0] + text.split('"default"')[-1]      # the publisher allow-list is a source policy, not medical knowledge
+            for number, line in enumerate(text.splitlines(), 1):
+                if self.NAMES.search(line):
+                    found.append(f"{path.name}:{number}: {line.strip()[:90]}")
+        self.assertEqual(found, [], "a disease or drug name is hard-coded:\n" + "\n".join(found))
+
+
+class FiguresOfRelatedConditionsAndPlacement(unittest.TestCase):
+    @staticmethod
+    def fig(**over):
+        return OriginalFiguresAreIncludedOnlyWhenTheyQualify.fig(**over)
+
+    def test_a_closely_related_paper_gives_a_figure_labelled_indirect_but_an_unrelated_one_does_not(self):
+        import source_figures
+        related = self.fig(pmid="333")
+        trace = {}
+        kept = source_figures.eligible([self.fig(), related, self.fig(pmid="444")], {"111", "333"}, {"111"}, trace, indirect_pmids={"333"})
+        self.assertEqual([(f["pmid"], f["relation"]) for f in kept], [("111", "direct"), ("333", "indirect")])
+        self.assertEqual(trace["removed_by_gate"]["paper_not_direct"], 1)      # 444 is neither direct nor indirect
+        self.assertEqual(source_figures.eligible([related], set(), {"111"}, indirect_pmids={"333"}, require_cited=True), [])
+        self.assertEqual(len(source_figures.eligible([related], set(), {"111"}, indirect_pmids={"333"})), 1)      # an uncited related paper is allowed and labelled
+
+    def test_a_figure_belongs_in_the_section_that_cites_its_paper(self):
+        import source_figures
+        report = ("## Clinical summary\n\nA short summary [2].\n\n## Latest findings\n\n- A finding [1, 2].\n\n## Current evidence\n\n| A | B |\n|---|---|\n| x | y [2] |\n\n"
+                  "## Key studies\n\n1. A study [3].\n\n## Sources\n\n[1] x\n[2] y\n")
+        self.assertEqual(source_figures.section_for(report, 2), "Current evidence")      # the evidence sections come first, not the summary
+        self.assertEqual(source_figures.section_for(report, 3), "Key studies")
+        self.assertEqual(source_figures.section_for(report, 1), "Latest findings")
+        self.assertIsNone(source_figures.section_for(report, 9))
+        self.assertIsNone(source_figures.section_for(report, None))
+        self.assertIsNone(source_figures.section_for("", 1))
+
+    def test_a_figure_of_a_paper_the_report_does_not_cite_goes_to_the_section_about_the_same_things(self):
+        import source_figures
+        report = ("## Latest findings\n\n- Nothing relevant here.\n\n## Current evidence\n\n| Approach | Level | Shows | Ref |\n|---|---|---|---|\n"
+                  "| Topiramate | Limited | Reduced headache frequency in chronic migraine. | [4] |\n| Amitriptyline | Emerging | Reduced headache frequency. | [4] |\n\n"
+                  "## Treatment Drug Landscape\n\nTopiramate, amitriptyline.\n\n## Key studies\n\n1. A study of botulinum toxin [9].\n")
+        title_and_caption = "Comparative effectiveness of topiramate versus amitriptyline for chronic migraine. Figure 2. Trend in headache frequency over time."
+        self.assertEqual(source_figures.best_section(report, title_and_caption), "Current evidence")
+        self.assertIsNone(source_figures.best_section(report, "A figure about something else entirely, the weather."))
+        self.assertIsNone(source_figures.best_section("", title_and_caption))
+        records = source_figures.display_records([{**OriginalFiguresAreIncludedOnlyWhenTheyQualify.fig(pmid="999", title="Topiramate versus amitriptyline for chronic migraine",
+                                                                                           caption="Figure 2. Trend in headache frequency over time."), "path": "x.png"}], {"1": "111"}, report)
+        self.assertEqual(records[0]["section"], "Current evidence")
+        self.assertFalse(records[0]["cited"])
+
+    def test_the_pdf_places_each_figure_inside_its_own_section_not_at_the_end(self):
+        import tempfile
+        from pathlib import Path
+        import pdf_export
+        import source_figures
+        found = self.fig()
+        out = [{**found, "path": str(Path(tempfile.mkdtemp()) / "x.png"), "width": 40, "height": 30, "relation": "direct"}]
+        from PIL import Image
+        Image.new("RGB", (40, 30), (10, 10, 200)).save(out[0]["path"])
+        out[0]["pdf_path"] = out[0]["path"]
+        report = "# Q\n\n## Current evidence\n\nEvidence text [1].\n\n## Key studies\n\n1. A study [2].\n\n## Evidence limitations\n\nLimits text.\n"
+        records = source_figures.display_records(out, {"1": "111"}, report)
+        self.assertEqual(records[0]["section"], "Current evidence")
+        texts, original = [], pdf_export.Paragraph
+
+        class Spy(original):
+            def __init__(self, text, *args, **kwargs):
+                texts.append(text)
+                super().__init__(text, *args, **kwargs)
+        pdf_export.Paragraph = Spy
+        try:
+            pdf_export.markdown_to_pdf(report, str(Path(tempfile.mkdtemp()) / "a.pdf"), "Q", figures=records)
+        finally:
+            pdf_export.Paragraph = original
+        order = " | ".join(texts)
+        self.assertLess(order.index("Evidence text"), order.index("Forest plot of the mean difference"))
+        self.assertLess(order.index("Forest plot of the mean difference"), order.index("A study"))      # before the next section starts, not after Evidence limitations
+        self.assertEqual(order.count("Figure credits"), 1)      # the attribution is one list at the end, not under each figure
+        self.assertNotIn("Source:", order)
+
+
+class CurrentEvidenceRowsAndConditionSpecificDoses(unittest.TestCase):
+    def test_lines_become_a_compact_table_with_the_citation_in_its_own_column(self):
+        text = ("## Current evidence\nApproach A || Emerging || One small study reported benefit. || (PMID 111111)\n"
+                "Approach B || Insufficient evidence || No result was reported (Smith et al., J, 2025 [PMID 222222]).\n"
+                "not a row")
+        table = qa_stream.rows_to_table(text)
+        self.assertTrue(table.startswith("## Current evidence"))
+        self.assertIn("| Approach | Evidence level | What the evidence shows | Reference |\n|---|---|---|---|", table)
+        self.assertIn("| Approach A | Emerging | One small study reported benefit. | (PMID 111111) |", table)
+        self.assertIn("| Approach B | Insufficient evidence | No result was reported | (PMID 222222) |", table)
+        already = "## Current evidence\n\n| Approach | Evidence level |\n|---|---|\n| A | B |"
+        self.assertEqual(qa_stream.rows_to_table(already), already)
+        self.assertEqual(qa_stream.rows_to_table("## Current evidence\n\n| Approach | Evidence level | What the evidence shows "), "## Current evidence\n\n| Approach | Evidence level | What the evidence shows ")
+
+    def test_a_dose_sentence_must_be_about_the_question_condition(self):
+        pages = [{"title": "Drugzol dosage guide", "url": "https://example.org/a", "snippet": "Drugzol: the initial dose is 0.5 mg/kg/day orally for adults with heart disease."},
+                 {"title": "Drugzol for condition X", "url": "https://example.org/b", "snippet": "Most children with condition X start Drugzol at 0.5 mg once daily at bedtime."}]
+        with_stems = landscape.dose_candidates("Drugzol", pages, stems=["condition"])
+        self.assertEqual([c["url"] for c in with_stems], ["https://example.org/b"])      # the first page is about another use
+        self.assertEqual(len(landscape.dose_candidates("Drugzol", pages)), 2)      # no condition words known: nothing is filtered
+
+
+class FigureExplanationsAreVerified(unittest.TestCase):
+    CAPTION = "Figure 3. Forest plot of effects. Values above 0 mean more improvement than control. Each dot is a summary effect and each line is its 95% confidence interval."
+    ABSTRACT = "In randomized trials the effect of intervention A on social communication was 0.35 (95% CI 0.23 to 0.47) across 32 studies."
+    TEXTS = {"111": "A meta-analysis. " + ABSTRACT}
+
+    def figure(self):
+        return {"id": "PMC1:f3", "pmid": "111", "caption": self.CAPTION}
+
+    def answer(self, **over):
+        item = {"id": "PMC1:f3", "how_to_read": "Each dot is a summary effect and each line is its 95% confidence interval; values above 0 mean more improvement.",
+                "how_to_read_quote": "Values above 0 mean more improvement than control", "shows_for_question": "Intervention A changed social communication by 0.35 (95% CI 0.23 to 0.47) across 32 studies.",
+                "shows_quote": "the effect of intervention A on social communication was 0.35",
+                "helps_treatment": "It lets a doctor compare intervention A with control on social communication across 32 studies.", "helps_quote": "intervention A on social communication was 0.35"}
+        item.update(over)
+        return {"figures": [item]}
+
+    def test_verified_lines_are_kept(self):
+        import source_figures
+        trace = {}
+        out = source_figures.explain_figures([self.figure()], self.answer(), self.TEXTS, trace)
+        self.assertIn("summary effect", out[0]["how_to_read"])
+        self.assertIn("0.35", out[0]["shows_for_question"])
+        self.assertEqual(trace["explanations"], {"how_to_read_kept": 1, "shows_kept": 1, "helps_kept": 1, "dropped": 0})
+
+    def test_the_how_to_read_line_may_rest_on_what_the_vision_model_saw_when_the_caption_is_short(self):
+        import source_figures
+        short = {"id": "PMC1:f3", "pmid": "111", "caption": "Figure 2. Trend in headache frequency over time.",
+                 "image_check": "A line graph with the x-axis showing time points from baseline to week 12 and the y-axis showing mean headache frequency per month; lower values indicate fewer episodes."}
+        answer = {"figures": [{"id": "PMC1:f3", "how_to_read": "The x-axis shows time from baseline to week 12 and the y-axis shows mean headaches per month; lower is better.",
+                               "how_to_read_quote": "x-axis showing time points from baseline to week 12", "shows_for_question": "", "shows_quote": ""}]}
+        out = source_figures.explain_figures([short], answer, {"111": "A study."})
+        self.assertIn("x-axis shows time", out[0]["how_to_read"])
+        without = source_figures.explain_figures([{**short, "image_check": None}], answer, {"111": "A study."})
+        self.assertIsNone(without[0]["how_to_read"])      # with no caption words and no picture description there is nothing to rest on
+
+    def test_a_number_that_is_not_in_the_paper_removes_the_line_but_not_the_figure(self):
+        import source_figures
+        out = source_figures.explain_figures([self.figure()], self.answer(shows_for_question="Intervention A changed social communication by 0.62 across 32 studies."), self.TEXTS)
+        self.assertIsNone(out[0]["shows_for_question"])
+        self.assertIsNotNone(out[0]["how_to_read"])      # the other line is judged on its own
+        self.assertEqual(out[0]["id"], "PMC1:f3")      # the figure stays
+
+    def test_a_quote_that_is_not_in_the_text_or_an_overclaim_removes_the_line(self):
+        import source_figures
+        invented = self.answer(shows_quote="intervention A cured most children in the study", how_to_read_quote="blue squares show the funding sources")
+        out = source_figures.explain_figures([self.figure()], invented, self.TEXTS)
+        self.assertIsNone(out[0]["shows_for_question"])
+        self.assertIsNone(out[0]["how_to_read"])
+        overclaim = self.answer(shows_for_question="Intervention A works: social communication improved by 0.35.")
+        self.assertIsNone(source_figures.explain_figures([self.figure()], overclaim, self.TEXTS)[0]["shows_for_question"])
+
+    def test_an_unusable_answer_leaves_the_figure_without_lines(self):
+        import source_figures
+        for answer in (None, "not json", {}, {"figures": []}):
+            out = source_figures.explain_figures([self.figure()], answer, self.TEXTS)
+            self.assertEqual(len(out), 1)
+            self.assertIsNone(out[0]["how_to_read"])
+            self.assertIsNone(out[0]["shows_for_question"])
+
+    def test_the_pdf_shows_the_two_lines_only_when_they_exist(self):
+        import tempfile
+        from pathlib import Path
+        import pdf_export
+        from PIL import Image
+        path = str(Path(tempfile.mkdtemp()) / "x.png")
+        Image.new("RGB", (40, 30), (10, 10, 200)).save(path)
+        base = {"pdf_path": path, "width": 40, "height": 30, "label": "Figure 3", "caption": self.CAPTION, "title": "T", "pmid": "111", "section": "Key studies", "reference": "1", "cited": True}
+        texts, original = [], pdf_export.Paragraph
+
+        class Spy(original):
+            def __init__(self, text, *args, **kwargs):
+                texts.append(text)
+                super().__init__(text, *args, **kwargs)
+        pdf_export.Paragraph = Spy
+        try:
+            report = "# Q\n\n## Key studies\n\n1. A study [1].\n"
+            pdf_export.markdown_to_pdf(report, str(Path(tempfile.mkdtemp()) / "a.pdf"), "Q", figures=[{**base, "how_to_read": "Each dot is a summary effect.", "shows_for_question": "A changed it by 0.35."}])
+            with_lines = " ".join(texts)
+            texts.clear()
+            pdf_export.markdown_to_pdf(report, str(Path(tempfile.mkdtemp()) / "b.pdf"), "Q", figures=[{**base, "how_to_read": None, "shows_for_question": None}])
+            without_lines = " ".join(texts)
+        finally:
+            pdf_export.Paragraph = original
+        self.assertIn("What this figure shows:", with_lines)
+        self.assertIn("How to read this figure:", with_lines)
+        self.assertNotIn("What this figure shows:", without_lines)
+        self.assertIn("Figure 3. Forest plot of effects", without_lines)      # the figure is still shown
+
+
+class FiguresMustBeReadableAndNotRepeated(unittest.TestCase):
+    @staticmethod
+    def picture(rows, row_height, width=900, gap=10):
+        import io
+        from PIL import Image, ImageDraw
+        height = rows * (row_height + gap) + 20
+        image = Image.new("RGB", (width, height), "white")
+        draw = ImageDraw.Draw(image)
+        for i in range(rows):
+            y = 10 + i * (row_height + gap)
+            draw.rectangle([20, y, 20 + 300 + (i * 37) % 400, y + row_height], fill="black")      # a block of ink the height of a line of text
+        buffer = io.BytesIO()
+        image.save(buffer, "PNG")
+        return buffer.getvalue()
+
+    def test_text_that_would_be_tiny_on_the_page_is_not_readable_and_larger_text_is(self):
+        import source_figures
+        big = source_figures.text_height_points(self.picture(rows=8, row_height=14, width=700, gap=30))
+        tiny = source_figures.text_height_points(self.picture(rows=60, row_height=5, width=1400))
+        self.assertGreaterEqual(big, source_figures.MIN_TEXT_POINTS)
+        self.assertLess(tiny, source_figures.MIN_TEXT_POINTS)
+        self.assertTrue(source_figures.readable_on_the_page(self.picture(rows=8, row_height=14, width=700, gap=30)))
+        self.assertFalse(source_figures.readable_on_the_page(self.picture(rows=60, row_height=5, width=1400)))
+
+    def test_a_picture_that_cannot_be_measured_is_kept(self):
+        import source_figures
+        self.assertIsNone(source_figures.text_height_points(self.picture(rows=1, row_height=14)))      # fewer than three text rows
+        self.assertTrue(source_figures.readable_on_the_page(self.picture(rows=2, row_height=14)))
+        self.assertTrue(source_figures.readable_on_the_page(b"not an image"))
+
+    def test_a_dense_figure_is_skipped_and_one_paper_may_give_up_to_three_figures(self):
+        import tempfile
+        from pathlib import Path
+        import source_figures
+        readable, dense = self.picture(rows=8, row_height=14, width=700, gap=30), self.picture(rows=60, row_height=5, width=1400)
+        pictures = {"https://x/a.png": readable, "https://x/b.png": readable, "https://x/c.png": dense, "https://x/d.png": readable}
+
+        class Reply:
+            status_code, headers = 200, {"content-type": "binary/octet-stream"}
+
+            def __init__(self, url):
+                self.content = pictures[url]
+        base = OriginalFiguresAreIncludedOnlyWhenTheyQualify.fig
+        found = [base(id="P1:a", image="https://x/a.png", pmid="111"), base(id="P1:b", image="https://x/b.png", pmid="111", caption="Figure 2. Forest plot of the mean difference in symptom score for sleep and anxiety outcomes of drug B in children aged four."), base(id="P2:c", image="https://x/c.png", pmid="222"),
+                 base(id="P3:d", image="https://x/d.png", pmid="333")]
+        rubric = lambda available: [{"id": f["id"], "helps_answer": True, "clinically_meaningful": True, "adds_beyond_report": True, "not_decorative": True, "answers_what_is_asked": True,
+                                     "reason": "Forest plot of the mean difference in symptom score"} for f in available]
+        trace = {}
+        out = source_figures.select_figures(found, {"111", "222", "333"}, {"111", "222", "333"}, rubric, None, Path(tempfile.mkdtemp()), trace=trace, get=lambda url: Reply(url))
+        self.assertEqual([f["id"] for f in out], ["P1:a", "P1:b", "P3:d"])      # two relevant figures of paper 111 are both kept; P2:c is too dense to read
+        self.assertEqual(trace["unreadable_before_relevance_test"], 1)      # the dense figure never reached the model: it chooses only among figures that can be read
+        self.assertEqual(trace["too_small_to_read"], 0)
+        words = ["alpha omega delta", "kappa sigma theta", "lambda gamma zeta", "epsilon upsilon phi", "omicron rho tau"]
+        many = [base(id=f"P4:{k}", image="https://x/a.png", pmid="444", caption=f"Figure {k}. Forest plot about {words[k]} outcomes") for k in range(5)]
+        trace = {}
+        own_words = lambda available: [{"id": f["id"], "helps_answer": True, "clinically_meaningful": True, "adds_beyond_report": True, "not_decorative": True, "answers_what_is_asked": True,
+                                        "reason": f["caption"].split(". ", 1)[1]} for f in available]      # each figure justified with its own caption's words
+        out = source_figures.select_figures(many, {"444"}, {"444"}, own_words, None, Path(tempfile.mkdtemp()), trace=trace, get=lambda url: Reply(url))
+        self.assertEqual(len(out), 3)      # at most three figures of one paper
+        self.assertEqual(trace["extra_figures_of_one_paper_removed"], 2)
+
+
+class FiguresFromRetrievedPapersAreLabelled(unittest.TestCase):
+    def test_the_records_and_the_pdf_say_when_the_report_does_not_cite_the_paper(self):
+        import tempfile
+        from pathlib import Path
+        import pdf_export
+        import source_figures
+        from PIL import Image
+        path = str(Path(tempfile.mkdtemp()) / "x.png")
+        Image.new("RGB", (40, 30), (10, 10, 200)).save(path)
+        figure = {**OriginalFiguresAreIncludedOnlyWhenTheyQualify.fig(), "path": path, "pdf_path": path, "width": 40, "height": 30, "relation": "direct"}
+        report = "# Q\n\n## Key studies\n\n1. A study [1].\n"
+        cited = source_figures.display_records([figure], {"1": "111"}, report)[0]
+        uncited = source_figures.display_records([figure], {"1": "999"}, report)[0]
+        self.assertTrue(cited["cited"])
+        self.assertFalse(uncited["cited"])
+        self.assertIsNone(uncited["reference"])
+        texts, original = [], pdf_export.Paragraph
+
+        class Spy(original):
+            def __init__(self, text, *args, **kwargs):
+                texts.append(text)
+                super().__init__(text, *args, **kwargs)
+        pdf_export.Paragraph = Spy
+        try:
+            pdf_export.markdown_to_pdf(report, str(Path(tempfile.mkdtemp()) / "a.pdf"), "Q", figures=[uncited])
+        finally:
+            pdf_export.Paragraph = original
+        joined = " | ".join(texts)
+        self.assertIn("Not discussed in the report text", joined)
+        self.assertNotIn("Figure from a cited study", joined)
+        self.assertNotIn("Figure from a retrieved study", joined)      # the heading label is gone
+
+
+class RepeatedFiguresOfOnePaperAreDropped(unittest.TestCase):
+    def test_captions_that_are_nearly_the_same_are_repeats_and_different_ones_are_not(self):
+        import source_figures
+        a = "Fig 3. Forest plot of summary estimates for each outcome type by intervention type when only outcomes from randomized controlled trials are included."
+        b = "Fig 5. Forest plot of summary estimates for each outcome type by intervention type when only outcomes from randomized controlled trials and low risk of detection bias are included."
+        c = "Fig 1. PRISMA diagram of how studies were identified, screened and included."
+        self.assertGreaterEqual(source_figures.caption_similarity(a, b), source_figures.SAME_FIGURE)
+        self.assertLess(source_figures.caption_similarity(a, c), 0.3)
+
+    def test_a_repeat_from_the_same_paper_is_removed_but_the_same_caption_in_another_paper_is_kept(self):
+        import tempfile
+        from pathlib import Path
+        import source_figures
+        data = FiguresMustBeReadableAndNotRepeated.picture(rows=8, row_height=14, width=700, gap=30)
+
+        class Reply:
+            status_code, headers, content = 200, {"content-type": "binary/octet-stream"}, data
+        base = OriginalFiguresAreIncludedOnlyWhenTheyQualify.fig
+        caption = "Figure 3. Forest plot of summary estimates for each outcome type by intervention type when only outcomes from randomized controlled trials are included."
+        found = [base(id="P1:a", pmid="111", caption=caption), base(id="P1:b", pmid="111", caption=caption.replace("Figure 3", "Figure 5") + " and low risk of bias"),
+                 base(id="P1:c", pmid="111", caption="Figure 2. Network plot of the number of studies comparing each pair of treatments for the primary safety outcome."),
+                 base(id="P2:a", pmid="222", caption=caption)]
+        rubric = lambda available: [{"id": f["id"], "helps_answer": True, "clinically_meaningful": True, "adds_beyond_report": True, "not_decorative": True, "answers_what_is_asked": True,
+                                     "reason": "Forest plot of summary estimates for each outcome type"} if "Forest" in f["caption"] else
+                                    {"id": f["id"], "helps_answer": True, "clinically_meaningful": True, "adds_beyond_report": True, "not_decorative": True, "answers_what_is_asked": True,
+                                     "reason": "Network plot of the number of studies comparing each pair"} for f in available]
+        trace = {}
+        out = source_figures.select_figures(found, {"111", "222"}, {"111", "222"}, rubric, None, Path(tempfile.mkdtemp()), trace=trace, get=lambda url: Reply())
+        self.assertEqual([f["id"] for f in out], ["P1:a", "P1:c", "P2:a"])
+        self.assertEqual(trace["repeats_of_one_paper_removed"], 1)
+
+
+class VisionProviderIsChosenFromTheSettings(unittest.TestCase):
+    def settings(self, **env):
+        import os
+        keys = ("VISION_PROVIDER", "VISION_MODEL", "GROQ_API_KEY")
+        saved = {k: os.environ.get(k) for k in keys}
+        try:
+            for k in keys:
+                os.environ.pop(k, None)
+            os.environ.update(env)
+            return qa_stream.vision_settings()
+        finally:
+            for k, v in saved.items():
+                os.environ.pop(k, None)
+                if v is not None:
+                    os.environ[k] = v
+
+    def test_groq_is_used_when_its_key_is_set_otherwise_mistral_and_the_model_can_be_overridden(self):
+        self.assertEqual(self.settings(GROQ_API_KEY="x"), ("groq", qa_stream.GROQ_VISION_MODEL))
+        self.assertEqual(self.settings(), ("mistral", qa_stream.MISTRAL_VISION_MODEL))
+        self.assertEqual(self.settings(GROQ_API_KEY="x", VISION_PROVIDER="mistral"), ("mistral", qa_stream.MISTRAL_VISION_MODEL))
+        self.assertEqual(self.settings(GROQ_API_KEY="x", VISION_MODEL="some/vision-model"), ("groq", "some/vision-model"))
+
+    def test_a_missing_key_or_an_unreachable_provider_returns_none_so_the_figure_is_skipped(self):
+        import os
+        import tempfile
+        from pathlib import Path
+        from PIL import Image
+        path = str(Path(tempfile.mkdtemp()) / "x.png")
+        Image.new("RGB", (40, 30), (10, 10, 200)).save(path)
+        saved = {k: os.environ.get(k) for k in ("VISION_PROVIDER", "GROQ_API_KEY")}
+        try:
+            os.environ["VISION_PROVIDER"] = "groq"
+            os.environ.pop("GROQ_API_KEY", None)
+            self.assertIsNone(qa_stream.vision_inspect({"path": path, "pdf_path": path, "caption": "A caption of a figure."}, "A question?"))
+        finally:
+            for k, v in saved.items():
+                os.environ.pop(k, None)
+                if v is not None:
+                    os.environ[k] = v
+
+
+class RelevanceJustificationMayParaphraseTheCaptionButNotInventFindings(unittest.TestCase):
+    CAPTION = "Figure 3. Trend in HIT-6 score over time for topiramate and amitriptyline groups."
+
+    def test_a_verbatim_run_or_a_paraphrase_made_of_caption_words_is_grounded(self):
+        import source_figures
+        self.assertTrue(source_figures.reason_grounded("Trend in HIT-6 score over time", self.CAPTION))
+        self.assertTrue(source_figures.reason_grounded("HIT-6 score trend over time for topiramate and amitriptyline", self.CAPTION))
+
+    def test_a_justification_with_words_the_caption_does_not_contain_is_not_grounded(self):
+        import source_figures
+        self.assertFalse(source_figures.reason_grounded("dramatic survival benefit in all patients", self.CAPTION))
+        self.assertFalse(source_figures.reason_grounded("topiramate cured chronic migraine in every participant", self.CAPTION))
+        self.assertFalse(source_figures.reason_grounded("", self.CAPTION))
+
+    def test_a_population_the_model_invented_is_not_trusted_but_the_questions_own_words_are(self):
+        import source_figures
+        question = "Migraine prophylaxis 2024 evidence?"
+        figs = [{"pmid": "111", "id": "a"}]
+        invented = {"question_population": "pediatric migraine", "papers": []}
+        trace = {}
+        self.assertEqual(source_figures.apply_population_check(figs, invented, {"111": "Adults with migraine."}, question, trace), figs)
+        self.assertFalse(trace["population"]["question_names_a_population"])      # "pediatric" is not in the question: nothing is rejected on population
+        genuine = {"question_population": "in adults", "papers": [{"pmid": "111", "verdict": "match", "evidence_quote": "Adults with migraine were enrolled"}]}
+        self.assertTrue(source_figures.apply_population_check(figs, genuine, {"111": "Adults with migraine were enrolled in the trial."}, "How is migraine managed in adults?")[0:1])
+
+    def test_a_disease_named_as_the_population_is_ignored(self):
+        import source_figures
+        figs = [{"pmid": "111", "id": "a"}, {"pmid": "222", "id": "b"}]
+        answer = {"question_population": "migraine", "papers": [{"pmid": "111", "verdict": "mismatch", "evidence_quote": "x"}]}
+        trace = {}
+        out = source_figures.apply_population_check(figs, answer, {}, "Migraine prophylaxis 2024 evidence?", trace, condition="migraine prophylaxis")
+        self.assertEqual(len(out), 2)      # nothing rejected: 'migraine' is the condition, not a population
+        self.assertFalse(trace["population"]["question_names_a_population"])
+
+
+
+class TheModelMustAlsoSayTheFigureShowsWhatTheQuestionAsksAndTheReaderSeesWhy(unittest.TestCase):
+    CAPTION = "Figure 3. Frequencies of behavior categories by severity in children."
+
+    def item(self, **over):
+        base = {"id": "P:1", "helps_answer": True, "clinically_meaningful": True, "adds_beyond_report": True, "not_decorative": True, "answers_what_is_asked": True,
+                "reason": "Frequencies of behavior categories by severity"}
+        base.update(over)
+        return base
+
+    def test_a_figure_that_does_not_show_what_the_question_asks_is_dropped(self):
+        import source_figures
+        available = [{"id": "P:1", "caption": self.CAPTION, "pmid": "1"}]
+        self.assertEqual(len(source_figures.verify_rubric([self.item()], available)), 1)
+        self.assertEqual(source_figures.verify_rubric([self.item(answers_what_is_asked=False)], available), [])      # describes how common the problem is, not how to treat it
+        missing = self.item()
+        del missing["answers_what_is_asked"]
+        self.assertEqual(source_figures.verify_rubric([missing], available), [])      # a missing answer is not a yes
+
+    def test_the_reader_is_told_why_a_figure_is_shown_and_only_what_was_really_checked(self):
+        import source_figures
+        figure = {"id": "P:1", "path": "x.png", "pmid": "1", "reason": "Frequencies of behavior categories by severity", "relation": "direct", "population_note": "children with ASD"}
+        text = source_figures.display_records([figure], {}, "")[0]["why"]
+        self.assertIn("Frequencies of behavior categories by severity", text)
+        self.assertIn("directly relevant", text)
+        self.assertIn("open licence", text)
+        self.assertNotIn("vision model", text)      # no vision check happened: it is not claimed
+        with_vision = source_figures.display_records([{**figure, "image_check": "A bar graph.", "relation": "indirect", "population_note": "related condition or population: x"}], {}, "")[0]["why"]
+        self.assertIn("vision model confirmed", with_vision)
+        self.assertIn("indirect evidence", with_vision)
+
+
+class AFigureMustItselfPresentWhatTheQuestionAsks(unittest.TestCase):
+    def figures(self):
+        return [{"id": "P:1", "pmid": "1"}, {"id": "P:2", "pmid": "1"}, {"id": "P:3", "pmid": "2"}]
+
+    def test_only_figures_the_model_says_present_the_asked_information_are_kept(self):
+        import source_figures
+        answer = {"asked_kind": "ways to manage it and how well they work", "figures": [{"id": "P:1", "presents_it": True, "what_it_presents": "outcome of a treatment versus control"},
+                                                                                         {"id": "P:2", "presents_it": False, "what_it_presents": "how common the problem is"}]}
+        trace = {}
+        kept = source_figures.apply_strict_check(self.figures(), answer, trace)
+        self.assertEqual([f["id"] for f in kept], ["P:1"])      # P:2 only describes the problem; P:3 was not judged
+        self.assertEqual(kept[0]["presents"], "outcome of a treatment versus control")
+        self.assertEqual(trace["strict_check"], {"asked_kind": "ways to manage it and how well they work", "checked": 3, "kept": 1})
+
+    def test_when_the_model_gives_no_usable_answer_the_check_is_skipped_and_an_unclear_verdict_drops_the_figure(self):
+        import source_figures
+        for answer in (None, {}, "not json", {"figures": []}):
+            trace = {}
+            self.assertEqual(len(source_figures.apply_strict_check(self.figures(), answer, trace)), 3)      # a failed call does not throw the figures away
+            self.assertTrue(trace["strict_check"]["could_not_run"])
+        self.assertEqual(source_figures.apply_strict_check(self.figures(), {"figures": [{"id": "P:1", "presents_it": "yes"}]}), [])      # an answer that is not a clear yes drops the figure
+
+
+class FiguresThatAreNotReadyWhenTheReportIsFinalAreDeliveredLate(unittest.TestCase):
+    def job(self, delay):
+        import threading
+        import time
+        box = {"figures": [{"id": "P:1", "path": "x.png", "pmid": "111", "caption": "Figure 1. Plot.", "relation": "direct"}], "trace": {}}
+        thread = threading.Thread(target=lambda: time.sleep(delay), daemon=True)
+        thread.start()
+        qa_stream.FIGURE_JOBS["job-x"] = (thread, box)
+        return {"state": {"figure_job": "job-x", "reference_numbers": {"1": "111"}}, "markdown": "## Key studies\n\n1. A study [1].\n"}
+
+    def test_a_job_that_is_not_ready_is_kept_not_thrown_away_and_its_figures_arrive_later(self):
+        final = self.job(0.6)
+        try:
+            self.assertEqual(qa_stream.prepare_figures(final) if False else qa_stream.collect_figures(final["state"], final["markdown"], timeout=0.05), [])
+            self.assertTrue(qa_stream.figures_pending(final))      # the job is still there
+            late = qa_stream.late_figures(final, timeout=5)
+            self.assertEqual([r["id"] if "id" in r else r["pmid"] for r in late], ["111"])
+            self.assertEqual(late[0]["section"], "Key studies")
+            self.assertFalse(qa_stream.figures_pending(final))
+            self.assertTrue(final["state"]["figure_trace"]["delivered_late"])
+        finally:
+            qa_stream.FIGURE_JOBS.pop("job-x", None)
+
+    def test_a_job_that_is_ready_is_collected_at_once_and_a_missing_job_gives_nothing(self):
+        final = self.job(0.0)
+        try:
+            self.assertEqual(len(qa_stream.collect_figures(final["state"], final["markdown"], timeout=2)), 1)
+            self.assertFalse(qa_stream.figures_pending(final))
+            self.assertEqual(qa_stream.late_figures(final, timeout=0.1), [])
+        finally:
+            qa_stream.FIGURE_JOBS.pop("job-x", None)
+
+
+class TheModelOnlyChoosesAmongFiguresThatCanBeRead(unittest.TestCase):
+    def test_a_dense_candidate_is_not_even_offered_to_the_relevance_test(self):
+        import tempfile
+        from pathlib import Path
+        import source_figures
+        readable = FiguresMustBeReadableAndNotRepeated.picture(rows=8, row_height=14, width=700, gap=30)
+        dense = FiguresMustBeReadableAndNotRepeated.picture(rows=60, row_height=5, width=1400)
+        pictures = {"https://x/ok.png": readable, "https://x/dense.png": dense}
+
+        class Reply:
+            status_code, headers = 200, {"content-type": "binary/octet-stream"}
+
+            def __init__(self, url):
+                self.content = pictures.get(url, readable)
+        base = OriginalFiguresAreIncludedOnlyWhenTheyQualify.fig
+        found = [base(id="P:dense", image="https://x/dense.png", pmid="111", caption="Figure 1. Network of treatments."), base(id="P:ok", image="https://x/ok.png", pmid="222", caption="Figure 2. Forest plot of effects.")]
+        offered = []
+
+        def rubric(available):
+            offered.extend(f["id"] for f in available)
+            return []
+        trace = {}
+        source_figures.select_figures(found, {"111", "222"}, {"111", "222"}, rubric, None, Path(tempfile.mkdtemp()), trace=trace, get=lambda url: Reply(url))
+        self.assertEqual(offered, ["P:ok"])
+        self.assertEqual(trace["unreadable_before_relevance_test"], 1)
+        self.assertEqual(trace["figure_fates"][0]["id"], "P:dense")
+
+
+class HybridSearchFusesSemanticLexicalAndSourceOrder(unittest.TestCase):
+    def papers(self):
+        return {"1": {"title": "Alpha beta gamma", "abstract": "unrelated words about weather"},
+                "2": {"title": "Reducing symptoms with therapy", "abstract": "therapy lowers symptoms"},
+                "3": {"title": "Totally other topic", "abstract": "nothing relevant here"}}
+
+    def test_semantic_score_can_lift_a_paper_with_other_words(self):
+        import hybrid_search as hs
+        papers = self.papers()
+        vectors = {"q": [1.0, 0.0], "Alpha beta gamma. unrelated words about weather": [0.0, 1.0], "Reducing symptoms with therapy. therapy lowers symptoms": [1.0, 0.0],
+                   "Totally other topic. nothing relevant here": [0.0, 1.0]}
+        original = hs.embed
+        hs.embed = lambda texts, timeout=None: [vectors["q"] if i == 0 else vectors[t] for i, t in enumerate(texts)]
+        try:
+            trace = {}
+            hs.rerank("treat symptoms", papers, trace)
+        finally:
+            hs.embed = original
+        self.assertEqual(list(papers)[0], "2")
+        self.assertIsNotNone(papers["2"]["hybrid"]["semantic"])
+        self.assertIn("semantic", trace["hybrid"])
+
+    def test_without_the_embedding_call_the_lexical_and_source_order_still_rank(self):
+        import hybrid_search as hs
+        papers = self.papers()
+        original = hs.embed
+        hs.embed = lambda texts, timeout=None: None
+        try:
+            trace = {}
+            hs.rerank("therapy symptoms", papers, trace)
+        finally:
+            hs.embed = original
+        self.assertLess(list(papers).index("2"), list(papers).index("3"))
+        self.assertIsNone(papers["2"]["hybrid"]["semantic"])
+        self.assertIn("unavailable", trace["hybrid"])
+
+    def test_switched_off_leaves_the_order_alone(self):
+        import hybrid_search as hs
+        papers = self.papers()
+        os.environ["HYBRID_SEARCH"] = "off"
+        try:
+            hs.rerank("therapy symptoms", papers, {})
+        finally:
+            del os.environ["HYBRID_SEARCH"]
+        self.assertEqual(list(papers), ["1", "2", "3"])
+
+    def test_bm25_prefers_the_document_with_the_query_words(self):
+        import hybrid_search as hs
+        scores = hs.bm25_scores("therapy symptoms", ["weather report", "therapy for symptoms", "other"])
+        self.assertEqual(scores.index(max(scores)), 1)
+
+
+class StreamlitFrontEndShowsTheSamePipeline(unittest.TestCase):
+    def setUp(self):
+        try:
+            import streamlit_app
+        except ImportError:
+            self.skipTest("streamlit is not installed")
+        self.app = streamlit_app
+
+    def test_figure_text_has_the_lines_and_the_caption(self):
+        fig = {"label": "Fig 3", "shows_for_question": "S", "helps_treatment": "H", "how_to_read": "R", "why": "W", "caption": "Original caption."}
+        text = self.app.figure_markdown(fig)
+        for part in ("What this figure shows:** S", "How it helps with treatment options:** H", "How to read this figure:** R"):
+            self.assertIn(part, text)
+        self.assertNotIn("Why this figure was chosen", text)
+        self.assertEqual(self.app.caption_text(fig), "Fig 3. Original caption.")
+
+    def test_figures_go_inside_the_section_that_cites_their_paper(self):
+        md = chr(10).join(["# T", "", "## Clinical summary", "x", "", "## Key studies", "y", ""])
+        figs = [{"id": "a", "section": "Key studies"}, {"id": "b", "section": "No such section"}]
+        out = self.app.sections_with_figures(md, figs)
+        by_head = {part.splitlines()[0]: [f["id"] for f in mine] for part, mine in out}
+        self.assertEqual(by_head["## Key studies"], ["a"])
+        self.assertEqual(by_head["## Clinical summary"], [])
+        self.assertEqual(by_head["## Figures from the published papers"], ["b"])
+
+    def test_credit_line_names_paper_licence_and_whether_cited(self):
+        line = self.app.credit_markdown({"label": "Fig 3", "title": "A title.", "pmid": "1", "licence_label": "CC BY 4.0", "licence_url": "https://creativecommons.org/licenses/by/4.0", "reference": 4})
+        for part in ("PMID 1", "CC BY 4.0", "Cited in this report as [4]"):
+            self.assertIn(part, line)
+        self.assertIn("Not discussed in the report text", self.app.credit_markdown({"label": "Fig 1"}))
+
+    def test_conversations_are_saved_listed_reopened_and_deleted(self):
+        import tempfile
+        from pathlib import Path as P
+        app = self.app
+        original = app.CHAT_DIR
+        app.CHAT_DIR = P(tempfile.mkdtemp()) / "chats"
+        try:
+            turns = [{"question": "raw question with a name", "saved_question": "scrubbed question " + "x" * 80, "markdown": "## A\nbody", "figures": []}]
+            app.save_chat("chat-1", turns)
+            app.save_chat("chat-2", [{"question": "second", "markdown": "m"}])
+            listed = app.list_chats()
+            self.assertEqual({c["id"] for c in listed}, {"chat-1", "chat-2"})
+            self.assertTrue(next(c for c in listed if c["id"] == "chat-1")["title"].startswith("scrubbed question"))
+            self.assertLessEqual(len(next(c for c in listed if c["id"] == "chat-1")["title"]), app.TITLE_CHARS + 1)
+            reopened = app.load_chat("chat-1")
+            self.assertEqual(reopened[0]["question"], turns[0]["saved_question"])      # the saved copy holds only the scrubbed question
+            self.assertNotIn("raw question", json.dumps(reopened))
+            app.delete_chat("chat-1")
+            self.assertEqual([c["id"] for c in app.list_chats()], ["chat-2"])
+        finally:
+            app.CHAT_DIR = original
+
+
+class CrossEncoderSecondStage(unittest.TestCase):
+    def papers(self):
+        return {str(i): {"title": f"paper {i}", "abstract": "text"} for i in range(1, 6)}
+
+    def test_it_reorders_the_first_papers_and_keeps_the_rest_after_them(self):
+        import hybrid_search as hs
+        papers = self.papers()
+        trace = {}
+        hs.cross_rerank("q", papers, trace, top=3, scorer=lambda q, texts: [0.1, 0.2, 9.0])      # the 3rd paper is judged best by the cross-encoder
+        self.assertEqual(list(papers)[0], "3")
+        self.assertEqual(list(papers)[3:], ["4", "5"])
+        self.assertEqual(papers["3"]["hybrid"]["cross"], 9.0)
+        self.assertIn("reranked the first 3", trace["cross_encoder"])
+
+    def test_the_first_stage_order_still_counts(self):
+        import hybrid_search as hs
+        papers = self.papers()
+        hs.cross_rerank("q", papers, {}, top=5, scorer=lambda q, texts: [1.0, 1.01, 1.02, 1.03, 1.04])      # almost no difference between papers: the first-stage order must not be thrown away
+        self.assertEqual(list(papers)[0], "1")
+
+    def test_off_or_unavailable_leaves_the_order_alone(self):
+        import hybrid_search as hs
+        papers = self.papers()
+        os.environ["CROSS_ENCODER"] = "off"
+        try:
+            hs.cross_rerank("q", papers, {}, scorer=lambda q, texts: [0] * len(texts))
+        finally:
+            del os.environ["CROSS_ENCODER"]
+        self.assertEqual(list(papers), ["1", "2", "3", "4", "5"])
+        trace = {}
+        hs.cross_rerank("q", papers, trace, scorer=lambda q, texts: 1 / 0)
+        self.assertIn("skipped", trace["cross_encoder"])
+        self.assertEqual(list(papers), ["1", "2", "3", "4", "5"])
+
+
+class QuestionIsUnderstood(unittest.TestCase):
+    QUESTION = "A 7 year old boy with condition X on drug Y has poor sleep. What are the options?"
+
+    def test_only_what_the_question_supports_is_kept_as_understanding(self):
+        plan = {"asked": "options for sleep", "purpose": "choose a treatment", "info_needed": ["treatment_options", "made_up", "safety"], "answer_format": "weird",
+                "case_facts": ["7 year old boy", "has a fever", "on drug Y"]}
+        got = qa_stream.verified_understanding(plan, self.QUESTION)
+        self.assertEqual(got["case_facts"], ["7 year old boy", "on drug Y"])      # "has a fever" is not in the question
+        self.assertEqual(got["info_needed"], ["treatment_options", "safety"])
+        self.assertEqual(got["answer_format"], "summary")
+
+
+class SkillCatalogForTheQuickCall(unittest.TestCase):
+    QUESTION = "A 3 year old child has global delay and regression of milestones. What is the work up and management?"
+    PLAN = {"condition": "global delay regression", "understanding": {"case_facts": ["3 year old child", "regression of milestones"]}}
+
+    def test_the_catalog_lists_only_names_and_descriptions_of_the_retrieval_skills(self):
+        catalog = qa_stream.retrieval_catalog()
+        for name in qa_stream.EXPANDER_SKILLS:
+            self.assertIn(f"- {name}:", catalog)
+        self.assertNotIn("## Step", catalog)      # the full skill files are not in the catalog
+
+    def test_every_chosen_skill_has_a_query_transformation_section(self):
+        for name in qa_stream.EXPANDER_SKILLS:
+            self.assertIn("Reply with ONE JSON object", qa_stream.skill_section(name, "Query transformation by intent"))

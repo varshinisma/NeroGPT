@@ -32,13 +32,18 @@ NUMBER_PATTERNS = [
     r"\b(?-i:HR|OR|RR)\s?[=:]?\s?\d+(?:\.\d+)?",                                                          # ratios
     r"\b(?:SMD|MD|g|d|r)\*?\s?=\s?-?\d+(?:\.\d+)?",                                                          # effect sizes (Hedges g, SMD, r)
 ]
-OUTCOME_TERMS = ["social communication", "social interaction", "irritability", "aggression", "anxiety", "depression", "mania", "sleep", "motor",
-                 "language", "repetitive", "seizure", "pain", "mortality", "survival", "relapse", "disability progression", "cognition", "quality of life"]
+OUTCOME_TERMS = ["pain", "mortality", "survival", "relapse", "remission", "hospitalization", "quality of life", "cognition", "anxiety", "depression", "sleep"]      # outcome types common to every condition
 EFFICACY_WORDS = re.compile(r"\b(effective|effectiveness|efficacy|efficacious|improv\w+|reduc\w+|benefit\w*|superior|successful|works?|proven|proved)\b", re.I)
 APPROVAL_POSITIVE = re.compile(r"\b(?:fda|ema|cdsco)[\s\-]approved\b|\bapproved (?:by|for|to treat)\b|\bnewly approved\b", re.I)
 NEGATION = re.compile(r"\b(no|not|none|never|without|unapproved|un-approved|investigational)\b", re.I)
 NO_DRUGS_CLAIM = re.compile(r"\bno (?:pharmacolog\w+|drug|medication)\w*\b[^.\n]{0,70}\b(?:identified|retrieved|found|exist\w*|available)\b", re.I)
 NON_EXISTENCE = re.compile(r"\b(?:there (?:is|are) no|does not exist|do not exist|none exist|no [a-z\- ]{0,30}(?:exist|exists|available))\b", re.I)
+ABSENCE_CLAIMS = {
+    "trials": re.compile(r"\bno (?:[a-z\-]+ ){0,3}trials?\b[^.\n]{0,60}\b(?:found|identified|registered|exist\w*|available|retrieved)\b|\btrials? (?:were|was) not found\b", re.I),
+    "drugs": NO_DRUGS_CLAIM,
+    "literature": re.compile(r"\bno (?:[a-z\-]+ ){0,3}(?:studies|study|papers|publications|evidence)\b[^.\n]{0,60}\b(?:found|identified|retrieved|published|available)\b", re.I),
+}
+UNCLAIMABLE_STATES = ("failed", "timed_out", "not_retrieved", "not_generated", "not_applicable")      # states in which no search completed: an absence must not be claimed
 SCOPED = re.compile(r"(timed out|unavailable|could not be retrieved|not retrieved|retrieval|failed|incomplete|partial|does not (?:mean|show)|cannot be concluded)", re.I)
 OVERCLAIM = re.compile(r"\b(confirmed|confirms|proven|proved|proves|validated|definitive(?:ly)?|conclusively)\b", re.I)
 DOSE_LANGUAGE = [(re.compile(r"dose[\s-]dependent", re.I), "dose-response (exploratory)"),
@@ -78,13 +83,13 @@ def evidence_blob(state: dict) -> str:
     """Text of everything RETRIEVED (never model output): the only place a number or dose may come from."""
     parts = []
     for p in state.get("papers", {}).values():
-        parts += [p.get("title") or "", p.get("abstract") or "", str(p.get("year")), str(p.get("date"))]
+        parts += [p.get("title") or "", p.get("abstract") or "", p.get("body_text") or "", str(p.get("year")), str(p.get("date"))]
     for t in state.get("trials_by_id", {}).values():
         parts += [t.get("title") or "", t.get("primary_endpoint") or "", " ".join(t.get("interventions") or []), str(t.get("last_update")), str(t.get("start_date")), str(t.get("estimated_completion"))]
     for w in state.get("web", []):
         parts += [w.get("title") or "", w.get("snippet") or ""]
     for r in state.get("regulatory", []):
-        parts += [r.get("indication_excerpt") or "", r.get("indication_statement") or "", r.get("dose_statement") or "", str(r.get("label_date"))]
+        parts += [r.get("indication_excerpt") or "", r.get("indication_statement") or "", r.get("dose_statement") or "", r.get("dose_general") or "", str(r.get("label_date"))]
     for g in state.get("guidelines", []):
         parts += [g.get("title") or "", g.get("excerpt") or "", g.get("text") or "", str(g.get("year"))]
     for d in state.get("drug_labels", []):
@@ -425,7 +430,7 @@ def find_issues(text: str, state: dict) -> list[dict]:
         if len(ids) == 1:
             p = papers[ids[0]]
             low = line.lower()
-            src_text = f"{p.get('title') or ''} {p.get('abstract') or ''}".lower()
+            src_text = f"{p.get('title') or ''} {p.get('abstract') or ''} {p.get('body_text') or ''}".lower()
             for term in OUTCOME_TERMS:
                 if term in low and term not in src_text:
                     issues.append(_issue("outcome_not_in_source", "medium", f"the claim mentions '{term}', which the cited source (PMID {ids[0]}) does not report", term, "remove_sentence", pmid=ids[0], line=line))
@@ -496,6 +501,18 @@ def find_issues(text: str, state: dict) -> list[dict]:
                 issues.append(_issue("contradiction_no_drugs", "high", "says no drug treatment exists/was found while regulatory drug records were retrieved", sentence[:80], "remove_sentence", line=line, sentence=sentence))
             elif NON_EXISTENCE.search(sentence) and drug_failed and re.search(r"drug|medication|pharmacolog|treatment|approved", sentence, re.I) and not SCOPED.search(sentence):
                 issues.append(_issue("failure_as_absence", "high", "states non-existence although a drug/regulatory source failed or was partial", sentence[:80], "scope_sentence", line=line, sentence=sentence))
+
+    # 5b. false absence claims: "no trials / no drugs / no studies were found" is only allowed where an appropriate search completed
+    for section, pattern in ABSENCE_CLAIMS.items():
+        info = (state.get("section_states") or {}).get(section) or {}
+        if info.get("state") not in UNCLAIMABLE_STATES:
+            continue
+        for line in claim_text.splitlines():
+            if _is_row(line) or line.startswith("#"):
+                continue
+            for sentence in _sentences(line):
+                if pattern.search(sentence) and not SCOPED.search(sentence) and not sentence.strip().startswith(("Not applicable", "No evidence found")):
+                    issues.append(_issue("false_absence_claim", "high", f"claims that no {section} evidence was found, but the {section} search was {info['state'].replace('_', ' ')} (an absence cannot be claimed)", sentence[:80], "remove_sentence", line=line, sentence=sentence))
 
     # 6. mandatory sections and disclosure
     if "drug landscape" not in text.lower():

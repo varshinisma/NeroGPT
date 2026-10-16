@@ -34,3 +34,9 @@ desktop.ini
 
 # Questions asked in the browser are logged here at run time (they can contain what a user typed)
 conversation_history/
+
+# Generated at run time
+demo_output/cli_test_runs/
+demo_output/figures/
+.streamlit/secrets.toml
+*.tmp

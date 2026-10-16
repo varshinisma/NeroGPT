@@ -7,6 +7,7 @@ Every result carries a publication year / last-update date and an identifier
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor, wait
 import os
 import re
 import threading
@@ -30,6 +31,7 @@ NCBI_MIN_GAP = 0.11 if os.getenv("NCBI_API_KEY") else 0.35  # NCBI allows ~3 req
 
 import httpx
 
+from tracing import traced
 _http = httpx.Client(timeout=TIMEOUT, headers={"User-Agent": USER_AGENT}, follow_redirects=True)  # keep-alive: connections are reused
 
 
@@ -61,9 +63,9 @@ def _get(url: str, params: dict) -> bytes:
 def warm_connections() -> None:
     """Open (and keep open) the connections to the three data sources, so the first question does not pay the handshake."""
     for url, params in ((f"{EUTILS}/einfo.fcgi", {"db": "pubmed", "retmode": "json"}),
-                        ("https://www.ebi.ac.uk/europepmc/webservices/rest/search", {"query": "autism", "format": "json", "pageSize": 1}),
-                        (CTGOV, {"query.cond": "autism", "pageSize": 1}),
-                        ("https://api.fda.gov/drug/label.json", {"search": "openfda.generic_name.exact:\"RISPERIDONE\"", "limit": 1})):
+                        ("https://www.ebi.ac.uk/europepmc/webservices/rest/search", {"query": "treatment", "format": "json", "pageSize": 1}),
+                        (CTGOV, {"query.cond": "disease", "pageSize": 1}),
+                        ("https://api.fda.gov/drug/label.json", {"search": "openfda.product_type:\"HUMAN PRESCRIPTION DRUG\"", "limit": 1})):
         try:
             _get(url, params)
         except Exception:
@@ -95,6 +97,7 @@ def _abstracts(pmids: list[str]) -> dict[str, str]:
     return found
 
 
+@traced("search_pubmed", "tool")
 def search_pubmed(query: str, max_results: int = 8, years_back: int = 2, sort: str = "date") -> str:
     """Search PubMed for peer-reviewed medical literature. Returns JSON with title, authors, journal,
     publication date and year, study type, DOI, PMID and abstract excerpt for each paper.
@@ -128,6 +131,7 @@ def search_pubmed(query: str, max_results: int = 8, years_back: int = 2, sort: s
     for pmid in ids:
         item = summaries.get(pmid, {})
         doi = next((a.get("value") for a in item.get("articleids", []) if a.get("idtype") == "doi"), None)
+        pmcid = next((a.get("value") for a in item.get("articleids", []) if a.get("idtype") == "pmc"), None)
         pubdate = item.get("pubdate", "")
         year = re.search(r"(19|20)\d{2}", pubdate)
         results.append({
@@ -139,12 +143,14 @@ def search_pubmed(query: str, max_results: int = 8, years_back: int = 2, sort: s
             "study_type": item.get("pubtype", []),
             "pmid": pmid,
             "doi": doi,
+            "pmcid": pmcid,
             "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
             "abstract_excerpt": abstracts.get(pmid) or None,
         })
     return json.dumps({"results": results, "searched_at": _now()}, ensure_ascii=False)
 
 
+@traced("search_clinical_trials", "tool")
 def search_clinical_trials(condition: str, intervention: str = "", status: str = "", max_results: int = 8, drug_only: bool = False) -> str:
     """Search ClinicalTrials.gov for current and recent clinical trials. Returns JSON with NCT ID, phase,
     CURRENT recruitment status, primary endpoint, sponsor, dates, last-update date and whether results are posted.
@@ -207,6 +213,7 @@ def search_clinical_trials(condition: str, intervention: str = "", status: str =
                        "note": "Status is as of last_update. Ongoing does not mean effective."}, ensure_ascii=False)
 
 
+@traced("search_pubmed_quick", "tool")
 def search_pubmed_quick(query: str, max_results: int = 6, years_back: int = 3, sort: str = "relevance") -> str:
     """FAST PubMed search: 2 calls (esearch + efetch) instead of 3. Same result fields as search_pubmed."""
     params = {"db": "pubmed", "term": query, "retmax": max(1, min(int(max_results), 15)), "retmode": "json",
@@ -233,7 +240,8 @@ def search_pubmed_quick(query: str, max_results: int = 6, years_back: int = 3, s
             parts.append(f"{label}: {_text(node)}" if label else _text(node))
         authors = [f"{_text(a.find('LastName'))} {_text(a.find('Initials'))}".strip() for a in art.findall(".//AuthorList/Author") if a.find("LastName") is not None][:6]
         doi = next((_text(a) for a in art.findall(".//PubmedData/ArticleIdList/ArticleId") if a.get("IdType") == "doi"), None)
-        by_id[pmid] = {
+        pmcid = next((_text(a) for a in art.findall(".//PubmedData/ArticleIdList/ArticleId") if a.get("IdType") == "pmc"), None)
+        by_id[pmid] = {"pmcid": pmcid,
             "title": _text(art.find(".//ArticleTitle")), "authors": authors, "journal": _text(art.find(".//Journal/Title")),
             "publication_date": date_text, "year": year.group(0) if year else None,
             "study_type": [_text(t) for t in art.findall(".//PublicationTypeList/PublicationType")], "pmid": pmid, "doi": doi,
@@ -241,6 +249,7 @@ def search_pubmed_quick(query: str, max_results: int = 6, years_back: int = 3, s
     return json.dumps({"results": [by_id[i] for i in ids if i in by_id], "searched_at": _now()}, ensure_ascii=False)
 
 
+@traced("search_europepmc_quick", "tool")
 def search_europepmc_quick(query: str, max_results: int = 6, years_back: int = 3, sort: str = "relevance") -> str:
     """FAST literature search in ONE call via Europe PMC (restricted to PubMed/MEDLINE records, so PMIDs are PubMed PMIDs).
     Same result fields as search_pubmed. Falls back to search_pubmed_quick if Europe PMC fails."""
@@ -262,7 +271,7 @@ def search_europepmc_quick(query: str, max_results: int = 6, years_back: int = 3
             "title": re.sub(r"<[^>]+>", "", r.get("title") or "").strip(), "authors": [a.strip() for a in (r.get("authorString") or "").rstrip(".").split(",")][:6],
             "journal": ((r.get("journalInfo") or {}).get("journal") or {}).get("title") or r.get("journalTitle"),
             "publication_date": r.get("firstPublicationDate") or r.get("pubYear"), "year": r.get("pubYear"),
-            "study_type": ((r.get("pubTypeList") or {}).get("pubType")) or [], "pmid": r["pmid"], "doi": r.get("doi"),
+            "study_type": ((r.get("pubTypeList") or {}).get("pubType")) or [], "pmid": r["pmid"], "doi": r.get("doi"), "pmcid": r.get("pmcid"),
             "url": f"https://pubmed.ncbi.nlm.nih.gov/{r['pmid']}/", "abstract_excerpt": re.sub(r"\s+", " ", abstract).strip()[:4000] or None})
     return json.dumps({"results": results, "searched_at": _now()}, ensure_ascii=False)
 
@@ -275,7 +284,7 @@ _LABEL_NOISE = {"ORAL", "ORALLY", "DISINTEGRATING", "TABLETS", "TABLET", "INJECT
 
 
 def condition_stems(terms: list[str], limit: int = 3) -> list[str]:
-    """Wildcard stems of the condition words (autism -> 'autis'), so label wording such as 'autistic disorder' still matches."""
+    """Wildcard stems of the condition words (a condition word is cut to its stem), so other wordings of the condition in a label still match."""
     words = [w for w in re.findall(r"[a-z]{4,}", " ".join(terms).lower()) if w not in _CONDITION_FILLER]
     return [w[:5] for w in dict.fromkeys(words)][:limit]
 
@@ -291,8 +300,8 @@ def _fda_get(params: dict) -> dict | None:
 
 
 def indication_statement(text: str, stems: list[str], generic: str, limit: int = 520) -> str | None:
-    """The label's own COMPLETE indication sentence that names the condition (for example 'Risperidone tablets are indicated for the treatment of irritability
-    associated with autistic disorder, including symptoms of ...'), copied unchanged from 'Indications and Usage'. It starts at the beginning of the sentence and
+    """The label's own COMPLETE indication sentence that names the condition (for example '<Drug> tablets are indicated for the treatment of <symptom>
+    associated with <condition>, including ...'), copied unchanged from 'Indications and Usage'. It starts at the beginning of the sentence and
     ends at its end (or at a list-item boundary if the sentence is very long), never in the middle of a phrase."""
     body = re.sub(r"^\s*\d+(?:\.\d+)*\s*INDICATIONS?\s*(?:AND|&)\s*USAGE\s*", "", text or "", flags=re.I)
     cut = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9])|\s+(?=" + re.escape(generic) + r"\s+(?:is|are|tablets?|oral|injection|extended)\b)", re.I)
@@ -302,7 +311,7 @@ def indication_statement(text: str, stems: list[str], generic: str, limit: int =
         return None
     formal = [i for i in named if re.search(r"\bindicated\b", units[i], re.I) and not re.search(r"\(\s*\d+\.\d+\s*\)", units[i])]      # not the 'highlights' list with section numbers
     pick = (formal or [i for i in named if re.search(r"\bindicated\b", units[i], re.I)] or named)[0]
-    best = re.sub(r"^\d+(?:\.\d+)+\s+.*?\s+(?=" + re.escape(generic) + r"\b)", "", units[pick], count=1, flags=re.I)      # drop a leading section heading such as '1.3 Irritability ...'
+    best = re.sub(r"^\d+(?:\.\d+)+\s+.*?\s+(?=" + re.escape(generic) + r"\b)", "", units[pick], count=1, flags=re.I)      # drop a leading section heading such as '1.3 <indication title>'
     if pick + 1 < len(units) and units[pick + 1].lower().startswith("efficacy was established") and len(best) + len(units[pick + 1]) + 1 <= limit:
         best += " " + units[pick + 1]      # the next sentence gives the population studied (for example the ages)
     best = re.sub(r"\s*\[see [^\]]*\]\s*", " ", best)      # label cross-references such as "[see Clinical Studies (14.4) ]" are not part of the statement
@@ -316,7 +325,7 @@ def indication_statement(text: str, stems: list[str], generic: str, limit: int =
 
 def dosage_statement(text: str, stems: list[str], limit: int = 1300) -> str | None:
     """The label's own dosing text FOR THIS CONDITION: the numbered 'Dosage and Administration' section whose title names the condition (for example
-    '2.4 Irritability Associated with Autistic Disorder'), copied unchanged and cut only where a sentence ends. None when the label has no such section
+    '2.4 <indication title>'), copied unchanged and cut only where a sentence ends. None when the label has no such section
     (the dose is then not stated for this condition in the retrieved label text)."""
     t = re.sub(r"\s+", " ", text or "").strip()
     heads = list(re.finditer(r"(?<![\d.(])2\.\d+\s+(?=[A-Z])", t))
@@ -325,7 +334,8 @@ def dosage_statement(text: str, stems: list[str], limit: int = 1300) -> str | No
         if not any(s in title.lower() for s in stems):
             continue
         end = heads[i + 1].start() if i + 1 < len(heads) else len(t)
-        block = re.sub(r"^[A-Z][^.]{0,100}?\bautis\w*(?:\s+\w+)?\s+", "", t[h.end():end], count=1, flags=re.I).strip()      # drop the section title itself
+        stem_pattern = "|".join(re.escape(x.rstrip("*")) for x in stems if x)
+        block = re.sub(rf"^[A-Z][^.]{{0,100}}?\b(?:{stem_pattern})\w*(?:\s+\w+)?\s+", "", t[h.end():end], count=1, flags=re.I).strip() if stem_pattern else t[h.end():end].strip()      # drop the section title itself
         block = re.sub(r"\s+([.,;])", r"\1", re.sub(r"\s*\[see [^\]]*\]\s*", " ", block.lstrip("-\u2013 "))).strip()      # no '[see Clinical Studies (14.4)]' cross-references
         if len(block) < 40:
             continue
@@ -336,14 +346,26 @@ def dosage_statement(text: str, stems: list[str], limit: int = 1300) -> str | No
     return None
 
 
+def general_dosing(text: str, limit: int = 700) -> str | None:
+    """The opening of the label's own Dosage and Administration section, copied unchanged and cut at a sentence end. Used only when no subsection is titled with the condition: it is the
+    label's general dosing, not a dose for this use, and is shown as such."""
+    t = re.sub(r"\s+", " ", text or "").strip()
+    t = re.sub(r"\s*\[see [^\]]*\]\s*", " ", t).strip()
+    if len(t) < 60:
+        return None
+    if len(t) <= limit:
+        return t
+    cut = t.rfind(". ", 0, limit)
+    return (t[:cut + 1] if cut > 150 else t[:limit].rsplit(" ", 1)[0]) + " (the label continues)"
+
+
 def _fda_record(generic: str, stems: list[str]) -> dict | None:
     records = _fda_records(generic, stems, 1)
     return records[0] if records else None
 
 
 def _fda_records(generic: str, stems: list[str], limit: int = 1) -> list[dict]:
-    """The FDA label records of one generic name. A drug the question names can have several labels for different indications (for example one for diabetes and one for weight
-    management): up to `limit` distinct labels are returned and the model decides which of them bear on the question."""
+    """The FDA label records of one generic name. A drug the question names can have several labels for different indications (for example one for each of two uses): up to `limit` distinct labels are returned and the model decides which of them bear on the question."""
     data = _fda_get({"search": f'openfda.generic_name.exact:"{generic}"', "limit": limit})
     out, seen = [], set()
     for label in (data or {}).get("results", []):
@@ -373,6 +395,7 @@ def _record_from_label(label: dict, generic: str, stems: list[str]) -> dict:
             "indication_excerpt": excerpt.strip(), "matches_condition": hit >= 0,
             "indication_statement": indication_statement(text, stems, generic) if hit >= 0 else None,
             "dose_statement": dosage_statement(" ".join(label.get("dosage_and_administration") or []), stems) if hit >= 0 else None,
+            "dose_general": general_dosing(" ".join(label.get("dosage_and_administration") or [])) if hit >= 0 else None,
             "route": ", ".join(r.title() for r in (label.get("openfda", {}).get("route") or []))[:80] or None,
             "label_date": f"{when[:4]}-{when[4:6]}-{when[6:8]}" if len(when) == 8 else None, "set_id": set_id,
             "url": f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={set_id}" if set_id else None, "source_id": f"fda:{set_id}"}
@@ -423,6 +446,7 @@ def fda_label_link(generic: str) -> dict | None:
             "label_date": f"{when[:4]}-{when[4:6]}-{when[6:8]}" if len(when) == 8 else None}
 
 
+@traced("search_fda_labels", "tool")
 def search_fda_labels(condition_terms: list[str], drug_names: list[str] | None = None, max_drugs: int = 8) -> str:
     """OFFICIAL regulatory facts from FDA drug labels: which drugs have a labelled indication that mentions the condition, with the label's own wording.
     Searches by condition (any disease) and/or by named drugs. 'results' empty with no 'error' means searched and none found."""
@@ -460,3 +484,136 @@ def search_fda_labels(condition_terms: list[str], drug_names: list[str] | None =
         return json.dumps({"error": f"FDA label search failed: {error}"})
     return json.dumps({"results": records[:max_drugs + 4 * len(drug_names or [])], "searched_terms": used, "searched_drugs": drug_names or [],
                        "searched_at": _now(), "note": "empty results = searched, none found"}, ensure_ascii=False)
+
+
+# ---- original figures of open-access papers (the PubMed Central Open Access data service: article XML with the captions and licence, plus the original image files)
+PMC_PAGE = "https://pmc.ncbi.nlm.nih.gov/articles/{pmcid}/"      # only a link for the reader; it is never fetched
+OA_BUCKET = "https://pmc-oa-opendata.s3.amazonaws.com/"      # the PubMed Central Open Access Subset
+OPEN_LICENCE = re.compile(r"https?://creativecommons\.org/(?:licenses/(by(?:-nc)?(?:-sa)?(?:-nd)?)/(\d\.\d)|publicdomain/zero/(1\.0))", re.I)
+_oa_http = httpx.Client(timeout=12, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36 NeuroGPT-research"})
+
+
+def _fig_text(fragment: str) -> str:
+    import html
+    return " ".join(html.unescape(re.sub(r"<[^>]+>", " ", fragment)).split())
+
+
+def open_licence(page_html: str) -> dict | None:
+    """The explicit open licence the article page states (a Creative Commons licence or a CC0 dedication): {'url','label'}. None when the page states none: reuse rights are then unclear."""
+    found = OPEN_LICENCE.search(page_html or "")
+    if not found:
+        return None
+    if found.group(3):
+        return {"url": found.group(0), "label": f"CC0 {found.group(3)}"}
+    return {"url": found.group(0), "label": f"CC {found.group(1).upper()} {found.group(2)}"}
+
+
+def parse_figures(xml_text: str, pmcid: str, keys: list[str], limit: int = 6) -> list[dict]:
+    """The figures of one open-access article: [{'id','label','caption','image','page_url'}], from the article XML and the bucket's file list (`keys`, the file names of that article). A figure whose
+    image file is not in the bucket is not a candidate. The caption is the original, complete text."""
+    import xml.etree.ElementTree as ET
+    try:
+        root = ET.fromstring(xml_text)
+    except Exception:
+        return []
+    href = "{http://www.w3.org/1999/xlink}href"
+    folder = keys[0].split("/")[0] if keys else ""
+    by_stem = {}
+    for key in keys:
+        stem, dot, ext = key.split("/", 1)[-1].rpartition(".")
+        if dot and "." + ext.lower() in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
+            by_stem.setdefault(stem, key)
+    figures = []
+    for fig in root.iter("fig"):
+        graphic = next((g for g in fig.iter("graphic") if g.get(href)), None)
+        name = graphic.get(href) if graphic is not None else None      # the XML names the file with or without its extension
+        key = (by_stem.get(name) or by_stem.get(name.rpartition(".")[0]) or next((k for k in keys if k.endswith("/" + name)), None)) if name else None
+        if not key:
+            continue
+        label = _fig_text(" ".join(fig.find("label").itertext())) if fig.find("label") is not None else ""
+        caption_node = fig.find("caption")
+        caption = _fig_text(" ".join(caption_node.itertext())) if caption_node is not None else ""
+        text = caption if re.match(r"(Figure|Fig\.?)\s*\d", caption) or not label else f"{label.rstrip('.')}. {caption}".strip()
+        number = re.search(r"(\d+)", label or fig.get("id", ""))
+        figures.append({"id": f"{pmcid}:{fig.get('id') or key}", "label": label.rstrip(".:") or (f"Figure {int(number.group(1))}" if number else "Figure"), "caption": text,
+                        "image": OA_BUCKET + key, "page_url": PMC_PAGE.format(pmcid=pmcid), "folder": folder})
+        if len(figures) >= limit:
+            break
+    return figures
+
+
+def _article(pmcid: str) -> tuple[str, list[str]] | None:
+    """(article XML text, the file names of that article in the open-access bucket) for the newest version of the article; None when the article is not in the bucket."""
+    listing = _oa_http.get(OA_BUCKET, params={"list-type": "2", "prefix": pmcid + ".", "max-keys": "200"})
+    if listing.status_code != 200:
+        time.sleep(1.0)
+        listing = _oa_http.get(OA_BUCKET, params={"list-type": "2", "prefix": pmcid + ".", "max-keys": "200"})
+    if listing.status_code != 200:
+        return None
+    keys = re.findall(r"<Key>(.*?)</Key>", listing.text)
+    versions = sorted({k.split("/")[0] for k in keys}, key=lambda v: int(v.rsplit(".", 1)[-1]) if v.rsplit(".", 1)[-1].isdigit() else 0)
+    if not versions:
+        return None
+    newest = versions[-1]
+    mine = [k for k in keys if k.startswith(newest + "/")]
+    xml_key = f"{newest}/{newest}.xml"
+    if xml_key not in mine:
+        return None
+    response = _oa_http.get(OA_BUCKET + xml_key)
+    return (response.text, mine) if response.status_code == 200 else None
+
+
+def _batch(batch: list[dict], cap: float, statuses: list) -> list[dict]:
+    """The figures of one batch of open-access papers, their articles fetched side by side for at most `cap` seconds. Each figure carries its paper's own details."""
+    pool = ThreadPoolExecutor(max_workers=min(len(batch), 4))
+    futures = {pool.submit(_article, p["pmcid"]): p for p in batch}
+    out = []
+    try:
+        done, _ = wait(list(futures), timeout=cap)
+        for future in done:
+            paper = futures[future]
+            try:
+                article = future.result()
+                statuses.append(200 if article else 404)
+                if not article:
+                    continue
+                xml_text, keys = article
+                licence = open_licence(xml_text)
+                for fig in parse_figures(xml_text, paper["pmcid"], keys):
+                    out.append({**fig, "pmid": paper.get("pmid"), "pmcid": paper["pmcid"], "doi": paper.get("doi"), "title": paper.get("title") or None, "cite": paper.get("cite") or None,
+                                "design": paper.get("design") or None, "licence": licence})
+            except Exception:
+                continue
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+    return out
+
+
+def candidates(papers: list[dict], want: int = 12, batch_size: int = 8, batches: int = 2, cap: float = 7.0, trace: dict | None = None) -> list[dict]:
+    """Figures of the open-access papers, in the order given, a batch of papers at a time until there are `want` figures (many papers have none) or the papers or `batches` run out."""
+    chosen, seen = [], set()
+    for p in papers:
+        if p.get("pmcid") and not p.get("retracted") and p["pmcid"] not in seen:
+            seen.add(p["pmcid"])
+            chosen.append(p)
+    statuses = trace.setdefault("page_status", []) if trace is not None else []
+    out = []
+    for k in range(batches):
+        batch = chosen[k * batch_size:(k + 1) * batch_size]
+        if not batch or len(out) >= want:
+            break
+        out += _batch(batch, cap, statuses)
+    return out
+
+
+@traced("search_paper_figures", "tool")
+def search_paper_figures(papers: str, want: int = 12, batches: int = 2) -> str:
+    """Retrieve the ORIGINAL figures (caption, licence, image address) of open-access papers. `papers` is a JSON list of {"pmid","pmcid","title",...}. Returns JSON {"figures": [...]};
+    the figures are only retrieved here, whether any of them is shown is decided later by the figure-selection skill."""
+    try:
+        listed = json.loads(papers) if isinstance(papers, str) else list(papers)
+    except Exception:
+        listed = []
+    trace: dict = {}
+    figures = candidates(listed, want=want, batches=batches, trace=trace)
+    return json.dumps({"figures": figures, "page_status": trace.get("page_status", [])}, ensure_ascii=False)

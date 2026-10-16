@@ -294,7 +294,7 @@ class AgentHandler(SimpleHTTPRequestHandler):
             self.wfile.write((json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8"))
             self.wfile.flush()
 
-        from qa_stream import save_outputs, stream_answer
+        from qa_stream import deliver_outputs, stream_answer
         final = None
         try:
             for event in stream_answer(question):
@@ -304,9 +304,12 @@ class AgentHandler(SimpleHTTPRequestHandler):
                 else:
                     send(event)
             if final:
-                paths = save_outputs(question, final)  # every run also saves the answer and a PDF
-                send({"type": "pdf", "name": paths["pdf"].name if paths["pdf"] else None})
-                save_conversation(messages, final["markdown"], str(body.get("conversation_id", "")))
+                saved = False
+                for event in deliver_outputs(question, final):      # figures, then the saved PDF; a late figures event and a rebuilt PDF follow when the figures were not ready
+                    send(event)
+                    if event["type"] == "pdf" and not saved:
+                        save_conversation(messages, final["markdown"], str(body.get("conversation_id", "")))
+                        saved = True
         except (BrokenPipeError, ConnectionResetError):
             return
         except Exception as error:
@@ -374,8 +377,5 @@ if __name__ == "__main__":
     from qa_stream import warm_up
     threading.Thread(target=warm_up, daemon=True).start()  # open model + data-source connections before the first question
     httpd = make_server()                                   # refuses to start if another server already holds the port
-    print("NeuroGPT running at http://localhost:8000  (streaming Q/A at /api/chat-stream)")
-    if not os.environ.get("NEUROGPT_NO_BROWSER"):      # opens your default browser by itself; set NEUROGPT_NO_BROWSER=1 to stop that
-        import webbrowser
-        threading.Timer(1.0, lambda: webbrowser.open("http://localhost:8000")).start()
+    print("NeuroGPT API running at http://localhost:8000  (streaming Q/A at /api/chat-stream). The chat front end is Streamlit: streamlit run streamlit_app.py --server.port 8501")
     httpd.serve_forever()

@@ -298,12 +298,12 @@ def main() -> None:
     save_pdf(query, result["answer"], out, slug)
 
 
-def save_pdf(query: str, answer: str, out: Path, slug: str) -> Path | None:
+def save_pdf(query: str, answer: str, out: Path, slug: str, figures: list | None = None) -> Path | None:
     """After every run: also save the answer as a PDF (a PDF problem never loses the answer)."""
     try:
         from pdf_export import markdown_to_pdf
         pdf = out / f"{slug}.pdf"  # one fixed file per question: a new run overwrites it, no new file each time
-        markdown_to_pdf(answer, str(pdf), query)
+        markdown_to_pdf(answer, str(pdf), query, figures=figures)
         print(f"\nPDF saved: {pdf}")
         return pdf
     except Exception as error:

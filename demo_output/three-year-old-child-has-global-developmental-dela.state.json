@@ -1,0 +1,2042 @@
+{
+  "query": "Three year old child has global developmental delay, regression of milestones autistic tendencies. What could be the work and management for this child?",
+  "intent": "comprehensive_research",
+  "entities": {
+    "is_clinical": true,
+    "intent": "comprehensive_research",
+    "condition": "neurodevelopmental disorders with global developmental delay and regression (including autism spectrum disorder)",
+    "drugs": [],
+    "pubmed_query": "(\"global developmental delay\" OR \"developmental delay\" OR \"regression of milestones\" OR \"autistic tendencies\" OR \"autism spectrum disorder\" OR \"neurodevelopmental disorders\") AND (\"workup\" OR \"diagnosis\" OR \"management\" OR \"treatment\" OR \"intervention\" OR \"therapy\") AND (\"child\" OR \"pediatric\" OR \"3 years\" OR \"3-year-old\")",
+    "trial_condition": "neurodevelopmental disorders with global developmental delay and regression (including autism spectrum disorder)",
+    "trial_intervention": ""
+  },
+  "core_stems": [
+    "three",
+    "year"
+  ],
+  "papers": {
+    "42819540": {
+      "source_id": "pmid:42819540",
+      "pmid": "42819540",
+      "doi": "10.1155/crpe/7681667",
+      "pmcid": "PMC13624383",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/42819540/",
+      "year": "2026",
+      "date": "2026-09-29",
+      "journal": "Case reports in pediatrics",
+      "authors": [
+        "Linn K",
+        "May WL",
+        "Kyaw KN"
+      ],
+      "title": "Coexisting Hearing Impairment in Children Presenting With Speech and Language Delay: A Case Series Highlighting the Importance of Routine Audiological Assessment.",
+      "type": [
+        "case-study"
+      ],
+      "study_type": [
+        "case-study"
+      ],
+      "abstract": "Background Speech and language delay is a common reason for referral to developmental pediatric services. Hearing impairment is an important and potentially manageable cause but may be overlooked because its clinical presentation often overlaps with autism spectrum disorder (ASD), attention-deficit/hyperactivity disorder (ADHD), and other neurodevelopmental disorders. In Myanmar, where universal newborn hearing screening has not yet been routinely implemented, delayed recognition of hearing impairment remains an important clinical challenge. Case presentation We describe four children aged 5-7 years who were assessed at the Developmental Paediatrics Service of CLL HEALTH Community Paediatric Clinics, Yangon, Myanmar, after referral for speech delay, behavioral concerns, suspected ASD, attention difficulties, or school readiness assessment. Comprehensive developmental assessment together with formal audiological evaluation identified bilateral moderate sensorineural hearing loss in one child with language disorder, bilateral sensorineural hearing loss in a child with developmental coordination disorder and executive dysfunction, bilateral severe-to-profound hearing loss in a child initially suspected of having ADHD, and unilateral mild-to-moderate hearing loss in a child with ASD. None of the children had undergone newborn hearing screening. Hearing impairment either explained the presenting concerns or coexisted with neurodevelopmental disorders, contributing to communication, behavioral, and educational difficulties. Conclusion This case series highlights the diagnostic challenges of recognizing hearing impairment in children presenting with developmental concerns in Myanmar, particularly in the absence of routine newborn hearing screening. Hearing impairment may mimic neurodevelopmental disorders, coexist with them, or contribute substantially to developmental difficulties. Routine audiological assessment should, therefore, be incorporated into the evaluation of all children presenting with speech and language delay or broader developmental concerns to facilitate timely diagnosis and appropriate multidisciplinary intervention.",
+      "population": null,
+      "finding": null,
+      "limitations": null,
+      "cite": "Linn et al., Case reports in pediatrics, 2026 [PMID 42819540]",
+      "origin": "pubmed_fast",
+      "retracted": false,
+      "protocol": false,
+      "retrieved_at": "2026-10-15T16:09:43",
+      "triage": {
+        "relevance": "indirect",
+        "role": "background",
+        "population": "",
+        "evidence": "Hearing impairment is an important and potentially manageable cause but may be overlooked because its clinical presentation often overlaps with autism spectrum disorder (ASD), attention-deficit/hyperactivity disorder (ADHD), and other neurodevelopmental disorders."
+      }
+    },
+    "42732392": {
+      "source_id": "pmid:42732392",
+      "pmid": "42732392",
+      "doi": "10.7759/cureus.114469",
+      "pmcid": "PMC13570577",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/42732392/",
+      "year": "2026",
+      "date": "2026-08-13",
+      "journal": "Cureus",
+      "authors": [
+        "Sudarsanan A",
+        "Barretto ES",
+        "Swamy DF"
+      ],
+      "title": "Conservative Management of a Primary Mandibular Second Molar With Dentoalveolar Abscess in a Four-Year-Old Child With Acute Lymphoblastic Leukemia: A Case Report.",
+      "type": [
+        "Case Reports",
+        "case-report"
+      ],
+      "study_type": [
+        "Case Reports",
+        "case-report"
+      ],
+      "abstract": "Acute lymphoblastic leukemia (ALL) is the most common pediatric hematologic malignancy and is frequently associated with significant oral complications resulting from the disease as well as the treatment-related immunosuppression. In such conditions, odontogenic infections may progress rapidly and contribute to systemic morbidity, thereby necessitating proper and carefully coordinated dental management. A four-year-old boy diagnosed with ALL, in the maintenance phase of chemotherapy, presented with pain and swelling in the lower right back tooth region for five days. Clinical and radiographic examination revealed a dentoalveolar abscess associated with the right deciduous mandibular second molar, along with multiple carious lesions involving other teeth. Following consultation with the pediatric oncologist and assessment of hematological parameters, a comprehensive dental rehabilitation was performed under strict infection control measures. Treatment included a pulpectomy of the right deciduous mandibular second molar, followed by placement of a stainless-steel crown and restorative management of other carious lesions. The child demonstrated complete resolution of pain and swelling, preservation of the affected primary tooth, restoration of masticatory function, and significant improvement in oral health during the follow-up visits. No postoperative complications or interruption of ongoing chemotherapy occurred. This case highlights that conservative management of an infected primary molar can be considered and safely done in children with ALL if their medical condition and hematological status permit. Also, careful treatment planning and multidisciplinary coordination with the oncologist allowed elimination of the oral foci of infection while preserving the teeth and maintaining arch integrity.",
+      "population": null,
+      "finding": null,
+      "limitations": null,
+      "cite": "Sudarsanan et al., Cureus, 2026 [PMID 42732392]",
+      "origin": "pubmed_fast",
+      "retracted": false,
+      "protocol": false,
+      "retrieved_at": "2026-10-15T16:09:43",
+      "triage": {
+        "relevance": "not_relevant",
+        "role": "background",
+        "population": "",
+        "evidence": "Conservative Management of a Primary Mandibular Second Molar With Dentoalveolar Abscess in a Four-Year-Old Child With Acute Lymphoblastic Leukemia: A Case Report."
+      }
+    },
+    "42772271": {
+      "source_id": "pmid:42772271",
+      "pmid": "42772271",
+      "doi": "10.4269/ajtmh.26-0186",
+      "pmcid": "PMC13615284",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/42772271/",
+      "year": "2026",
+      "date": "2026-09-22",
+      "journal": "The American journal of tropical medicine and hygiene",
+      "authors": [
+        "Zhang Y",
+        "Liu Y",
+        "Yi H"
+      ],
+      "title": "Management of Bullous Pemphigoid and Norwegian Scabies with Dupilumab Plus Ivermectin.",
+      "type": [
+        "Case Reports",
+        "case-report"
+      ],
+      "study_type": [
+        "Case Reports",
+        "case-report"
+      ],
+      "abstract": "Bullous pemphigoid is a severe autoimmune blistering disease, and Norwegian scabies is a rare comorbidity. However, conventional treatment methods, such as systemic corticosteroids, carry a high risk in the treatment of elderly patients. Herein, this rare comorbidity is described in an elderly patient. After an initial induction treatment with a low-to-moderate dose of corticosteroid, this patient achieved complete remission with a combination therapy of dupilumab (a monoclonal antibody targeting the interleukin-4/13 signaling pathway) and ivermectin. Therefore, the successful treatment of this rare case provides a promising strategy for reducing reliance on corticosteroids in high-risk populations.",
+      "population": null,
+      "finding": null,
+      "limitations": null,
+      "cite": "Zhang et al., The American journal of tropical medicine and hygiene, 2026 [PMID 42772271]",
+      "origin": "pubmed_fast",
+      "retracted": false,
+      "protocol": false,
+      "retrieved_at": "2026-10-15T16:09:43",
+      "triage": {
+        "relevance": "not_relevant",
+        "role": "background",
+        "population": "",
+        "evidence": "Management of Bullous Pemphigoid and Norwegian Scabies with Dupilumab Plus Ivermectin."
+      }
+    },
+    "42740342": {
+      "source_id": "pmid:42740342",
+      "pmid": "42740342",
+      "doi": "10.4097/kja.251033",
+      "pmcid": "PMC13624823",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/42740342/",
+      "year": "2026",
+      "date": "2026-09-15",
+      "journal": "Korean journal of anesthesiology",
+      "authors": [
+        "Rebollar RE",
+        "Muñoz Quintero JM",
+        "López Alfaro RE"
+      ],
+      "title": "Severe bradycardia in a child with an implanted vagus nerve stimulator undergoing laparoscopy -A case report.",
+      "type": [
+        "Research Support, Non-U.S. Gov't",
+        "Case Reports",
+        "case-report"
+      ],
+      "study_type": [
+        "Research Support, Non-U.S. Gov't",
+        "Case Reports",
+        "case-report"
+      ],
+      "abstract": "Background Vagus nerve stimulation is an established therapeutic option for children with drug-resistant epilepsy who do not respond to other treatments. During surgical procedures, this therapy has various anesthetic implications and may result in critical respiratory and cardiac complications. Case We report the case of a 13-year-old child with an implanted vagus nerve stimulator who underwent laparoscopy-assisted gastrostomy tube placement under general anesthesia with the device activated. A severe episode of bradycardia occurred during pneumoperitoneum, which was successfully managed pharmacologically, without external device deactivation. The rationale for this management decision is discussed and reflections based on the clinical course are provided. Conclusions Perioperative management of vagus nerve stimulators must be individualized. Maintaining device activation may be reasonable in children with recent seizure activity, whereas temporary deactivation may be considered during procedures associated with a high risk of vagal reflex. However, in cases requiring immediate deactivation, pharmacological intervention may be necessary given the deactivation magnet latency.",
+      "population": null,
+      "finding": null,
+      "limitations": null,
+      "cite": "Rebollar et al., Korean journal of anesthesiology, 2026 [PMID 42740342]",
+      "origin": "pubmed_fast",
+      "retracted": false,
+      "protocol": false,
+      "retrieved_at": "2026-10-15T16:09:43",
+      "triage": {
+        "relevance": "not_relevant",
+        "role": "background",
+        "population": "",
+        "evidence": "Severe bradycardia in a child with an implanted vagus nerve stimulator undergoing laparoscopy -A case report."
+      }
+    },
+    "42783065": {
+      "source_id": "pmid:42783065",
+      "pmid": "42783065",
+      "doi": "10.3390/jcdd13090458",
+      "pmcid": "PMC13607965",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/42783065/",
+      "year": "2026",
+      "date": "2026-09-11",
+      "journal": "Journal of cardiovascular development and disease",
+      "authors": [
+        "Di Monaco A",
+        "Grimaldi M"
+      ],
+      "title": "Ventricular Arrhythmias: Epidemiology, Diagnosis and Treatment.",
+      "type": [
+        "Editorial"
+      ],
+      "study_type": [
+        "Editorial"
+      ],
+      "abstract": "Ventricular arrhythmias (VAs) represent a broad and clinically heterogeneous spectrum of cardiac rhythm disturbances, ranging from isolated ventricular premature beats to life-threatening ventricular fibrillation (VF) and sudden cardiac death (SCD) [...].",
+      "population": null,
+      "finding": null,
+      "limitations": null,
+      "cite": "Di et al., Journal of cardiovascular development and disease, 2026 [PMID 42783065]",
+      "origin": "pubmed_fast",
+      "retracted": false,
+      "protocol": false,
+      "retrieved_at": "2026-10-15T16:09:43",
+      "triage": {
+        "relevance": "not_relevant",
+        "role": "background",
+        "population": "",
+        "evidence": "Ventricular Arrhythmias: Epidemiology, Diagnosis and Treatment."
+      }
+    },
+    "42699856": {
+      "source_id": "pmid:42699856",
+      "pmid": "42699856",
+      "doi": "10.1097/rc9.0000000000000866",
+      "pmcid": "PMC13544665",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/42699856/",
+      "year": "2026",
+      "date": "2026-08-14",
+      "journal": "International journal of surgery case reports",
+      "authors": [
+        "Akil A",
+        "Berjaoui C",
+        "Akil H"
+      ],
+      "title": "Acute fulminant cerebellitis in children: a case series and literature review on diagnostic challenges and management strategies.",
+      "type": [
+        "research-article"
+      ],
+      "study_type": [
+        "research-article"
+      ],
+      "abstract": "Background Acute cerebellitis (AC) in children is often benign; however, a fulminant variant featuring rapid cerebellar edema, hydrocephalus, and brainstem compression can be life-threatening. Case summary We present a three-case series of pediatric patients with fulminant cerebellitis. The first patient, a 12-year-old female, experienced rapid neurological decline despite initial corticosteroid therapy and underwent emergent posterior fossa decompression, resulting in full neurological recovery. The second patient, a 2-year-old female, presented with obstructive hydrocephalus, initially misdiagnosed as a posterior fossa neoplasm; despite high-dose corticosteroids and delayed external ventricular drainage (EVD), she progressed to brainstem failure and succumbed. The third patient, a 10-year-old male, was treated with urgent EVD insertion, high-dose corticosteroids, and intensive care monitoring, achieving rapid clinical improvement and complete recovery. Conclusion Fulminant AC in children, although rare, carries a high risk of morbidity and mortality. Prompt recognition and aggressive management, including high-dose corticosteroids, cerebrospinal fluid diversion, and timely posterior fossa decompression when needed, can substantially reduce morbidity and mortality in fulminant cerebellitis.",
+      "population": null,
+      "finding": null,
+      "limitations": null,
+      "cite": "Akil et al., International journal of surgery case reports, 2026 [PMID 42699856]",
+      "origin": "pubmed_fast",
+      "retracted": false,
+      "protocol": false,
+      "retrieved_at": "2026-10-15T16:09:43",
+      "triage": {
+        "relevance": "indirect",
+        "role": "experimental",
+        "population": "",
+        "evidence": "Case summary We present a three-case series of pediatric patients with fulminant cerebellitis."
+      }
+    },
+    "42698352": {
+      "source_id": "pmid:42698352",
+      "pmid": "42698352",
+      "doi": "10.1177/10870547261478344",
+      "pmcid": "PMC13620239",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/42698352/",
+      "year": "2026",
+      "date": "2026-09-05",
+      "journal": "Journal of attention disorders",
+      "authors": [
+        "Hechtman L",
+        "Grizenko N",
+        "Joober R"
+      ],
+      "title": "Comprehensive Treatment and Monthly 2 Year Follow-Up in Children With ADHD: Randomized Controlled Prospective Study.",
+      "type": [
+        "research-article",
+        "Randomized Controlled Trial"
+      ],
+      "study_type": [
+        "research-article",
+        "Randomized Controlled Trial"
+      ],
+      "abstract": "ObjectivesTo evaluate the efficacy of regular monthly follow up in maintaining treatment gains versus follow up as needed in the community for children ages 6 to 12 years with ADHD.MethodsOne hundred and eighty six children, age 6 to 13 with DSM-IV diagnosed Attention Deficit Hyperactivity Disorder (ADHD) (combined presentation) received 3 months of comprehensive treatment which included long-acting stimulant medication titrated to optimal dose (via parent and teacher reports) and weekly parent training groups and child social skills and academic training. After the 3 months of treatment, children were randomized to either monthly follow up by the research team (treatment group) or follow up as usual in the community (control group). Comprehensive evaluations occurred at 3 months at the end of the comprehensive treatment, and at 6, 12, 18, and 24 month follow-up.ResultsChildren in both groups improved significantly in all domains after the 3 months of intensive comprehensive treatment. Treatment gains were maintained during the 2 year follow up period in both groups. However, the Hyperactive/Impulsive rating in Conners scale by parent report and some teacher reports were worse in the community group during the follow-up period.ConclusionThe importance of the initial intensive comprehensive 3 month treatment cannot be underestimated as these treatments resulted in significant improvements which were maintained for 2 years in both groups. Factors such as social economic status and available community treatment which may have influenced these results are discussed.",
+      "population": null,
+      "finding": null,
+      "limitations": null,
+      "cite": "Hechtman et al., Journal of attention disorders, 2026 [PMID 42698352]",
+      "origin": "pubmed_fast_q",
+      "retracted": false,
+      "protocol": false,
+      "retrieved_at": "2026-10-15T16:09:43",
+      "triage": {
+        "relevance": "indirect",
+        "role": "insufficient_or_negative",
+        "population": "",
+        "evidence": "ObjectivesTo evaluate the efficacy of regular monthly follow up in maintaining treatment gains versus follow up as needed in the community for children ages 6 to 12 years with ADHD.MethodsOne hundred and eighty six children, age 6 to 13 with DSM-IV diagnosed Attention Deficit Hyperactivity Disorder (ADHD) (combined presentation) received 3 months of comprehensive treatment which included long-acting stimulant medication titrated to optimal dose (via parent and teacher reports) and weekly parent training groups and child social skills and academic training."
+      }
+    },
+    "42725565": {
+      "source_id": "pmid:42725565",
+      "pmid": "42725565",
+      "doi": "10.7189/jogh.16.04209",
+      "pmcid": "PMC13563637",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/42725565/",
+      "year": "2026",
+      "date": "2026-09-11",
+      "journal": "Journal of global health",
+      "authors": [
+        "Gadapani Pathak B",
+        "Nisar YB",
+        "Natchu UCM"
+      ],
+      "title": "Oral amoxicillin for management of fast breathing or chest indrawing pneumonia without danger signs in children aged 2-59 months: a systematic review and meta-analysis.",
+      "type": [
+        "Meta-Analysis",
+        "research-article",
+        "Systematic Review"
+      ],
+      "study_type": [
+        "Meta-Analysis",
+        "research-article",
+        "Systematic Review"
+      ],
+      "abstract": "Background World Health Organization (WHO) guidelines recommend oral amoxicillin as first-line therapy for pneumonia in children aged 2-59 months. However, uncertainty remains regarding its effectiveness compared with no antibiotics for fast breathing pneumonia and with injectable antibiotics for chest indrawing pneumonia without danger signs. Methods We searched PubMed, EMBASE, and the Cochrane Central Register of Controlled Trials (January 2000-August 2024) for randomised and quasi-randomised trials without language restrictions. Eligible studies compared oral amoxicillin vs. no antibiotics for fast breathing pneumonia or outpatient oral amoxicillin vs. inpatient injectable antibiotics for chest indrawing pneumonia without danger signs in children (2-59 months). Pooled relative risks (RRs) with 95% confidence intervals (CIs) were estimated using a random-effects model; certainty was assessed using GRADE. Results Four trials (n = 7,699) compared oral amoxicillin with no antibiotics for fast breathing pneumonia, and three (n = 4,864) compared oral with injectable antibiotics for chest indrawing pneumonia. For fast breathing pneumonia, oral amoxicillin reduced treatment failure by 16% at day 14 (RR = 0.84; 95% CI = 0.75, 0.94, I 2 = 0%; moderate certainty). For chest indrawing pneumonia, treatment failure was similar between groups at day 6 (RR = 0.96; 95% CI = 0.83, 1.11) and day 14 (RR = 0.94; 95% CI = 0.79, 1.13), while mortality was 72% lower with oral amoxicillin (RR = 0.28; 95% CI = 0.09, 0.86). Serious adverse events did not differ between groups. Conclusions In children (2-59 months), oral amoxicillin significantly reduces treatment failure compared to no antibiotics for fast breathing pneumonia and is comparable to injectable antibiotics for chest indrawing pneumonia without danger signs. Notably, oral amoxicillin was associated with a 72% reduction in mortality compared with injectable antibiotics in children with chest-indrawing pneumonia, although absolute risk differences were small. These findings support its broader implementation as an accessible, programmatically feasible, and WHO-recommended option for pneumonia management in low-resource settings. Registration PROSPERO: CRD42023439851.",
+      "population": null,
+      "finding": null,
+      "limitations": null,
+      "cite": "Gadapani et al., Journal of global health, 2026 [PMID 42725565]",
+      "origin": "pubmed_fast_q",
+      "retracted": false,
+      "protocol": false,
+      "retrieved_at": "2026-10-15T16:09:43",
+      "triage": {
+        "relevance": "indirect",
+        "role": "background",
+        "population": "",
+        "evidence": "Oral amoxicillin for management of fast breathing or chest indrawing pneumonia without danger signs in children aged 2-59 months: a systematic review and meta-analysis."
+      }
+    },
+    "42812143": {
+      "source_id": "pmid:42812143",
+      "pmid": "42812143",
+      "doi": "10.48130/pedi-0026-0006",
+      "pmcid": "PMC13599426",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/42812143/",
+      "year": "2026",
+      "date": "2026-08-12",
+      "journal": "Pediatric diabetes",
+      "authors": [
+        "Zhang T",
+        "Wang N",
+        "Wang B"
+      ],
+      "title": "Efficacy and safety of hybrid closed-loop systems in children aged &lt; 7 years with type 1 diabetes: a systematic review and meta-analysis of randomized controlled trials.",
+      "type": [
+        "Meta-Analysis",
+        "Systematic Review",
+        "review-article"
+      ],
+      "study_type": [
+        "Meta-Analysis",
+        "Systematic Review",
+        "review-article"
+      ],
+      "abstract": "This study aimed to evaluate the clinical efficacy and safety of hybrid closed-loop systems for glycemic control in children aged p p p = 0.11). A comparison of serious adverse events showed no statistically significant differences in the risk of diabetic ketoacidosis ( p = 0.50) and severe hypoglycemia ( p = 0.64) between the hybrid closed-loop system group and the conventional therapy group. The hybrid closed-loop system can effectively improve glycemic control in children under 7 years old with Type 1 diabetes without increasing the risk of adverse events. Further high-quality, large-sample clinical studies are still required to verify and supplement the present conclusions.",
+      "population": null,
+      "finding": null,
+      "limitations": null,
+      "cite": "Zhang et al., Pediatric diabetes, 2026 [PMID 42812143]",
+      "origin": "pubmed_fast_q",
+      "retracted": false,
+      "protocol": false,
+      "retrieved_at": "2026-10-15T16:09:43",
+      "triage": {
+        "relevance": "indirect",
+        "role": "experimental",
+        "population": "",
+        "evidence": "Efficacy and safety of hybrid closed-loop systems in children aged &lt; 7 years with type 1 diabetes: a systematic review and meta-analysis of randomized controlled trials."
+      }
+    },
+    "42507345": {
+      "source_id": "pmid:42507345",
+      "pmid": "42507345",
+      "doi": "10.4103/singaporemedj.smj-2026-318",
+      "pmcid": "PMC13516006",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/42507345/",
+      "year": "2026",
+      "date": "2026-07-27",
+      "journal": "Singapore medical journal",
+      "authors": [
+        "Ong GY",
+        "Ngiam N",
+        "Tham LP"
+      ],
+      "title": "Singapore Paediatric Life Support Guidelines 2026.",
+      "type": [
+        "Practice Guideline",
+        "review-article"
+      ],
+      "study_type": [
+        "Practice Guideline",
+        "review-article"
+      ],
+      "abstract": "Abstract The Singapore Paediatric Life Support Guidelines 2026 updates the 2021 guidelines and provides evidence-based, consensus recommendations for life support in paediatric patients (<18 years of age), excluding newborns. We reviewed treatment recommendations from the International Liaison Committee on Resuscitation Paediatric Life Support Task Force as well as resuscitation guidelines from the American Heart Association, the European Resuscitation Council and other relevant studies and reviews published between January 2021 and January 2026 to inform these paediatric life support guidelines. This clinical practice guideline adopts an evidence-based and patient-centred approach to the life support of paediatric patients in Singapore. Recommendations were updated following deliberation of peer-reviewed evidence updates on paediatric resuscitation, with consideration of local context, resources and clinical practice.",
+      "population": null,
+      "finding": null,
+      "limitations": null,
+      "cite": "Ong et al., Singapore medical journal, 2026 [PMID 42507345]",
+      "origin": "pubmed_fast_q",
+      "retracted": false,
+      "protocol": false,
+      "retrieved_at": "2026-10-15T16:09:43",
+      "triage": {
+        "relevance": "indirect",
+        "role": "background",
+        "population": "",
+        "evidence": "Singapore Paediatric Life Support Guidelines 2026."
+      }
+    }
+  },
+  "trials_by_id": {},
+  "web": [
+    {
+      "title": "Autism Medication List: Drugs Used to Treat ASD",
+      "url": "https://www.appliedbehavioranalysisedu.org/what-drugs-are-used-for-treating-autism/",
+      "snippet": "Mar 18, 2026 · Only 2 drugs are FDA-approved for autism. See the full autism medication list, what each drug treats, and what caregivers and ABA therapists need to know.",
+      "source": "web_medications"
+    },
+    {
+      "title": "Pharmacological Interventions in Autism Spectrum Disorder: A ...",
+      "url": "https://www.mdpi.com/2227-9059/13/12/3025",
+      "snippet": "Dec 9, 2025 · At present, there is no pharmacological intervention that reliably targets the core symptoms of ASD; instead, medications are primarily used to manage associated or concurrent symptoms such as irritability, aggression, anxiety, attention difficulties, and sleep disturbances.",
+      "source": "web_medications"
+    },
+    {
+      "title": "List of 13 Autism Medications Compared - Drugs.com",
+      "url": "https://www.drugs.com/condition/autism.html",
+      "snippet": "Compare risks and benefits of common medications used for Autism. Find the most popular drugs, view ratings and user reviews.",
+      "source": "web_medications"
+    },
+    {
+      "title": "Types of Medication for Autism: Common List & Side Effects",
+      "url": "https://www.rxlist.com/types_of_medication_for_autism/drugs-condition.htm",
+      "snippet": "Autism spectrum disorder (ASD) is a type of developmental disorder that may cause issues while communicating and interacting. There are only two FDA-approved drugs (aripiprazole and risperidone) for the treatment of autism spectrum disorder.",
+      "source": "web_medications"
+    },
+    {
+      "title": "Pharmacological treatment in autism: a proposal for ...",
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11705908/",
+      "snippet": "Given that individuals with ASD may exhibit atypical responses to medications or difficulties in expressing adverse effects of medications due to challenges with communication, regular check-ups are essential for the timely detection of emerging side effects.",
+      "source": "web_medications"
+    },
+    {
+      "title": "(PDF) Guidelines Diagnosis and Management of Global ...",
+      "url": "https://www.researchgate.net/publication/360079312_Guidelines_Diagnosis_and_Management_of_Global_Development_Delay_Consensus_Guidelines_of_Growth_Development_and_Behavioral_Pediatrics_Chapter_Neurology_Chapter_and_Neurodevelopment_Pediatrics_Chapter_o",
+      "snippet": "Apr 21, 2022 · Justification: Global developmental delay (GDD) is a relatively common neurodevelopmental disorder, however, paucity of published literature and absence of uniform guidelines...",
+      "source": "web_standard"
+    },
+    {
+      "title": "Autism spectrum disorder in children and adolescents ...",
+      "url": "https://www.uptodate.com/contents/autism-spectrum-disorder-in-children-and-adolescents-pharmacologic-interventions",
+      "snippet": "Dec 8, 2025 · Autism spectrum disorder (ASD) is a biologically based neurodevelopmental disorder characterized by persistent deficits in social communication and interaction and restricted, repetitive patterns of behavior, interests, and activities.",
+      "source": "web_standard"
+    },
+    {
+      "title": "Neurodevelopmental Guidelines Recently Published (AAP, AAN ...",
+      "url": "https://www.guidelinecentral.com/insights/mar-2026-neurodevelopmentaldisorders-guideline-rundown/",
+      "snippet": "Mar 20, 2026 · Today's rundown features a look at some of the latest neurodevelopmental disorder guidance from medical societies around the world published within the last ten years.",
+      "source": "web_standard"
+    },
+    {
+      "title": "Treatment Guidelines: Neurodevelopmental Disorders",
+      "url": "https://aapp.org/guideline/external/neurodevelopmental",
+      "snippet": "Neurodevelopmental disorders are impairments of the growth and development of the brain or central nervous system that affect behavior, cognition, or motor skills. These conditions tend to begin in childhood and persist into adulthood or may remain undiagnosed long-term.",
+      "source": "web_standard"
+    },
+    {
+      "title": "Treating and Dealing with ADHD | FDA",
+      "url": "https://www.fda.gov/consumers/consumer-updates/treating-and-dealing-adhd",
+      "snippet": "Testing the Effects of Medication in Younger Kids FDA-approved ADHD medications currently on the market have been tested for safety and effectiveness in clinical trials of children 6 years and older.",
+      "source": "web_fast"
+    },
+    {
+      "title": "PDF Attention Deficit Hyperactivity Disorder (ADHD) in Children ... - mcpap",
+      "url": "https://www.mcpap.com/pdf/ADHDFLMedGuide.pdf",
+      "snippet": "FDA Approved ADHD Medications in Children and Adolescents Ages 6 to 17 Years Old Generic Class/ Brand Name Typical Starting Dose FDA Max Dose/Day Off-Label Max Dose/Day Comments Selective norepinephrine reuptake inhibitor Strattera® (atomoxetine) < 70 kg: 0.5 mg/kg/day for 4 days; then 1 mg/kg/day for 4 days; then 1.2 mg/kg/day Lesser of 1.4 mg/kg or 100 mg Lesser of 1.8 mg/kg or 100 mg ...",
+      "source": "web_fast"
+    },
+    {
+      "title": "ADHD Medications for Children Under 6: Recent FDA Warnings",
+      "url": "https://visionarypsych.com/adhd-medications-children-under-6/",
+      "snippet": "2. Why are stimulant ADHD medications riskier for children under 6? Young children metabolize drugs differently, leading to higher drug levels in their bodies and increased chances of adverse effects. 3. Are ADHD medications banned for kids under 6? No, but the FDA advises caution.",
+      "source": "web_fast"
+    },
+    {
+      "title": "Pediatric Oncology Drug Approvals | FDA",
+      "url": "https://www.fda.gov/about-fda/oncology-center-excellence/pediatric-oncology-drug-approvals",
+      "snippet": "Since the early 1950s, the FDA has approved more than 60 drugs with over 85 associated indications for the treatment of pediatric cancers. The number of oncology products approved for use in ...",
+      "source": "web_fast"
+    },
+    {
+      "title": "Treatment of ADHD | Attention-Deficit / Hyperactivity Disorder (ADHD) | CDC",
+      "url": "https://www.cdc.gov/adhd/treatment/index.html",
+      "snippet": "Several different types of medications are FDA-approved to treat ADHD in children as young as 6 years of age: Stimulants are the best-known and most widely used ADHD medications.",
+      "source": "web_fast"
+    }
+  ],
+  "regulatory": [
+    {
+      "generic": "Buspirone",
+      "brands": [
+        "Buspirone Hydrochloride"
+      ],
+      "jurisdiction": "FDA",
+      "indication_excerpt": "Association’s Diagnostic and Statistical Manual, III 1 as follows: Generalized, persistent anxiety (of at least 1 month continual duration), manifested by symptoms from three of the four following categories: Motor tension: shakiness, jitteriness, jumpiness, trembling, tension, muscle aches, fatigability, inability to relax, eyelid twitch, furrowed brow, strained face, fidgeting, restlessness, ea",
+      "matches_condition": true,
+      "indication_statement": "The patients evaluated in these studies had experienced symptoms for periods of 1 month to over 1 year prior to the study, with an average symptom duration of 6 months.",
+      "dose_statement": null,
+      "dose_general": "DOSAGE AND ADMINISTRATION The recommended initial dose is 15 mg daily (7.5 mg b.i.d.). To achieve an optimal therapeutic response, at intervals of 2 to 3 days the dosage may be increased 5 mg per day, as needed. The maximum daily dosage should not exceed 60 mg per day. In clinical trials allowing dose titration, divided doses of 20 mg to 30 mg per day were commonly employed. The bioavailability of buspirone is increased when given with food as compared to the fasted state (see CLINICAL PHARMACOLOGY ). Consequently, patients should take buspirone in a consistent manner with regard to the timing of dosing; either always with or always without food. (the label continues)",
+      "route": "Oral",
+      "label_date": "2024-05-15",
+      "set_id": "18e90d65-4a3a-864e-e063-6294a90ae99d",
+      "url": "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=18e90d65-4a3a-864e-e063-6294a90ae99d",
+      "source_id": "fda:18e90d65-4a3a-864e-e063-6294a90ae99d",
+      "model_relevant": false,
+      "model_evidence": "",
+      "model_relation": null
+    },
+    {
+      "generic": "Quetiapine Fumarate",
+      "brands": [
+        "Quetiapine fumarate"
+      ],
+      "jurisdiction": "FDA",
+      "indication_excerpt": "( 1.2 ) 1.1 Schizophrenia Quetiapine tablets are indicated for the treatment of schizophrenia. The efficacy of quetiapine tablets in schizophrenia was established in three 6-week trials in adults and one 6-week trial in adolescents (13 to 17 years). The effectiveness of quetiapine tablets for the maintenance treatment of schizophrenia has not been systematically evaluated in controlled clinica",
+      "matches_condition": true,
+      "indication_statement": "The efficacy of quetiapine tablets in schizophrenia was established in three 6-week trials in adults and one 6-week trial in adolescents (13 to 17 years).",
+      "dose_statement": null,
+      "dose_general": "2 DOSAGE AND ADMINISTRATION Quetiapine tablets can be taken with or without food ( 2.1 ). Indication Initial Dose Recommended Dose Maximum Dose Schizophrenia-Adults ( 2.2 ) 25 mg twice daily 150 to 750 mg/day 750 mg/day Schizophrenia-Adolescents (13 to 17 years) ( 2.2 ) 25 mg twice daily 400 to 800 mg/day 800 mg/day Bipolar Mania- Adults Monotherapy or as an adjunct to lithium or divalproex ( 2.2 ) 50 mg twice daily 400 to 800 mg/day 800 mg/day Bipolar Mania-Children and Adolescents (10 to 17 years), Monotherapy ( 2.2 ) 25 mg twice daily 400 to 600 mg/day 600 mg/day Bipolar Depression-Adults ( 2.2 ) 50 mg once daily at bedtime 300 mg/day 300 mg/day Geriatric Use : Consider a lower starting (the label continues)",
+      "route": "Oral",
+      "label_date": "2026-07-16",
+      "set_id": "02b19885-2987-4c46-8d2a-5e59656f72e8",
+      "url": "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=02b19885-2987-4c46-8d2a-5e59656f72e8",
+      "source_id": "fda:02b19885-2987-4c46-8d2a-5e59656f72e8",
+      "model_relevant": true,
+      "model_evidence": "The efficacy of quetiapine tablets in schizophrenia was established in three 6-week trials in adults and one 6-week trial in adolescents (13 to 17 years).",
+      "model_relation": "treats_condition"
+    },
+    {
+      "generic": "Quetiapine",
+      "brands": [
+        "Quetiapine"
+      ],
+      "jurisdiction": "FDA",
+      "indication_excerpt": "depressive episodes ( 1.2 ) 1.1 Schizophrenia Quetiapine is indicated for the treatment of schizophrenia. The efficacy of quetiapine in schizophrenia was established in three 6-week trials in adults and one 6-week trial in adolescents (13 to 17 years). The effectiveness of quetiapine for the maintenance treatment of schizophrenia has not been systematically evaluated in controlled clinical trials",
+      "matches_condition": true,
+      "indication_statement": "The efficacy of quetiapine in schizophrenia was established in three 6-week trials in adults and one 6-week trial in adolescents (13 to 17 years).",
+      "dose_statement": null,
+      "dose_general": "2 DOSAGE & ADMINISTRATION · Quetiapine tablets, USP can be taken with or without food ( 2.1 ) Indication Initial Dose Recommended Dose Maximum Dose Schizophrenia-Adults (2.2) 25 mg twice daily 150 to 750 mg/day 750 mg/day Schizophrenia-Adolescents (13 to 17 years) (2.2) 25 mg twice daily 400 to 800 mg/day 800 mg/day Bipolar Mania- Adults Monotherapy or as an adjunct to lithium or divalproex (2.2) 50 mg twice daily 400 to 800 mg/day 800 mg/day Bipolar Mania- Children and Adolescents (10 to 17 years), Monotherapy (2.2) 25 mg twice daily 400 to 600 mg/day 600 mg/day Bipolar Depression-Adults (2.2) 50 mg once daily at bedtime 300 mg/day 300 mg/day Geriatric Use: Consider a lower starting dose (the label continues)",
+      "route": "Oral",
+      "label_date": "2025-06-27",
+      "set_id": "01261008-5f42-4844-8a65-d4545a67a309",
+      "url": "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=01261008-5f42-4844-8a65-d4545a67a309",
+      "source_id": "fda:01261008-5f42-4844-8a65-d4545a67a309",
+      "model_relevant": true,
+      "model_evidence": "The efficacy of quetiapine in schizophrenia was established in three 6-week trials in adults and one 6-week trial in adolescents (13 to 17 years).",
+      "model_relation": "treats_condition"
+    },
+    {
+      "generic": "Rabeprazole",
+      "brands": [
+        "Rabeprazole Sodium"
+      ],
+      "jurisdiction": "FDA",
+      "indication_excerpt": "to Reduce the Risk of Duodenal Ulcer Recurrence in Adults Rabeprazole sodium delayed-release tablets, in combination with amoxicillin and clarithromycin as a three drug regimen, are indicated for the treatment of patients with H. pylori infection and duodenal ulcer disease (active or history within the past 5 years) to eradicate H. pylori . Eradication of H. pylori has been shown to re",
+      "matches_condition": true,
+      "indication_statement": "Rabeprazole sodium delayed-release tablets, in combination with amoxicillin and clarithromycin as a three drug regimen, are indicated for the treatment of patients with H.",
+      "dose_statement": null,
+      "dose_general": "2 DOSAGE AND ADMINISTRATION Table 1 shows the recommended dosage of rabeprazole sodium delayed-release tablets in adults and adolescent patients 12 years of age and older. The use of rabeprazole sodium delayed-release tablets is not recommended for use in pediatric patients 1 year to less than 12 years of age because the lowest available tablet strength (20 mg) exceeds the recommended dose for these patients. Use another rabeprazole formulation for pediatric patients 1 year to less than 12 years of age. (the label continues)",
+      "route": "Oral",
+      "label_date": "2023-11-30",
+      "set_id": "951caefe-6e18-48ff-9567-beb545b09c25",
+      "url": "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=951caefe-6e18-48ff-9567-beb545b09c25",
+      "source_id": "fda:951caefe-6e18-48ff-9567-beb545b09c25",
+      "model_relevant": false,
+      "model_evidence": "",
+      "model_relation": null
+    },
+    {
+      "generic": "Exemestane",
+      "brands": [
+        "Exemestane"
+      ],
+      "jurisdiction": "FDA",
+      "indication_excerpt": "are an aromatase inhibitor indicated for: adjuvant treatment of postmenopausal women with estrogen-receptor positive early breast cancer who have received two to three years of tamoxifen and are switched to exemestane tablets for completion of a total of five consecutive years of adjuvant hormonal therapy ( 14.1 ). treatment of advanced breast cancer in postmenopausal women whose disease h",
+      "matches_condition": true,
+      "indication_statement": "Exemestane tablets are an aromatase inhibitor indicated for: adjuvant treatment of postmenopausal women with estrogen-receptor positive early breast cancer who have received two to three years of tamoxifen and are switched to",
+      "dose_statement": null,
+      "dose_general": "2 DOSAGE AND ADMINISTRATION Recommended Dose: One 25 mg tablet once daily after a meal ( 2.1 ). 2.1 Recommended Dose The recommended dose of exemestane tablets in early and advanced breast cancer is one 25 mg tablet once daily after a meal. adjuvant treatment of postmenopausal women with estrogen-receptor positive early breast cancer who have received two to three years of tamoxifen and are switched to exemestane tablets for completion of a total of five consecutive years of adjuvant hormonal therapy. the treatment of advanced breast cancer in postmenopausal women whose disease has progressed following tamoxifen therapy. (the label continues)",
+      "route": "Oral",
+      "label_date": "2024-05-29",
+      "set_id": "1841ec12-3f4f-4b87-b719-fd0b4d9eaffb",
+      "url": "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=1841ec12-3f4f-4b87-b719-fd0b4d9eaffb",
+      "source_id": "fda:1841ec12-3f4f-4b87-b719-fd0b4d9eaffb",
+      "model_relevant": false,
+      "model_evidence": "",
+      "model_relation": null
+    },
+    {
+      "generic": "Ipratropium Bromide",
+      "brands": [
+        "Ipratropium Bromide"
+      ],
+      "jurisdiction": "FDA",
+      "indication_excerpt": "",
+      "matches_condition": false,
+      "indication_statement": null,
+      "dose_statement": null,
+      "dose_general": null,
+      "route": "Nasal",
+      "label_date": "2022-07-01",
+      "set_id": "05c56190-e346-4674-a4f8-049ce632ce2d",
+      "url": "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=05c56190-e346-4674-a4f8-049ce632ce2d",
+      "source_id": "fda:05c56190-e346-4674-a4f8-049ce632ce2d"
+    }
+  ],
+  "drug_records": [
+    {
+      "drug": "Buspirone",
+      "category": "FDA label found; indication does not mention the condition",
+      "indication": "Association’s Diagnostic and Statistical Manual, III 1 as follows: Generalized, persistent anxiety (of at least 1 month continual duration), manifested by symptoms from three of the four following categories: Motor tension: shakiness, jitteriness, jumpiness, trembling, tension, muscle aches, fatigability, inability to relax, eyelid twitch, furrowed brow, strained face, fidgeting, restlessness, ea",
+      "population": null,
+      "approval_status": "not_verified",
+      "approval_jurisdiction": "FDA",
+      "approval_date": null,
+      "label_date": "2024-05-15",
+      "dose": null,
+      "route": null,
+      "dose_source": null,
+      "evidence_source": "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=18e90d65-4a3a-864e-e063-6294a90ae99d",
+      "verification_status": "verified_in_regulatory_source"
+    },
+    {
+      "drug": "Quetiapine Fumarate",
+      "category": "FDA label found; indication does not mention the condition",
+      "indication": "( 1.2 ) 1.1 Schizophrenia Quetiapine tablets are indicated for the treatment of schizophrenia. The efficacy of quetiapine tablets in schizophrenia was established in three 6-week trials in adults and one 6-week trial in adolescents (13 to 17 years). The effectiveness of quetiapine tablets for the maintenance treatment of schizophrenia has not been systematically evaluated in controlled clinica",
+      "population": null,
+      "approval_status": "not_verified",
+      "approval_jurisdiction": "FDA",
+      "approval_date": null,
+      "label_date": "2026-07-16",
+      "dose": null,
+      "route": null,
+      "dose_source": null,
+      "evidence_source": "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=02b19885-2987-4c46-8d2a-5e59656f72e8",
+      "verification_status": "verified_in_regulatory_source"
+    },
+    {
+      "drug": "Quetiapine",
+      "category": "FDA label found; indication does not mention the condition",
+      "indication": "depressive episodes ( 1.2 ) 1.1 Schizophrenia Quetiapine is indicated for the treatment of schizophrenia. The efficacy of quetiapine in schizophrenia was established in three 6-week trials in adults and one 6-week trial in adolescents (13 to 17 years). The effectiveness of quetiapine for the maintenance treatment of schizophrenia has not been systematically evaluated in controlled clinical trials",
+      "population": null,
+      "approval_status": "not_verified",
+      "approval_jurisdiction": "FDA",
+      "approval_date": null,
+      "label_date": "2025-06-27",
+      "dose": null,
+      "route": null,
+      "dose_source": null,
+      "evidence_source": "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=01261008-5f42-4844-8a65-d4545a67a309",
+      "verification_status": "verified_in_regulatory_source"
+    },
+    {
+      "drug": "Rabeprazole",
+      "category": "FDA label found; indication does not mention the condition",
+      "indication": "to Reduce the Risk of Duodenal Ulcer Recurrence in Adults Rabeprazole sodium delayed-release tablets, in combination with amoxicillin and clarithromycin as a three drug regimen, are indicated for the treatment of patients with H. pylori infection and duodenal ulcer disease (active or history within the past 5 years) to eradicate H. pylori . Eradication of H. pylori has been shown to re",
+      "population": null,
+      "approval_status": "not_verified",
+      "approval_jurisdiction": "FDA",
+      "approval_date": null,
+      "label_date": "2023-11-30",
+      "dose": null,
+      "route": null,
+      "dose_source": null,
+      "evidence_source": "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=951caefe-6e18-48ff-9567-beb545b09c25",
+      "verification_status": "verified_in_regulatory_source"
+    },
+    {
+      "drug": "Exemestane",
+      "category": "FDA label found; indication does not mention the condition",
+      "indication": "are an aromatase inhibitor indicated for: adjuvant treatment of postmenopausal women with estrogen-receptor positive early breast cancer who have received two to three years of tamoxifen and are switched to exemestane tablets for completion of a total of five consecutive years of adjuvant hormonal therapy ( 14.1 ). treatment of advanced breast cancer in postmenopausal women whose disease h",
+      "population": null,
+      "approval_status": "not_verified",
+      "approval_jurisdiction": "FDA",
+      "approval_date": null,
+      "label_date": "2024-05-29",
+      "dose": null,
+      "route": null,
+      "dose_source": null,
+      "evidence_source": "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=1841ec12-3f4f-4b87-b719-fd0b4d9eaffb",
+      "verification_status": "verified_in_regulatory_source"
+    },
+    {
+      "drug": "Ipratropium Bromide",
+      "category": "FDA label found; indication does not mention the condition",
+      "indication": "",
+      "population": null,
+      "approval_status": "not_verified",
+      "approval_jurisdiction": "FDA",
+      "approval_date": null,
+      "label_date": "2022-07-01",
+      "dose": null,
+      "route": null,
+      "dose_source": null,
+      "evidence_source": "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=05c56190-e346-4674-a4f8-049ce632ce2d",
+      "verification_status": "verified_in_regulatory_source"
+    }
+  ],
+  "fda_terms": [
+    "three",
+    "year"
+  ],
+  "fast_evidence": [
+    {
+      "source_id": "pmid:42819540",
+      "pmid": "42819540",
+      "doi": "10.1155/crpe/7681667",
+      "pmcid": "PMC13624383",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/42819540/",
+      "year": "2026",
+      "date": "2026-09-29",
+      "journal": "Case reports in pediatrics",
+      "authors": [
+        "Linn K",
+        "May WL",
+        "Kyaw KN"
+      ],
+      "title": "Coexisting Hearing Impairment in Children Presenting With Speech and Language Delay: A Case Series Highlighting the Importance of Routine Audiological Assessment.",
+      "type": [
+        "case-study"
+      ],
+      "study_type": [
+        "case-study"
+      ],
+      "abstract": "Background Speech and language delay is a common reason for referral to developmental pediatric services. Hearing impairment is an important and potentially manageable cause but may be overlooked because its clinical presentation often overlaps with autism spectrum disorder (ASD), attention-deficit/hyperactivity disorder (ADHD), and other neurodevelopmental disorders. In Myanmar, where universal newborn hearing screening has not yet been routinely implemented, delayed recognition of hearing impairment remains an important clinical challenge. Case presentation We describe four children aged 5-7 years who were assessed at the Developmental Paediatrics Service of CLL HEALTH Community Paediatric Clinics, Yangon, Myanmar, after referral for speech delay, behavioral concerns, suspected ASD, attention difficulties, or school readiness assessment. Comprehensive developmental assessment together with formal audiological evaluation identified bilateral moderate sensorineural hearing loss in one child with language disorder, bilateral sensorineural hearing loss in a child with developmental coordination disorder and executive dysfunction, bilateral severe-to-profound hearing loss in a child initially suspected of having ADHD, and unilateral mild-to-moderate hearing loss in a child with ASD. None of the children had undergone newborn hearing screening. Hearing impairment either explained the presenting concerns or coexisted with neurodevelopmental disorders, contributing to communication, behavioral, and educational difficulties. Conclusion This case series highlights the diagnostic challenges of recognizing hearing impairment in children presenting with developmental concerns in Myanmar, particularly in the absence of routine newborn hearing screening. Hearing impairment may mimic neurodevelopmental disorders, coexist with them, or contribute substantially to developmental difficulties. Routine audiological assessment should, therefore, be incorporated into the evaluation of all children presenting with speech and language delay or broader developmental concerns to facilitate timely diagnosis and appropriate multidisciplinary intervention.",
+      "population": null,
+      "finding": null,
+      "limitations": null,
+      "cite": "Linn et al., Case reports in pediatrics, 2026 [PMID 42819540]",
+      "origin": "pubmed_fast",
+      "retracted": false,
+      "protocol": false,
+      "retrieved_at": "2026-10-15T16:09:43",
+      "triage": {
+        "relevance": "indirect",
+        "role": "background",
+        "population": "",
+        "evidence": "Hearing impairment is an important and potentially manageable cause but may be overlooked because its clinical presentation often overlaps with autism spectrum disorder (ASD), attention-deficit/hyperactivity disorder (ADHD), and other neurodevelopmental disorders."
+      }
+    },
+    {
+      "source_id": "pmid:42732392",
+      "pmid": "42732392",
+      "doi": "10.7759/cureus.114469",
+      "pmcid": "PMC13570577",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/42732392/",
+      "year": "2026",
+      "date": "2026-08-13",
+      "journal": "Cureus",
+      "authors": [
+        "Sudarsanan A",
+        "Barretto ES",
+        "Swamy DF"
+      ],
+      "title": "Conservative Management of a Primary Mandibular Second Molar With Dentoalveolar Abscess in a Four-Year-Old Child With Acute Lymphoblastic Leukemia: A Case Report.",
+      "type": [
+        "Case Reports",
+        "case-report"
+      ],
+      "study_type": [
+        "Case Reports",
+        "case-report"
+      ],
+      "abstract": "Acute lymphoblastic leukemia (ALL) is the most common pediatric hematologic malignancy and is frequently associated with significant oral complications resulting from the disease as well as the treatment-related immunosuppression. In such conditions, odontogenic infections may progress rapidly and contribute to systemic morbidity, thereby necessitating proper and carefully coordinated dental management. A four-year-old boy diagnosed with ALL, in the maintenance phase of chemotherapy, presented with pain and swelling in the lower right back tooth region for five days. Clinical and radiographic examination revealed a dentoalveolar abscess associated with the right deciduous mandibular second molar, along with multiple carious lesions involving other teeth. Following consultation with the pediatric oncologist and assessment of hematological parameters, a comprehensive dental rehabilitation was performed under strict infection control measures. Treatment included a pulpectomy of the right deciduous mandibular second molar, followed by placement of a stainless-steel crown and restorative management of other carious lesions. The child demonstrated complete resolution of pain and swelling, preservation of the affected primary tooth, restoration of masticatory function, and significant improvement in oral health during the follow-up visits. No postoperative complications or interruption of ongoing chemotherapy occurred. This case highlights that conservative management of an infected primary molar can be considered and safely done in children with ALL if their medical condition and hematological status permit. Also, careful treatment planning and multidisciplinary coordination with the oncologist allowed elimination of the oral foci of infection while preserving the teeth and maintaining arch integrity.",
+      "population": null,
+      "finding": null,
+      "limitations": null,
+      "cite": "Sudarsanan et al., Cureus, 2026 [PMID 42732392]",
+      "origin": "pubmed_fast",
+      "retracted": false,
+      "protocol": false,
+      "retrieved_at": "2026-10-15T16:09:43",
+      "triage": {
+        "relevance": "not_relevant",
+        "role": "background",
+        "population": "",
+        "evidence": "Conservative Management of a Primary Mandibular Second Molar With Dentoalveolar Abscess in a Four-Year-Old Child With Acute Lymphoblastic Leukemia: A Case Report."
+      }
+    },
+    {
+      "source_id": "pmid:42772271",
+      "pmid": "42772271",
+      "doi": "10.4269/ajtmh.26-0186",
+      "pmcid": "PMC13615284",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/42772271/",
+      "year": "2026",
+      "date": "2026-09-22",
+      "journal": "The American journal of tropical medicine and hygiene",
+      "authors": [
+        "Zhang Y",
+        "Liu Y",
+        "Yi H"
+      ],
+      "title": "Management of Bullous Pemphigoid and Norwegian Scabies with Dupilumab Plus Ivermectin.",
+      "type": [
+        "Case Reports",
+        "case-report"
+      ],
+      "study_type": [
+        "Case Reports",
+        "case-report"
+      ],
+      "abstract": "Bullous pemphigoid is a severe autoimmune blistering disease, and Norwegian scabies is a rare comorbidity. However, conventional treatment methods, such as systemic corticosteroids, carry a high risk in the treatment of elderly patients. Herein, this rare comorbidity is described in an elderly patient. After an initial induction treatment with a low-to-moderate dose of corticosteroid, this patient achieved complete remission with a combination therapy of dupilumab (a monoclonal antibody targeting the interleukin-4/13 signaling pathway) and ivermectin. Therefore, the successful treatment of this rare case provides a promising strategy for reducing reliance on corticosteroids in high-risk populations.",
+      "population": null,
+      "finding": null,
+      "limitations": null,
+      "cite": "Zhang et al., The American journal of tropical medicine and hygiene, 2026 [PMID 42772271]",
+      "origin": "pubmed_fast",
+      "retracted": false,
+      "protocol": false,
+      "retrieved_at": "2026-10-15T16:09:43",
+      "triage": {
+        "relevance": "not_relevant",
+        "role": "background",
+        "population": "",
+        "evidence": "Management of Bullous Pemphigoid and Norwegian Scabies with Dupilumab Plus Ivermectin."
+      }
+    },
+    {
+      "source_id": "pmid:42740342",
+      "pmid": "42740342",
+      "doi": "10.4097/kja.251033",
+      "pmcid": "PMC13624823",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/42740342/",
+      "year": "2026",
+      "date": "2026-09-15",
+      "journal": "Korean journal of anesthesiology",
+      "authors": [
+        "Rebollar RE",
+        "Muñoz Quintero JM",
+        "López Alfaro RE"
+      ],
+      "title": "Severe bradycardia in a child with an implanted vagus nerve stimulator undergoing laparoscopy -A case report.",
+      "type": [
+        "Research Support, Non-U.S. Gov't",
+        "Case Reports",
+        "case-report"
+      ],
+      "study_type": [
+        "Research Support, Non-U.S. Gov't",
+        "Case Reports",
+        "case-report"
+      ],
+      "abstract": "Background Vagus nerve stimulation is an established therapeutic option for children with drug-resistant epilepsy who do not respond to other treatments. During surgical procedures, this therapy has various anesthetic implications and may result in critical respiratory and cardiac complications. Case We report the case of a 13-year-old child with an implanted vagus nerve stimulator who underwent laparoscopy-assisted gastrostomy tube placement under general anesthesia with the device activated. A severe episode of bradycardia occurred during pneumoperitoneum, which was successfully managed pharmacologically, without external device deactivation. The rationale for this management decision is discussed and reflections based on the clinical course are provided. Conclusions Perioperative management of vagus nerve stimulators must be individualized. Maintaining device activation may be reasonable in children with recent seizure activity, whereas temporary deactivation may be considered during procedures associated with a high risk of vagal reflex. However, in cases requiring immediate deactivation, pharmacological intervention may be necessary given the deactivation magnet latency.",
+      "population": null,
+      "finding": null,
+      "limitations": null,
+      "cite": "Rebollar et al., Korean journal of anesthesiology, 2026 [PMID 42740342]",
+      "origin": "pubmed_fast",
+      "retracted": false,
+      "protocol": false,
+      "retrieved_at": "2026-10-15T16:09:43",
+      "triage": {
+        "relevance": "not_relevant",
+        "role": "background",
+        "population": "",
+        "evidence": "Severe bradycardia in a child with an implanted vagus nerve stimulator undergoing laparoscopy -A case report."
+      }
+    },
+    {
+      "source_id": "pmid:42783065",
+      "pmid": "42783065",
+      "doi": "10.3390/jcdd13090458",
+      "pmcid": "PMC13607965",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/42783065/",
+      "year": "2026",
+      "date": "2026-09-11",
+      "journal": "Journal of cardiovascular development and disease",
+      "authors": [
+        "Di Monaco A",
+        "Grimaldi M"
+      ],
+      "title": "Ventricular Arrhythmias: Epidemiology, Diagnosis and Treatment.",
+      "type": [
+        "Editorial"
+      ],
+      "study_type": [
+        "Editorial"
+      ],
+      "abstract": "Ventricular arrhythmias (VAs) represent a broad and clinically heterogeneous spectrum of cardiac rhythm disturbances, ranging from isolated ventricular premature beats to life-threatening ventricular fibrillation (VF) and sudden cardiac death (SCD) [...].",
+      "population": null,
+      "finding": null,
+      "limitations": null,
+      "cite": "Di et al., Journal of cardiovascular development and disease, 2026 [PMID 42783065]",
+      "origin": "pubmed_fast",
+      "retracted": false,
+      "protocol": false,
+      "retrieved_at": "2026-10-15T16:09:43",
+      "triage": {
+        "relevance": "not_relevant",
+        "role": "background",
+        "population": "",
+        "evidence": "Ventricular Arrhythmias: Epidemiology, Diagnosis and Treatment."
+      }
+    },
+    {
+      "source_id": "pmid:42699856",
+      "pmid": "42699856",
+      "doi": "10.1097/rc9.0000000000000866",
+      "pmcid": "PMC13544665",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/42699856/",
+      "year": "2026",
+      "date": "2026-08-14",
+      "journal": "International journal of surgery case reports",
+      "authors": [
+        "Akil A",
+        "Berjaoui C",
+        "Akil H"
+      ],
+      "title": "Acute fulminant cerebellitis in children: a case series and literature review on diagnostic challenges and management strategies.",
+      "type": [
+        "research-article"
+      ],
+      "study_type": [
+        "research-article"
+      ],
+      "abstract": "Background Acute cerebellitis (AC) in children is often benign; however, a fulminant variant featuring rapid cerebellar edema, hydrocephalus, and brainstem compression can be life-threatening. Case summary We present a three-case series of pediatric patients with fulminant cerebellitis. The first patient, a 12-year-old female, experienced rapid neurological decline despite initial corticosteroid therapy and underwent emergent posterior fossa decompression, resulting in full neurological recovery. The second patient, a 2-year-old female, presented with obstructive hydrocephalus, initially misdiagnosed as a posterior fossa neoplasm; despite high-dose corticosteroids and delayed external ventricular drainage (EVD), she progressed to brainstem failure and succumbed. The third patient, a 10-year-old male, was treated with urgent EVD insertion, high-dose corticosteroids, and intensive care monitoring, achieving rapid clinical improvement and complete recovery. Conclusion Fulminant AC in children, although rare, carries a high risk of morbidity and mortality. Prompt recognition and aggressive management, including high-dose corticosteroids, cerebrospinal fluid diversion, and timely posterior fossa decompression when needed, can substantially reduce morbidity and mortality in fulminant cerebellitis.",
+      "population": null,
+      "finding": null,
+      "limitations": null,
+      "cite": "Akil et al., International journal of surgery case reports, 2026 [PMID 42699856]",
+      "origin": "pubmed_fast",
+      "retracted": false,
+      "protocol": false,
+      "retrieved_at": "2026-10-15T16:09:43",
+      "triage": {
+        "relevance": "indirect",
+        "role": "experimental",
+        "population": "",
+        "evidence": "Case summary We present a three-case series of pediatric patients with fulminant cerebellitis."
+      }
+    },
+    {
+      "source_id": "pmid:42698352",
+      "pmid": "42698352",
+      "doi": "10.1177/10870547261478344",
+      "pmcid": "PMC13620239",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/42698352/",
+      "year": "2026",
+      "date": "2026-09-05",
+      "journal": "Journal of attention disorders",
+      "authors": [
+        "Hechtman L",
+        "Grizenko N",
+        "Joober R"
+      ],
+      "title": "Comprehensive Treatment and Monthly 2 Year Follow-Up in Children With ADHD: Randomized Controlled Prospective Study.",
+      "type": [
+        "research-article",
+        "Randomized Controlled Trial"
+      ],
+      "study_type": [
+        "research-article",
+        "Randomized Controlled Trial"
+      ],
+      "abstract": "ObjectivesTo evaluate the efficacy of regular monthly follow up in maintaining treatment gains versus follow up as needed in the community for children ages 6 to 12 years with ADHD.MethodsOne hundred and eighty six children, age 6 to 13 with DSM-IV diagnosed Attention Deficit Hyperactivity Disorder (ADHD) (combined presentation) received 3 months of comprehensive treatment which included long-acting stimulant medication titrated to optimal dose (via parent and teacher reports) and weekly parent training groups and child social skills and academic training. After the 3 months of treatment, children were randomized to either monthly follow up by the research team (treatment group) or follow up as usual in the community (control group). Comprehensive evaluations occurred at 3 months at the end of the comprehensive treatment, and at 6, 12, 18, and 24 month follow-up.ResultsChildren in both groups improved significantly in all domains after the 3 months of intensive comprehensive treatment. Treatment gains were maintained during the 2 year follow up period in both groups. However, the Hyperactive/Impulsive rating in Conners scale by parent report and some teacher reports were worse in the community group during the follow-up period.ConclusionThe importance of the initial intensive comprehensive 3 month treatment cannot be underestimated as these treatments resulted in significant improvements which were maintained for 2 years in both groups. Factors such as social economic status and available community treatment which may have influenced these results are discussed.",
+      "population": null,
+      "finding": null,
+      "limitations": null,
+      "cite": "Hechtman et al., Journal of attention disorders, 2026 [PMID 42698352]",
+      "origin": "pubmed_fast_q",
+      "retracted": false,
+      "protocol": false,
+      "retrieved_at": "2026-10-15T16:09:43",
+      "triage": {
+        "relevance": "indirect",
+        "role": "insufficient_or_negative",
+        "population": "",
+        "evidence": "ObjectivesTo evaluate the efficacy of regular monthly follow up in maintaining treatment gains versus follow up as needed in the community for children ages 6 to 12 years with ADHD.MethodsOne hundred and eighty six children, age 6 to 13 with DSM-IV diagnosed Attention Deficit Hyperactivity Disorder (ADHD) (combined presentation) received 3 months of comprehensive treatment which included long-acting stimulant medication titrated to optimal dose (via parent and teacher reports) and weekly parent training groups and child social skills and academic training."
+      }
+    },
+    {
+      "source_id": "pmid:42725565",
+      "pmid": "42725565",
+      "doi": "10.7189/jogh.16.04209",
+      "pmcid": "PMC13563637",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/42725565/",
+      "year": "2026",
+      "date": "2026-09-11",
+      "journal": "Journal of global health",
+      "authors": [
+        "Gadapani Pathak B",
+        "Nisar YB",
+        "Natchu UCM"
+      ],
+      "title": "Oral amoxicillin for management of fast breathing or chest indrawing pneumonia without danger signs in children aged 2-59 months: a systematic review and meta-analysis.",
+      "type": [
+        "Meta-Analysis",
+        "research-article",
+        "Systematic Review"
+      ],
+      "study_type": [
+        "Meta-Analysis",
+        "research-article",
+        "Systematic Review"
+      ],
+      "abstract": "Background World Health Organization (WHO) guidelines recommend oral amoxicillin as first-line therapy for pneumonia in children aged 2-59 months. However, uncertainty remains regarding its effectiveness compared with no antibiotics for fast breathing pneumonia and with injectable antibiotics for chest indrawing pneumonia without danger signs. Methods We searched PubMed, EMBASE, and the Cochrane Central Register of Controlled Trials (January 2000-August 2024) for randomised and quasi-randomised trials without language restrictions. Eligible studies compared oral amoxicillin vs. no antibiotics for fast breathing pneumonia or outpatient oral amoxicillin vs. inpatient injectable antibiotics for chest indrawing pneumonia without danger signs in children (2-59 months). Pooled relative risks (RRs) with 95% confidence intervals (CIs) were estimated using a random-effects model; certainty was assessed using GRADE. Results Four trials (n = 7,699) compared oral amoxicillin with no antibiotics for fast breathing pneumonia, and three (n = 4,864) compared oral with injectable antibiotics for chest indrawing pneumonia. For fast breathing pneumonia, oral amoxicillin reduced treatment failure by 16% at day 14 (RR = 0.84; 95% CI = 0.75, 0.94, I 2 = 0%; moderate certainty). For chest indrawing pneumonia, treatment failure was similar between groups at day 6 (RR = 0.96; 95% CI = 0.83, 1.11) and day 14 (RR = 0.94; 95% CI = 0.79, 1.13), while mortality was 72% lower with oral amoxicillin (RR = 0.28; 95% CI = 0.09, 0.86). Serious adverse events did not differ between groups. Conclusions In children (2-59 months), oral amoxicillin significantly reduces treatment failure compared to no antibiotics for fast breathing pneumonia and is comparable to injectable antibiotics for chest indrawing pneumonia without danger signs. Notably, oral amoxicillin was associated with a 72% reduction in mortality compared with injectable antibiotics in children with chest-indrawing pneumonia, although absolute risk differences were small. These findings support its broader implementation as an accessible, programmatically feasible, and WHO-recommended option for pneumonia management in low-resource settings. Registration PROSPERO: CRD42023439851.",
+      "population": null,
+      "finding": null,
+      "limitations": null,
+      "cite": "Gadapani et al., Journal of global health, 2026 [PMID 42725565]",
+      "origin": "pubmed_fast_q",
+      "retracted": false,
+      "protocol": false,
+      "retrieved_at": "2026-10-15T16:09:43",
+      "triage": {
+        "relevance": "indirect",
+        "role": "background",
+        "population": "",
+        "evidence": "Oral amoxicillin for management of fast breathing or chest indrawing pneumonia without danger signs in children aged 2-59 months: a systematic review and meta-analysis."
+      }
+    },
+    {
+      "source_id": "pmid:42812143",
+      "pmid": "42812143",
+      "doi": "10.48130/pedi-0026-0006",
+      "pmcid": "PMC13599426",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/42812143/",
+      "year": "2026",
+      "date": "2026-08-12",
+      "journal": "Pediatric diabetes",
+      "authors": [
+        "Zhang T",
+        "Wang N",
+        "Wang B"
+      ],
+      "title": "Efficacy and safety of hybrid closed-loop systems in children aged &lt; 7 years with type 1 diabetes: a systematic review and meta-analysis of randomized controlled trials.",
+      "type": [
+        "Meta-Analysis",
+        "Systematic Review",
+        "review-article"
+      ],
+      "study_type": [
+        "Meta-Analysis",
+        "Systematic Review",
+        "review-article"
+      ],
+      "abstract": "This study aimed to evaluate the clinical efficacy and safety of hybrid closed-loop systems for glycemic control in children aged p p p = 0.11). A comparison of serious adverse events showed no statistically significant differences in the risk of diabetic ketoacidosis ( p = 0.50) and severe hypoglycemia ( p = 0.64) between the hybrid closed-loop system group and the conventional therapy group. The hybrid closed-loop system can effectively improve glycemic control in children under 7 years old with Type 1 diabetes without increasing the risk of adverse events. Further high-quality, large-sample clinical studies are still required to verify and supplement the present conclusions.",
+      "population": null,
+      "finding": null,
+      "limitations": null,
+      "cite": "Zhang et al., Pediatric diabetes, 2026 [PMID 42812143]",
+      "origin": "pubmed_fast_q",
+      "retracted": false,
+      "protocol": false,
+      "retrieved_at": "2026-10-15T16:09:43",
+      "triage": {
+        "relevance": "indirect",
+        "role": "experimental",
+        "population": "",
+        "evidence": "Efficacy and safety of hybrid closed-loop systems in children aged &lt; 7 years with type 1 diabetes: a systematic review and meta-analysis of randomized controlled trials."
+      }
+    },
+    {
+      "source_id": "pmid:42507345",
+      "pmid": "42507345",
+      "doi": "10.4103/singaporemedj.smj-2026-318",
+      "pmcid": "PMC13516006",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/42507345/",
+      "year": "2026",
+      "date": "2026-07-27",
+      "journal": "Singapore medical journal",
+      "authors": [
+        "Ong GY",
+        "Ngiam N",
+        "Tham LP"
+      ],
+      "title": "Singapore Paediatric Life Support Guidelines 2026.",
+      "type": [
+        "Practice Guideline",
+        "review-article"
+      ],
+      "study_type": [
+        "Practice Guideline",
+        "review-article"
+      ],
+      "abstract": "Abstract The Singapore Paediatric Life Support Guidelines 2026 updates the 2021 guidelines and provides evidence-based, consensus recommendations for life support in paediatric patients (<18 years of age), excluding newborns. We reviewed treatment recommendations from the International Liaison Committee on Resuscitation Paediatric Life Support Task Force as well as resuscitation guidelines from the American Heart Association, the European Resuscitation Council and other relevant studies and reviews published between January 2021 and January 2026 to inform these paediatric life support guidelines. This clinical practice guideline adopts an evidence-based and patient-centred approach to the life support of paediatric patients in Singapore. Recommendations were updated following deliberation of peer-reviewed evidence updates on paediatric resuscitation, with consideration of local context, resources and clinical practice.",
+      "population": null,
+      "finding": null,
+      "limitations": null,
+      "cite": "Ong et al., Singapore medical journal, 2026 [PMID 42507345]",
+      "origin": "pubmed_fast_q",
+      "retracted": false,
+      "protocol": false,
+      "retrieved_at": "2026-10-15T16:09:43",
+      "triage": {
+        "relevance": "indirect",
+        "role": "background",
+        "population": "",
+        "evidence": "Singapore Paediatric Life Support Guidelines 2026."
+      }
+    }
+  ],
+  "deep_evidence": [
+    {
+      "source_id": "pmid:42819540",
+      "pmid": "42819540",
+      "doi": "10.1155/crpe/7681667",
+      "pmcid": "PMC13624383",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/42819540/",
+      "year": "2026",
+      "date": "2026-09-29",
+      "journal": "Case reports in pediatrics",
+      "authors": [
+        "Linn K",
+        "May WL",
+        "Kyaw KN"
+      ],
+      "title": "Coexisting Hearing Impairment in Children Presenting With Speech and Language Delay: A Case Series Highlighting the Importance of Routine Audiological Assessment.",
+      "type": [
+        "case-study"
+      ],
+      "study_type": [
+        "case-study"
+      ],
+      "abstract": "Background Speech and language delay is a common reason for referral to developmental pediatric services. Hearing impairment is an important and potentially manageable cause but may be overlooked because its clinical presentation often overlaps with autism spectrum disorder (ASD), attention-deficit/hyperactivity disorder (ADHD), and other neurodevelopmental disorders. In Myanmar, where universal newborn hearing screening has not yet been routinely implemented, delayed recognition of hearing impairment remains an important clinical challenge. Case presentation We describe four children aged 5-7 years who were assessed at the Developmental Paediatrics Service of CLL HEALTH Community Paediatric Clinics, Yangon, Myanmar, after referral for speech delay, behavioral concerns, suspected ASD, attention difficulties, or school readiness assessment. Comprehensive developmental assessment together with formal audiological evaluation identified bilateral moderate sensorineural hearing loss in one child with language disorder, bilateral sensorineural hearing loss in a child with developmental coordination disorder and executive dysfunction, bilateral severe-to-profound hearing loss in a child initially suspected of having ADHD, and unilateral mild-to-moderate hearing loss in a child with ASD. None of the children had undergone newborn hearing screening. Hearing impairment either explained the presenting concerns or coexisted with neurodevelopmental disorders, contributing to communication, behavioral, and educational difficulties. Conclusion This case series highlights the diagnostic challenges of recognizing hearing impairment in children presenting with developmental concerns in Myanmar, particularly in the absence of routine newborn hearing screening. Hearing impairment may mimic neurodevelopmental disorders, coexist with them, or contribute substantially to developmental difficulties. Routine audiological assessment should, therefore, be incorporated into the evaluation of all children presenting with speech and language delay or broader developmental concerns to facilitate timely diagnosis and appropriate multidisciplinary intervention.",
+      "population": null,
+      "finding": null,
+      "limitations": null,
+      "cite": "Linn et al., Case reports in pediatrics, 2026 [PMID 42819540]",
+      "origin": "pubmed_fast",
+      "retracted": false,
+      "protocol": false,
+      "retrieved_at": "2026-10-15T16:09:43",
+      "triage": {
+        "relevance": "indirect",
+        "role": "background",
+        "population": "",
+        "evidence": "Hearing impairment is an important and potentially manageable cause but may be overlooked because its clinical presentation often overlaps with autism spectrum disorder (ASD), attention-deficit/hyperactivity disorder (ADHD), and other neurodevelopmental disorders."
+      }
+    },
+    {
+      "source_id": "pmid:42732392",
+      "pmid": "42732392",
+      "doi": "10.7759/cureus.114469",
+      "pmcid": "PMC13570577",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/42732392/",
+      "year": "2026",
+      "date": "2026-08-13",
+      "journal": "Cureus",
+      "authors": [
+        "Sudarsanan A",
+        "Barretto ES",
+        "Swamy DF"
+      ],
+      "title": "Conservative Management of a Primary Mandibular Second Molar With Dentoalveolar Abscess in a Four-Year-Old Child With Acute Lymphoblastic Leukemia: A Case Report.",
+      "type": [
+        "Case Reports",
+        "case-report"
+      ],
+      "study_type": [
+        "Case Reports",
+        "case-report"
+      ],
+      "abstract": "Acute lymphoblastic leukemia (ALL) is the most common pediatric hematologic malignancy and is frequently associated with significant oral complications resulting from the disease as well as the treatment-related immunosuppression. In such conditions, odontogenic infections may progress rapidly and contribute to systemic morbidity, thereby necessitating proper and carefully coordinated dental management. A four-year-old boy diagnosed with ALL, in the maintenance phase of chemotherapy, presented with pain and swelling in the lower right back tooth region for five days. Clinical and radiographic examination revealed a dentoalveolar abscess associated with the right deciduous mandibular second molar, along with multiple carious lesions involving other teeth. Following consultation with the pediatric oncologist and assessment of hematological parameters, a comprehensive dental rehabilitation was performed under strict infection control measures. Treatment included a pulpectomy of the right deciduous mandibular second molar, followed by placement of a stainless-steel crown and restorative management of other carious lesions. The child demonstrated complete resolution of pain and swelling, preservation of the affected primary tooth, restoration of masticatory function, and significant improvement in oral health during the follow-up visits. No postoperative complications or interruption of ongoing chemotherapy occurred. This case highlights that conservative management of an infected primary molar can be considered and safely done in children with ALL if their medical condition and hematological status permit. Also, careful treatment planning and multidisciplinary coordination with the oncologist allowed elimination of the oral foci of infection while preserving the teeth and maintaining arch integrity.",
+      "population": null,
+      "finding": null,
+      "limitations": null,
+      "cite": "Sudarsanan et al., Cureus, 2026 [PMID 42732392]",
+      "origin": "pubmed_fast",
+      "retracted": false,
+      "protocol": false,
+      "retrieved_at": "2026-10-15T16:09:43",
+      "triage": {
+        "relevance": "not_relevant",
+        "role": "background",
+        "population": "",
+        "evidence": "Conservative Management of a Primary Mandibular Second Molar With Dentoalveolar Abscess in a Four-Year-Old Child With Acute Lymphoblastic Leukemia: A Case Report."
+      }
+    },
+    {
+      "source_id": "pmid:42772271",
+      "pmid": "42772271",
+      "doi": "10.4269/ajtmh.26-0186",
+      "pmcid": "PMC13615284",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/42772271/",
+      "year": "2026",
+      "date": "2026-09-22",
+      "journal": "The American journal of tropical medicine and hygiene",
+      "authors": [
+        "Zhang Y",
+        "Liu Y",
+        "Yi H"
+      ],
+      "title": "Management of Bullous Pemphigoid and Norwegian Scabies with Dupilumab Plus Ivermectin.",
+      "type": [
+        "Case Reports",
+        "case-report"
+      ],
+      "study_type": [
+        "Case Reports",
+        "case-report"
+      ],
+      "abstract": "Bullous pemphigoid is a severe autoimmune blistering disease, and Norwegian scabies is a rare comorbidity. However, conventional treatment methods, such as systemic corticosteroids, carry a high risk in the treatment of elderly patients. Herein, this rare comorbidity is described in an elderly patient. After an initial induction treatment with a low-to-moderate dose of corticosteroid, this patient achieved complete remission with a combination therapy of dupilumab (a monoclonal antibody targeting the interleukin-4/13 signaling pathway) and ivermectin. Therefore, the successful treatment of this rare case provides a promising strategy for reducing reliance on corticosteroids in high-risk populations.",
+      "population": null,
+      "finding": null,
+      "limitations": null,
+      "cite": "Zhang et al., The American journal of tropical medicine and hygiene, 2026 [PMID 42772271]",
+      "origin": "pubmed_fast",
+      "retracted": false,
+      "protocol": false,
+      "retrieved_at": "2026-10-15T16:09:43",
+      "triage": {
+        "relevance": "not_relevant",
+        "role": "background",
+        "population": "",
+        "evidence": "Management of Bullous Pemphigoid and Norwegian Scabies with Dupilumab Plus Ivermectin."
+      }
+    },
+    {
+      "source_id": "pmid:42740342",
+      "pmid": "42740342",
+      "doi": "10.4097/kja.251033",
+      "pmcid": "PMC13624823",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/42740342/",
+      "year": "2026",
+      "date": "2026-09-15",
+      "journal": "Korean journal of anesthesiology",
+      "authors": [
+        "Rebollar RE",
+        "Muñoz Quintero JM",
+        "López Alfaro RE"
+      ],
+      "title": "Severe bradycardia in a child with an implanted vagus nerve stimulator undergoing laparoscopy -A case report.",
+      "type": [
+        "Research Support, Non-U.S. Gov't",
+        "Case Reports",
+        "case-report"
+      ],
+      "study_type": [
+        "Research Support, Non-U.S. Gov't",
+        "Case Reports",
+        "case-report"
+      ],
+      "abstract": "Background Vagus nerve stimulation is an established therapeutic option for children with drug-resistant epilepsy who do not respond to other treatments. During surgical procedures, this therapy has various anesthetic implications and may result in critical respiratory and cardiac complications. Case We report the case of a 13-year-old child with an implanted vagus nerve stimulator who underwent laparoscopy-assisted gastrostomy tube placement under general anesthesia with the device activated. A severe episode of bradycardia occurred during pneumoperitoneum, which was successfully managed pharmacologically, without external device deactivation. The rationale for this management decision is discussed and reflections based on the clinical course are provided. Conclusions Perioperative management of vagus nerve stimulators must be individualized. Maintaining device activation may be reasonable in children with recent seizure activity, whereas temporary deactivation may be considered during procedures associated with a high risk of vagal reflex. However, in cases requiring immediate deactivation, pharmacological intervention may be necessary given the deactivation magnet latency.",
+      "population": null,
+      "finding": null,
+      "limitations": null,
+      "cite": "Rebollar et al., Korean journal of anesthesiology, 2026 [PMID 42740342]",
+      "origin": "pubmed_fast",
+      "retracted": false,
+      "protocol": false,
+      "retrieved_at": "2026-10-15T16:09:43",
+      "triage": {
+        "relevance": "not_relevant",
+        "role": "background",
+        "population": "",
+        "evidence": "Severe bradycardia in a child with an implanted vagus nerve stimulator undergoing laparoscopy -A case report."
+      }
+    },
+    {
+      "source_id": "pmid:42783065",
+      "pmid": "42783065",
+      "doi": "10.3390/jcdd13090458",
+      "pmcid": "PMC13607965",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/42783065/",
+      "year": "2026",
+      "date": "2026-09-11",
+      "journal": "Journal of cardiovascular development and disease",
+      "authors": [
+        "Di Monaco A",
+        "Grimaldi M"
+      ],
+      "title": "Ventricular Arrhythmias: Epidemiology, Diagnosis and Treatment.",
+      "type": [
+        "Editorial"
+      ],
+      "study_type": [
+        "Editorial"
+      ],
+      "abstract": "Ventricular arrhythmias (VAs) represent a broad and clinically heterogeneous spectrum of cardiac rhythm disturbances, ranging from isolated ventricular premature beats to life-threatening ventricular fibrillation (VF) and sudden cardiac death (SCD) [...].",
+      "population": null,
+      "finding": null,
+      "limitations": null,
+      "cite": "Di et al., Journal of cardiovascular development and disease, 2026 [PMID 42783065]",
+      "origin": "pubmed_fast",
+      "retracted": false,
+      "protocol": false,
+      "retrieved_at": "2026-10-15T16:09:43",
+      "triage": {
+        "relevance": "not_relevant",
+        "role": "background",
+        "population": "",
+        "evidence": "Ventricular Arrhythmias: Epidemiology, Diagnosis and Treatment."
+      }
+    },
+    {
+      "source_id": "pmid:42699856",
+      "pmid": "42699856",
+      "doi": "10.1097/rc9.0000000000000866",
+      "pmcid": "PMC13544665",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/42699856/",
+      "year": "2026",
+      "date": "2026-08-14",
+      "journal": "International journal of surgery case reports",
+      "authors": [
+        "Akil A",
+        "Berjaoui C",
+        "Akil H"
+      ],
+      "title": "Acute fulminant cerebellitis in children: a case series and literature review on diagnostic challenges and management strategies.",
+      "type": [
+        "research-article"
+      ],
+      "study_type": [
+        "research-article"
+      ],
+      "abstract": "Background Acute cerebellitis (AC) in children is often benign; however, a fulminant variant featuring rapid cerebellar edema, hydrocephalus, and brainstem compression can be life-threatening. Case summary We present a three-case series of pediatric patients with fulminant cerebellitis. The first patient, a 12-year-old female, experienced rapid neurological decline despite initial corticosteroid therapy and underwent emergent posterior fossa decompression, resulting in full neurological recovery. The second patient, a 2-year-old female, presented with obstructive hydrocephalus, initially misdiagnosed as a posterior fossa neoplasm; despite high-dose corticosteroids and delayed external ventricular drainage (EVD), she progressed to brainstem failure and succumbed. The third patient, a 10-year-old male, was treated with urgent EVD insertion, high-dose corticosteroids, and intensive care monitoring, achieving rapid clinical improvement and complete recovery. Conclusion Fulminant AC in children, although rare, carries a high risk of morbidity and mortality. Prompt recognition and aggressive management, including high-dose corticosteroids, cerebrospinal fluid diversion, and timely posterior fossa decompression when needed, can substantially reduce morbidity and mortality in fulminant cerebellitis.",
+      "population": null,
+      "finding": null,
+      "limitations": null,
+      "cite": "Akil et al., International journal of surgery case reports, 2026 [PMID 42699856]",
+      "origin": "pubmed_fast",
+      "retracted": false,
+      "protocol": false,
+      "retrieved_at": "2026-10-15T16:09:43",
+      "triage": {
+        "relevance": "indirect",
+        "role": "experimental",
+        "population": "",
+        "evidence": "Case summary We present a three-case series of pediatric patients with fulminant cerebellitis."
+      }
+    },
+    {
+      "source_id": "pmid:42698352",
+      "pmid": "42698352",
+      "doi": "10.1177/10870547261478344",
+      "pmcid": "PMC13620239",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/42698352/",
+      "year": "2026",
+      "date": "2026-09-05",
+      "journal": "Journal of attention disorders",
+      "authors": [
+        "Hechtman L",
+        "Grizenko N",
+        "Joober R"
+      ],
+      "title": "Comprehensive Treatment and Monthly 2 Year Follow-Up in Children With ADHD: Randomized Controlled Prospective Study.",
+      "type": [
+        "research-article",
+        "Randomized Controlled Trial"
+      ],
+      "study_type": [
+        "research-article",
+        "Randomized Controlled Trial"
+      ],
+      "abstract": "ObjectivesTo evaluate the efficacy of regular monthly follow up in maintaining treatment gains versus follow up as needed in the community for children ages 6 to 12 years with ADHD.MethodsOne hundred and eighty six children, age 6 to 13 with DSM-IV diagnosed Attention Deficit Hyperactivity Disorder (ADHD) (combined presentation) received 3 months of comprehensive treatment which included long-acting stimulant medication titrated to optimal dose (via parent and teacher reports) and weekly parent training groups and child social skills and academic training. After the 3 months of treatment, children were randomized to either monthly follow up by the research team (treatment group) or follow up as usual in the community (control group). Comprehensive evaluations occurred at 3 months at the end of the comprehensive treatment, and at 6, 12, 18, and 24 month follow-up.ResultsChildren in both groups improved significantly in all domains after the 3 months of intensive comprehensive treatment. Treatment gains were maintained during the 2 year follow up period in both groups. However, the Hyperactive/Impulsive rating in Conners scale by parent report and some teacher reports were worse in the community group during the follow-up period.ConclusionThe importance of the initial intensive comprehensive 3 month treatment cannot be underestimated as these treatments resulted in significant improvements which were maintained for 2 years in both groups. Factors such as social economic status and available community treatment which may have influenced these results are discussed.",
+      "population": null,
+      "finding": null,
+      "limitations": null,
+      "cite": "Hechtman et al., Journal of attention disorders, 2026 [PMID 42698352]",
+      "origin": "pubmed_fast_q",
+      "retracted": false,
+      "protocol": false,
+      "retrieved_at": "2026-10-15T16:09:43",
+      "triage": {
+        "relevance": "indirect",
+        "role": "insufficient_or_negative",
+        "population": "",
+        "evidence": "ObjectivesTo evaluate the efficacy of regular monthly follow up in maintaining treatment gains versus follow up as needed in the community for children ages 6 to 12 years with ADHD.MethodsOne hundred and eighty six children, age 6 to 13 with DSM-IV diagnosed Attention Deficit Hyperactivity Disorder (ADHD) (combined presentation) received 3 months of comprehensive treatment which included long-acting stimulant medication titrated to optimal dose (via parent and teacher reports) and weekly parent training groups and child social skills and academic training."
+      }
+    },
+    {
+      "source_id": "pmid:42725565",
+      "pmid": "42725565",
+      "doi": "10.7189/jogh.16.04209",
+      "pmcid": "PMC13563637",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/42725565/",
+      "year": "2026",
+      "date": "2026-09-11",
+      "journal": "Journal of global health",
+      "authors": [
+        "Gadapani Pathak B",
+        "Nisar YB",
+        "Natchu UCM"
+      ],
+      "title": "Oral amoxicillin for management of fast breathing or chest indrawing pneumonia without danger signs in children aged 2-59 months: a systematic review and meta-analysis.",
+      "type": [
+        "Meta-Analysis",
+        "research-article",
+        "Systematic Review"
+      ],
+      "study_type": [
+        "Meta-Analysis",
+        "research-article",
+        "Systematic Review"
+      ],
+      "abstract": "Background World Health Organization (WHO) guidelines recommend oral amoxicillin as first-line therapy for pneumonia in children aged 2-59 months. However, uncertainty remains regarding its effectiveness compared with no antibiotics for fast breathing pneumonia and with injectable antibiotics for chest indrawing pneumonia without danger signs. Methods We searched PubMed, EMBASE, and the Cochrane Central Register of Controlled Trials (January 2000-August 2024) for randomised and quasi-randomised trials without language restrictions. Eligible studies compared oral amoxicillin vs. no antibiotics for fast breathing pneumonia or outpatient oral amoxicillin vs. inpatient injectable antibiotics for chest indrawing pneumonia without danger signs in children (2-59 months). Pooled relative risks (RRs) with 95% confidence intervals (CIs) were estimated using a random-effects model; certainty was assessed using GRADE. Results Four trials (n = 7,699) compared oral amoxicillin with no antibiotics for fast breathing pneumonia, and three (n = 4,864) compared oral with injectable antibiotics for chest indrawing pneumonia. For fast breathing pneumonia, oral amoxicillin reduced treatment failure by 16% at day 14 (RR = 0.84; 95% CI = 0.75, 0.94, I 2 = 0%; moderate certainty). For chest indrawing pneumonia, treatment failure was similar between groups at day 6 (RR = 0.96; 95% CI = 0.83, 1.11) and day 14 (RR = 0.94; 95% CI = 0.79, 1.13), while mortality was 72% lower with oral amoxicillin (RR = 0.28; 95% CI = 0.09, 0.86). Serious adverse events did not differ between groups. Conclusions In children (2-59 months), oral amoxicillin significantly reduces treatment failure compared to no antibiotics for fast breathing pneumonia and is comparable to injectable antibiotics for chest indrawing pneumonia without danger signs. Notably, oral amoxicillin was associated with a 72% reduction in mortality compared with injectable antibiotics in children with chest-indrawing pneumonia, although absolute risk differences were small. These findings support its broader implementation as an accessible, programmatically feasible, and WHO-recommended option for pneumonia management in low-resource settings. Registration PROSPERO: CRD42023439851.",
+      "population": null,
+      "finding": null,
+      "limitations": null,
+      "cite": "Gadapani et al., Journal of global health, 2026 [PMID 42725565]",
+      "origin": "pubmed_fast_q",
+      "retracted": false,
+      "protocol": false,
+      "retrieved_at": "2026-10-15T16:09:43",
+      "triage": {
+        "relevance": "indirect",
+        "role": "background",
+        "population": "",
+        "evidence": "Oral amoxicillin for management of fast breathing or chest indrawing pneumonia without danger signs in children aged 2-59 months: a systematic review and meta-analysis."
+      }
+    },
+    {
+      "source_id": "pmid:42812143",
+      "pmid": "42812143",
+      "doi": "10.48130/pedi-0026-0006",
+      "pmcid": "PMC13599426",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/42812143/",
+      "year": "2026",
+      "date": "2026-08-12",
+      "journal": "Pediatric diabetes",
+      "authors": [
+        "Zhang T",
+        "Wang N",
+        "Wang B"
+      ],
+      "title": "Efficacy and safety of hybrid closed-loop systems in children aged &lt; 7 years with type 1 diabetes: a systematic review and meta-analysis of randomized controlled trials.",
+      "type": [
+        "Meta-Analysis",
+        "Systematic Review",
+        "review-article"
+      ],
+      "study_type": [
+        "Meta-Analysis",
+        "Systematic Review",
+        "review-article"
+      ],
+      "abstract": "This study aimed to evaluate the clinical efficacy and safety of hybrid closed-loop systems for glycemic control in children aged p p p = 0.11). A comparison of serious adverse events showed no statistically significant differences in the risk of diabetic ketoacidosis ( p = 0.50) and severe hypoglycemia ( p = 0.64) between the hybrid closed-loop system group and the conventional therapy group. The hybrid closed-loop system can effectively improve glycemic control in children under 7 years old with Type 1 diabetes without increasing the risk of adverse events. Further high-quality, large-sample clinical studies are still required to verify and supplement the present conclusions.",
+      "population": null,
+      "finding": null,
+      "limitations": null,
+      "cite": "Zhang et al., Pediatric diabetes, 2026 [PMID 42812143]",
+      "origin": "pubmed_fast_q",
+      "retracted": false,
+      "protocol": false,
+      "retrieved_at": "2026-10-15T16:09:43",
+      "triage": {
+        "relevance": "indirect",
+        "role": "experimental",
+        "population": "",
+        "evidence": "Efficacy and safety of hybrid closed-loop systems in children aged &lt; 7 years with type 1 diabetes: a systematic review and meta-analysis of randomized controlled trials."
+      }
+    },
+    {
+      "source_id": "pmid:42507345",
+      "pmid": "42507345",
+      "doi": "10.4103/singaporemedj.smj-2026-318",
+      "pmcid": "PMC13516006",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/42507345/",
+      "year": "2026",
+      "date": "2026-07-27",
+      "journal": "Singapore medical journal",
+      "authors": [
+        "Ong GY",
+        "Ngiam N",
+        "Tham LP"
+      ],
+      "title": "Singapore Paediatric Life Support Guidelines 2026.",
+      "type": [
+        "Practice Guideline",
+        "review-article"
+      ],
+      "study_type": [
+        "Practice Guideline",
+        "review-article"
+      ],
+      "abstract": "Abstract The Singapore Paediatric Life Support Guidelines 2026 updates the 2021 guidelines and provides evidence-based, consensus recommendations for life support in paediatric patients (<18 years of age), excluding newborns. We reviewed treatment recommendations from the International Liaison Committee on Resuscitation Paediatric Life Support Task Force as well as resuscitation guidelines from the American Heart Association, the European Resuscitation Council and other relevant studies and reviews published between January 2021 and January 2026 to inform these paediatric life support guidelines. This clinical practice guideline adopts an evidence-based and patient-centred approach to the life support of paediatric patients in Singapore. Recommendations were updated following deliberation of peer-reviewed evidence updates on paediatric resuscitation, with consideration of local context, resources and clinical practice.",
+      "population": null,
+      "finding": null,
+      "limitations": null,
+      "cite": "Ong et al., Singapore medical journal, 2026 [PMID 42507345]",
+      "origin": "pubmed_fast_q",
+      "retracted": false,
+      "protocol": false,
+      "retrieved_at": "2026-10-15T16:09:43",
+      "triage": {
+        "relevance": "indirect",
+        "role": "background",
+        "population": "",
+        "evidence": "Singapore Paediatric Life Support Guidelines 2026."
+      }
+    }
+  ],
+  "drugs": "## Treatment Drug Landscape\n\n### Drugs used for treatment of this condition\n\n*Approved: an FDA label names this condition. Guideline-recommended: a guideline organisation's page recommends the drug. Used in practice: a retrieved review or page describes the drug for this condition, with no FDA label or guideline for it (see the category in Key evidence). Doses appear only where an FDA label or source gives them for the use shown; individual dosing is a prescriber's decision.*\n\n| Drug | Indication | Dose / route (if sourced) | Key evidence |\n|---|---|---|---|\n| Quetiapine Fumarate | \"The efficacy of quetiapine tablets in schizophrenia was established in three 6-week trials in adults and one 6-week trial in adolescents (13 to 17 years).\" | Route: Oral. No dosing subsection for this condition; the label's general dosing (not specific to this use): \"2 DOSAGE AND ADMINISTRATION Quetiapine tablets can be taken with or without food ( 2.1 ). Indication Initial Dose Recommended Dose Maximum Dose Schizophrenia-Adults ( 2.2 ) 25 mg twice daily 150 to 750 mg/day 750 mg/day Schizophrenia-Adolescents (13 to 17 years) ( 2.2 ) 25 mg twice daily 400 to 800 mg/day 800 mg/day Bipolar Mania- Adults Monotherapy or as an adjunct to lithium or divalproex ( 2.2 ) 50 mg twice daily 400 to 800 mg/day 800 mg/day Bipolar Mania-Children and Adolescents (10 to 17 years), Monotherapy ( 2.2 ) 25 mg twice daily 400 to 600 mg/day 600 mg/day Bipolar Depression-Adults ( 2.2 ) 50 mg once daily at bedtime 300 mg/day 300 mg/day Geriatric Use : Consider a lower starting (the label continues)\" | FDA label. [DailyMed label](https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=02b19885-2987-4c46-8d2a-5e59656f72e8#:~:text=was%20established%20in%20three%206-week) FDA-approved for the use shown; label effective 2026-07-16. |\n| Quetiapine | \"The efficacy of quetiapine in schizophrenia was established in three 6-week trials in adults and one 6-week trial in adolescents (13 to 17 years).\" | Route: Oral. No dosing subsection for this condition; the label's general dosing (not specific to this use): \"2 DOSAGE & ADMINISTRATION · Quetiapine tablets, USP can be taken with or without food ( 2.1 ) Indication Initial Dose Recommended Dose Maximum Dose Schizophrenia-Adults (2.2) 25 mg twice daily 150 to 750 mg/day 750 mg/day Schizophrenia-Adolescents (13 to 17 years) (2.2) 25 mg twice daily 400 to 800 mg/day 800 mg/day Bipolar Mania- Adults Monotherapy or as an adjunct to lithium or divalproex (2.2) 50 mg twice daily 400 to 800 mg/day 800 mg/day Bipolar Mania- Children and Adolescents (10 to 17 years), Monotherapy (2.2) 25 mg twice daily 400 to 600 mg/day 600 mg/day Bipolar Depression-Adults (2.2) 50 mg once daily at bedtime 300 mg/day 300 mg/day Geriatric Use: Consider a lower starting dose (the label continues)\" | FDA label. [DailyMed label](https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=01261008-5f42-4844-8a65-d4545a67a309#:~:text=was%20established%20in%20three%206-week) FDA-approved for the use shown; label effective 2025-06-27. |\n\n### Other drugs: used for symptoms (not established treatments of this condition)\n\n*Drugs that a retrieved review, guideline or web page describes as used for the condition, its symptoms or co-occurring conditions, for which no FDA label for this use was retrieved. Drugs still being tested in trials are listed in the Clinical trials section below.*\n\n| Drug | Indication | Dose / route (if sourced) | Key evidence |\n|---|---|---|---|\n| None retrieved | | | No symptom-directed drug for this condition was retrieved in this run. This does not mean none exists. |\n\n### Recently approved or updated (FDA, EMA and CDSCO announcements)\n\n*No FDA, EMA or CDSCO announcement dated within the last 3 years was found for this question. This does not mean none exists.*\n\n### Safety warnings (FDA boxed warnings)\n\n| Drug(s) (FDA label) | Boxed warning, in the label's words |\n|---|---|\n| [Quetiapine Fumarate](https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=02b19885-2987-4c46-8d2a-5e59656f72e8) | \"INCREASED MORTALITY IN ELDERLY PATIENTS WITH DEMENTIA-RELATED PSYCHOSIS; and SUICIDAL THOUGHTS AND BEHAVIORS See full prescribing information for complete boxed warning. Increased Mortality in Elderly Patients with Dementia-Related Psychosis Elderly patients with dementia-related psychosis treated with antipsychotic drugs are at an increased risk of death.\" |\n| [Quetiapine](https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=01261008-5f42-4844-8a65-d4545a67a309) | \"INCREASED MORTALITY IN ELDERLY PATIENTS WITH DEMENTIA-RELATED PSYCHOSIS; and SUICIDAL THOUGHTS AND BEHAVIORS Increased Mortality in Elderly Patients with Dementia-Related Psychosis Elderly patients with dementia-related psychosis treated with antipsychotic drugs are at an increased risk of death [ see Warnings and Precautions (5.1) ].\" |\n\n*These are the labels' own boxed warnings, not a complete safety review: read the full label.*",
+  "trials": [],
+  "synthesis": "## Latest findings\n\n**Acute fulminant cerebellitis in children: a case series (indirect evidence)**\n2026-08-14, **case series**\nThis study examined children with fulminant cerebellitis, a rare but severe condition, through a case series and literature review. It found that aggressive management—including high-dose corticosteroids, cerebrospinal fluid diversion, and surgical decompression—can reduce morbidity and mortality, though prompt recognition remains critical (PMID [42699856](https://pubmed.ncbi.nlm.nih.gov/42699856/)).\n\n**Comprehensive treatment and 2-year follow-up in children with ADHD (indirect evidence)**\n2026-09-05, **randomized controlled trial**\nThis trial evaluated the long-term effects of intensive 3-month comprehensive treatment in children with ADHD, comparing it to standard community care. While both groups showed sustained improvements after 2 years, the community group showed worse outcomes in hyperactive/impulsive symptoms, highlighting the importance of structured initial intervention (PMID [42698352](https://pubmed.ncbi.nlm.nih.gov/42698352/)).\n\n**Hearing impairment in children with speech/language delay (indirect evidence)**\n2026-09-29, **case study**\nThis case series from Myanmar highlighted how undiagnosed hearing impairment in children with developmental delays—including speech and language concerns—can mimic or exacerbate neurodevelopmental disorders. The authors emphasized the need for routine audiological assessments to avoid misdiagnosis and ensure timely multidisciplinary intervention (PMID [42819540](https://pubmed.ncbi.nlm.nih.gov/42819540/)).\n\n## Current evidence\n| Approach | Evidence level | What the evidence shows | Reference |\n|---|---|---|---|\n| Routine audiological assessment for children with speech/language delay | Indirect evidence | Hearing impairment may mimic or coexist with neurodevelopmental disorders; audiological assessment is critical for timely diagnosis and multidisciplinary intervention in children with developmental concerns. | (Linn et al., Case reports in pediatrics, 2026 [PMID 42819540]) |\n| Comprehensive multidisciplinary intervention for developmental delay | Insufficient evidence | No direct evidence retrieved for this specific population; however, intensive comprehensive treatment (e.g., ADHD-focused) showed maintained gains in some domains over 2 years in a different population. | (Hechtman et al., Journal of attention disorders, 2026 [PMID 42698352]) |\n\n## Key studies\n\n1. **Linn et al. (2026)**, case-study: This case series highlights that hearing impairment may coexist with neurodevelopmental disorders or contribute to developmental difficulties in children presenting with speech and language delay, emphasizing the need for routine audiological assessment in such cases (PMID [42819540](https://pubmed.ncbi.nlm.nih.gov/42819540/)).\n\n2. **Akil et al. (2026)**, research-article: The case series and literature review describe fulminant acute cerebellitis in children, noting that aggressive management—including high-dose corticosteroids, cerebrospinal fluid diversion, and surgical decompression—can reduce morbidity and mortality (PMID [42699856](https://pubmed.ncbi.nlm.nih.gov/42699856/)).\n\n*(No additional studies met the criteria for direct evidence on developmental delay, regression, or autistic tendencies in the retrieved data.)*\n\n## Conflicting evidence\nNo direct evidence was retrieved comparing diagnostic or management approaches for a **three-year-old child with global developmental delay, regression of milestones, and autistic tendencies**. The retrieved studies focused on unrelated populations (e.g., hearing impairment, cerebellitis, ADHD, pneumonia, or diabetes) or indirect evidence, so no disagreement or contradiction was identified.\n\n## What remains under investigation\n- **Diagnostic evaluation for coexisting conditions**: Whether routine audiological assessment should be prioritized in children with developmental delay and regression, given potential overlap with neurodevelopmental disorders (indirect evidence, Linn et al., 2026).\n- **Early intervention strategies for regression**: No direct evidence was retrieved on whether specific therapies (e.g., behavioral, pharmacological) effectively halt or reverse regression in this population.\n- **Effectiveness of multidisciplinary interventions**: While ADHD studies (Hechtman et al., 2026) show long-term gains from intensive treatment, no data was retrieved on whether similar approaches benefit children with developmental delay and autistic tendencies.\n- **Feasibility of early autism spectrum disorder (ASD) screening**: No trials or studies were found investigating optimal screening tools or timelines for ASD in children with regression and global delay.\n- **Long-term outcomes of early behavioral or pharmacological treatments**: No evidence was retrieved on whether interventions initiated at age 3 yield sustained improvements in milestones or social communication.\n- **Association between metabolic or genetic factors and regression**: No studies were found exploring whether metabolic or genetic testing should be routinely included in the workup for this population.",
+  "citations": [
+    "Linn et al., Case reports in pediatrics, 2026 [PMID 42819540]",
+    "Zhang et al., Pediatric diabetes, 2026 [PMID 42812143]",
+    "Hechtman et al., Journal of attention disorders, 2026 [PMID 42698352]",
+    "Gadapani et al., Journal of global health, 2026 [PMID 42725565]",
+    "Akil et al., International journal of surgery case reports, 2026 [PMID 42699856]"
+  ],
+  "source_status": {
+    "pubmed_fast": {
+      "retrieval_status": "success",
+      "evidence_status": "found",
+      "error": null
+    },
+    "pubmed_fast_q": {
+      "retrieval_status": "success",
+      "evidence_status": "found",
+      "error": null
+    },
+    "trials_fast": {
+      "retrieval_status": "success",
+      "evidence_status": "not_found_after_search",
+      "error": null
+    },
+    "trials_drugs_fast": {
+      "retrieval_status": "success",
+      "evidence_status": "not_found_after_search",
+      "error": null
+    },
+    "fda_fast": {
+      "retrieval_status": "success",
+      "evidence_status": "found",
+      "error": null
+    },
+    "web_fast": {
+      "retrieval_status": "success",
+      "evidence_status": "found",
+      "error": null
+    },
+    "pubmed_recent": {
+      "retrieval_status": "success",
+      "evidence_status": "not_found_after_search",
+      "error": null
+    },
+    "pubmed_quality": {
+      "retrieval_status": "success",
+      "evidence_status": "not_found_after_search",
+      "error": null
+    },
+    "pubmed_negative": {
+      "retrieval_status": "success",
+      "evidence_status": "not_found_after_search",
+      "error": null
+    },
+    "pubmed_drugs": {
+      "retrieval_status": "success",
+      "evidence_status": "not_found_after_search",
+      "error": null
+    },
+    "pubmed_nondrug": {
+      "retrieval_status": "success",
+      "evidence_status": "not_found_after_search",
+      "error": null
+    },
+    "guidelines_deep": {
+      "retrieval_status": "success",
+      "evidence_status": "found",
+      "error": null
+    },
+    "pubmed_freefull": {
+      "retrieval_status": "success",
+      "evidence_status": "not_found_after_search",
+      "error": null
+    },
+    "pubmed_drugs_review": {
+      "retrieval_status": "success",
+      "evidence_status": "not_found_after_search",
+      "error": null
+    },
+    "fda_deep": {
+      "retrieval_status": "success",
+      "evidence_status": "found",
+      "error": null
+    },
+    "web_approvals": {
+      "retrieval_status": "partial",
+      "evidence_status": "unavailable",
+      "error": "timed out after 25s (partial)"
+    },
+    "web_medications": {
+      "retrieval_status": "success",
+      "evidence_status": "found",
+      "error": null
+    },
+    "web_named_drugs": {
+      "retrieval_status": "partial",
+      "evidence_status": "unavailable",
+      "error": "timed out after 25s (partial)"
+    },
+    "web_symptom_drugs": {
+      "retrieval_status": "partial",
+      "evidence_status": "unavailable",
+      "error": "timed out after 25s (partial)"
+    },
+    "pubmed_drugs_symptoms": {
+      "retrieval_status": "success",
+      "evidence_status": "not_found_after_search",
+      "error": null
+    },
+    "web_regulatory": {
+      "retrieval_status": "partial",
+      "evidence_status": "unavailable",
+      "error": "timed out after 25s (partial)"
+    },
+    "web_standard": {
+      "retrieval_status": "success",
+      "evidence_status": "found",
+      "error": null
+    },
+    "trials_drugs": {
+      "retrieval_status": "success",
+      "evidence_status": "not_found_after_search",
+      "error": null
+    },
+    "trials_deep": {
+      "retrieval_status": "success",
+      "evidence_status": "not_found_after_search",
+      "error": null
+    }
+  },
+  "retrieval_errors": {
+    "web_fast": "timed out after 4s (partial)",
+    "web_approvals": "timed out after 25s (partial)",
+    "web_named_drugs": "timed out after 25s (partial)",
+    "web_symptom_drugs": "timed out after 25s (partial)",
+    "web_regulatory": "timed out after 25s (partial)"
+  },
+  "drug_intelligence_status": "complete",
+  "trial_status": "complete",
+  "verification_status": "PASS",
+  "repair_count": 1,
+  "verification": {
+    "status": "PASS",
+    "checked": {
+      "pmids": 5,
+      "dois": 5,
+      "trials": 0,
+      "urls": 2
+    },
+    "repairs": [
+      "removed unsupported claim: a drug with a labelled indication matching the condition is called off-label",
+      "labelled the cited paper as indirect evidence (different or related population) (x6)"
+    ],
+    "repair_count": 1,
+    "issues_before_repair": [
+      "a drug with a labelled indication matching the condition is called off-label",
+      "PMID 42819540 studies a different or related population but is not labelled indirect",
+      "PMID 42699856 studies a different or related population but is not labelled indirect",
+      "PMID 42698352 studies a different or related population but is not labelled indirect",
+      "PMID 42819540 studies a different or related population but is not labelled indirect",
+      "PMID 42698352 studies a different or related population but is not labelled indirect",
+      "PMID 42698352 studies a different or related population but is not labelled indirect"
+    ]
+  },
+  "qc": {
+    "status": "PASS",
+    "checks": {
+      "grounding": "pass",
+      "drugs": "pass",
+      "trials": "pass",
+      "retrieval_semantics": "pass",
+      "completeness": "pass",
+      "formatting": "pass"
+    },
+    "remaining": [],
+    "view": {
+      "source_status": {
+        "pubmed_fast": {
+          "retrieval_status": "success",
+          "evidence_status": "found",
+          "error": null
+        },
+        "pubmed_fast_q": {
+          "retrieval_status": "success",
+          "evidence_status": "found",
+          "error": null
+        },
+        "trials_fast": {
+          "retrieval_status": "success",
+          "evidence_status": "not_found_after_search",
+          "error": null
+        },
+        "trials_drugs_fast": {
+          "retrieval_status": "success",
+          "evidence_status": "not_found_after_search",
+          "error": null
+        },
+        "fda_fast": {
+          "retrieval_status": "success",
+          "evidence_status": "found",
+          "error": null
+        },
+        "web_fast": {
+          "retrieval_status": "success",
+          "evidence_status": "found",
+          "error": null
+        },
+        "pubmed_recent": {
+          "retrieval_status": "success",
+          "evidence_status": "not_found_after_search",
+          "error": null
+        },
+        "pubmed_quality": {
+          "retrieval_status": "success",
+          "evidence_status": "not_found_after_search",
+          "error": null
+        },
+        "pubmed_negative": {
+          "retrieval_status": "success",
+          "evidence_status": "not_found_after_search",
+          "error": null
+        },
+        "pubmed_drugs": {
+          "retrieval_status": "success",
+          "evidence_status": "not_found_after_search",
+          "error": null
+        },
+        "pubmed_nondrug": {
+          "retrieval_status": "success",
+          "evidence_status": "not_found_after_search",
+          "error": null
+        },
+        "guidelines_deep": {
+          "retrieval_status": "success",
+          "evidence_status": "found",
+          "error": null
+        },
+        "pubmed_freefull": {
+          "retrieval_status": "success",
+          "evidence_status": "not_found_after_search",
+          "error": null
+        },
+        "pubmed_drugs_review": {
+          "retrieval_status": "success",
+          "evidence_status": "not_found_after_search",
+          "error": null
+        },
+        "fda_deep": {
+          "retrieval_status": "success",
+          "evidence_status": "found",
+          "error": null
+        },
+        "web_approvals": {
+          "retrieval_status": "partial",
+          "evidence_status": "unavailable",
+          "error": "timed out after 25s (partial)"
+        },
+        "web_medications": {
+          "retrieval_status": "success",
+          "evidence_status": "found",
+          "error": null
+        },
+        "web_named_drugs": {
+          "retrieval_status": "partial",
+          "evidence_status": "unavailable",
+          "error": "timed out after 25s (partial)"
+        },
+        "web_symptom_drugs": {
+          "retrieval_status": "partial",
+          "evidence_status": "unavailable",
+          "error": "timed out after 25s (partial)"
+        },
+        "pubmed_drugs_symptoms": {
+          "retrieval_status": "success",
+          "evidence_status": "not_found_after_search",
+          "error": null
+        },
+        "web_regulatory": {
+          "retrieval_status": "partial",
+          "evidence_status": "unavailable",
+          "error": "timed out after 25s (partial)"
+        },
+        "web_standard": {
+          "retrieval_status": "success",
+          "evidence_status": "found",
+          "error": null
+        },
+        "trials_drugs": {
+          "retrieval_status": "success",
+          "evidence_status": "not_found_after_search",
+          "error": null
+        },
+        "trials_deep": {
+          "retrieval_status": "success",
+          "evidence_status": "not_found_after_search",
+          "error": null
+        }
+      },
+      "drug_intelligence_status": "complete",
+      "repair_count": 1
+    }
+  },
+  "answer_status": "FINAL",
+  "timestamps": {
+    "request_started": "2026-10-15T16:09:40",
+    "first_response": 7.07,
+    "retrieval_fast_s": 3.02,
+    "first_token_s": 4.99,
+    "first_useful_s": 7.07,
+    "top_drugs_s": 7.07,
+    "retrieval_deep_s": 7.07,
+    "triage_s": 8.82,
+    "evidence_done_s": 14.36,
+    "drugs_done_s": 28.94,
+    "trials_done_s": 28.94,
+    "verification_done_s": 29.04,
+    "final_s": 29.04
+  },
+  "privacy": {
+    "removed": {},
+    "detector": "regex+spacy"
+  },
+  "searched_on": "2026-10-15",
+  "fast_decision_trace": [
+    {
+      "confirmed": [
+        "Quetiapine Fumarate",
+        "Quetiapine"
+      ],
+      "excluded": [
+        "Buspirone",
+        "Rabeprazole"
+      ],
+      "unreviewed": [],
+      "reviewer_rejected": []
+    },
+    null
+  ],
+  "triage_trace": [
+    {
+      "kind": "papers",
+      "seconds": 1.2,
+      "sample": [
+        "42698352|indirect|insufficient_or_negative|2",
+        "42725565|indirect|background|1"
+      ],
+      "count": 4,
+      "raw_tail": "```json\n{\"papers\":[\n    \"42698352|indirect|insufficient_or_negative|2\",\n    \"42725565|indirect|background|1\",\n    \"42812143|indirect|experimental|1\",\n    \"42507345|indirect|background|1\"\n]}\n```",
+      "sent": 4
+    },
+    {
+      "kind": "papers",
+      "seconds": 1.7,
+      "sample": [
+        "42819540|indirect|background|3",
+        "42732392|not_relevant|background|1"
+      ],
+      "count": 6,
+      "raw_tail": "```json\n{\"papers\":[\n    \"42819540|indirect|background|3\",\n    \"42732392|not_relevant|background|1\",\n    \"42772271|not_relevant|background|1\",\n    \"42740342|not_relevant|background|1\",\n    \"42783065|not_relevant|background|1\",\n    \"42699856|indirect|experimental|3\"\n]}\n```",
+      "sent": 6
+    }
+  ],
+  "guideline_rows": [
+    {
+      "topic": "medications",
+      "label": "Medications used in practice",
+      "title": "Medications in Pediatrics: A Compendium of AAP Clinical ...BNFC (BNF for Children) | NICEPsychiatric Medication For Children And Adolescents Part I ...Diagnosis and Treatment Options for Preschoolers with ...Outpatient Clinical Care for Pediatric Populations",
+      "organisation": "American Academy of Pediatrics",
+      "year": "2026",
+      "url": "https://www.aap.org/Medications-in-Pediatrics-A-Compendium-of-AAP-Clinical-Practice-Guidelines-and-Policies-Package",
+      "excerpt": "This new compendium contains AAP clinical practice guidelines, policy statements, clinical reports, and technical reports related to the use of medications in the pediatric population. It is designed to be a handy reference to AAP policies and recommended best practices.",
+      "text": "This new compendium contains AAP clinical practice guidelines, policy statements, clinical reports, and technical reports related to the use of medications in the pediatric population. It is designed to be a handy reference to AAP policies and recommended best practices. Aug 26, 2026 · Includes guidance on prescribing in palliative care, prescription writing and prescribing in renal impairment. Indication, dose and medicinal product information for medical devices. Browse devices by type. Foods and toilet preparations, that in certain conditions have the characteristics of drugs. AACAP guide for families on how psychiatric medications are used to treat children and teens, including evaluation, safety, and treatment planning. In this review, we identified recent literature on the diagnosis and treatment of ADHD in preschool children. Methods: A PubMed and clinicaltrials.gov search was conducted for trials assessing efficacy or safety of ADHD medications in children aged <6 years. Apr 22, 2024 · Antibiotic prescribing guidelines create standards of care and improve quality of care and patient outcomes. Below are pediatric summary recommendations for six common diagnoses for children getting care in an outpatient setting."
+    },
+    {
+      "topic": "first_line",
+      "label": "First-line treatment and management",
+      "title": "Clinical Practice Guideline for the Diagnosis and Treatment ...",
+      "organisation": "American Academy of Pediatrics",
+      "year": "2026",
+      "url": "https://publications.aap.org/pediatrics/article/158/4/e2026078565/209460/Clinical-Practice-Guideline-for-the-Diagnosis-and",
+      "excerpt": "It is designed to provide guidance for pediatricians and other pediatric clinicians on the diagnosis and management of UTIs in infants and children 8 days to 5 years of age and is intended for use in children with low medical complexity across a variety of settings.",
+      "text": "Sep 28, 2026 · It is designed to provide guidance for pediatricians and other pediatric clinicians on the diagnosis and management of UTIs in infants and children 8 days to 5 years of age and is intended for use in children with low medical complexity across a variety of settings."
+    }
+  ],
+  "guidelines": [
+    {
+      "topic": "medications",
+      "label": "Medications used in practice",
+      "title": "Medications in Pediatrics: A Compendium of AAP Clinical ...BNFC (BNF for Children) | NICEPsychiatric Medication For Children And Adolescents Part I ...Diagnosis and Treatment Options for Preschoolers with ...Outpatient Clinical Care for Pediatric Populations",
+      "organisation": "American Academy of Pediatrics",
+      "year": "2026",
+      "url": "https://www.aap.org/Medications-in-Pediatrics-A-Compendium-of-AAP-Clinical-Practice-Guidelines-and-Policies-Package",
+      "excerpt": "This new compendium contains AAP clinical practice guidelines, policy statements, clinical reports, and technical reports related to the use of medications in the pediatric population. It is designed to be a handy reference to AAP policies and recommended best practices.",
+      "text": "This new compendium contains AAP clinical practice guidelines, policy statements, clinical reports, and technical reports related to the use of medications in the pediatric population. It is designed to be a handy reference to AAP policies and recommended best practices. Aug 26, 2026 · Includes guidance on prescribing in palliative care, prescription writing and prescribing in renal impairment. Indication, dose and medicinal product information for medical devices. Browse devices by type. Foods and toilet preparations, that in certain conditions have the characteristics of drugs. AACAP guide for families on how psychiatric medications are used to treat children and teens, including evaluation, safety, and treatment planning. In this review, we identified recent literature on the diagnosis and treatment of ADHD in preschool children. Methods: A PubMed and clinicaltrials.gov search was conducted for trials assessing efficacy or safety of ADHD medications in children aged <6 years. Apr 22, 2024 · Antibiotic prescribing guidelines create standards of care and improve quality of care and patient outcomes. Below are pediatric summary recommendations for six common diagnoses for children getting care in an outpatient setting."
+    },
+    {
+      "topic": "first_line",
+      "label": "First-line treatment and management",
+      "title": "Clinical Practice Guideline for the Diagnosis and Treatment ...",
+      "organisation": "American Academy of Pediatrics",
+      "year": "2026",
+      "url": "https://publications.aap.org/pediatrics/article/158/4/e2026078565/209460/Clinical-Practice-Guideline-for-the-Diagnosis-and",
+      "excerpt": "It is designed to provide guidance for pediatricians and other pediatric clinicians on the diagnosis and management of UTIs in infants and children 8 days to 5 years of age and is intended for use in children with low medical complexity across a variety of settings.",
+      "text": "Sep 28, 2026 · It is designed to provide guidance for pediatricians and other pediatric clinicians on the diagnosis and management of UTIs in infants and children 8 days to 5 years of age and is intended for use in children with low medical complexity across a variety of settings."
+    }
+  ],
+  "guideline_search_ok": true,
+  "trial_drugs": [],
+  "regulator_items": [],
+  "used_drugs_trace": {
+    "model_items": [],
+    "sources_offered": 26,
+    "accepted": 0,
+    "rejected": [],
+    "fda_decisions": {
+      "confirmed": [],
+      "excluded": [
+        "Exemestane"
+      ],
+      "unreviewed": [],
+      "reviewer_rejected": []
+    },
+    "model_regulator_items": null,
+    "regulator_rejected": []
+  },
+  "used_drugs": [],
+  "drug_labels": [
+    {
+      "drug": "Quetiapine Fumarate",
+      "url": "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=02b19885-2987-4c46-8d2a-5e59656f72e8",
+      "boxed_warning": "WARNING: INCREASED MORTALITY IN ELDERLY PATIENTS WITH DEMENTIA-RELATED PSYCHOSIS; and SUICIDAL THOUGHTS AND BEHAVIORS See full prescribing information for complete boxed warning. Increased Mortality in Elderly Patients with Dementia-Related Psychosis Elderly patients with dementia-related psychosis treated with antipsychotic drugs are at an increased risk of death. Quetiapine is not approved for elderly patients with dementia-related psychosis ( 5.1 ) Suicidal Thoughts and Behaviors Increased risk of suicidal thoughts and behavior in children, adolescents and young adults taking antidepressants ( 5.2 ) Monitor for worsening and emergence of suicidal thoughts and behaviors ( 5.2 ) WARNING: INCREASED MORTALITY IN ELDERLY PATIENTS WITH DEMENTIA-RELATED PSYCHOSIS; and SUICIDAL THOUGHTS AND BEHAVIORS Increased Mortality in Elderly Patients with Dementia-Related Psychosis Elderly patients with dementia-related psychosis treated with antipsychotic drugs are at an increased risk of death [see WARNINGS AND PRECAUTIONS ( 5.1 )]. Quetiapine is not approved for the treatment of patients with dementia-related psychosis [see WARNINGS AND PRECAUTIONS ( 5.1 )]. Suicidal Thoughts and Behaviors Antidepressants increased the risk of suicidal thoughts and behavior in children, adolescents, and young adults in short-term studies. These studies did not show an increase in the risk of suicidal thoughts and behavior with antidepressant use in patients over age 24; there was a reduction in risk with antidepressant use in patients aged 65 and older [see WARNINGS AND PRECAUTIONS ( 5.2 )]. In patients of all ages who are started on antidepressant therapy, monitor closely for worsening, and for emergence of suicidal thoughts and behaviors. Advise families and caregivers of the need for close observation and communication with the prescriber [see WARNINGS AND PRECAUTIONS ( 5.2 )]. Quetiapine is not approved for use in pediatric patients under ten years of age [see USE IN SPECIFIC POPULATIONS ( 8.4 )]."
+    },
+    {
+      "drug": "Quetiapine",
+      "url": "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=01261008-5f42-4844-8a65-d4545a67a309",
+      "boxed_warning": "WARNING: INCREASED MORTALITY IN ELDERLY PATIENTS WITH DEMENTIA-RELATED PSYCHOSIS; and SUICIDAL THOUGHTS AND BEHAVIORS Increased Mortality in Elderly Patients with Dementia-Related Psychosis Elderly patients with dementia-related psychosis treated with antipsychotic drugs are at an increased risk of death [ see Warnings and Precautions (5.1) ]. Quetiapine is not approved for the treatment of patients with dementia-related psychosis [ see Warnings and Precautions (5.1) ]. Suicidal Thoughts and Behaviors Antidepressants increased the risk of suicidal thoughts and behavior in children, adolescents, and young adults in short-term studies. These studies did not show an increase in the risk of suicidal thoughts and behavior with antidepressant use in patients over age 24; there was a reduction in risk with antidepressant use in patients aged 65 and older [ see Warnings and Precautions (5.2) ]. In patients of all ages who are started on antidepressant therapy, monitor closely for worsening, and for emergence of suicidal thoughts and behaviors. Advise families and caregivers of the need for close observation and communication with the prescriber [ see Warnings and Precautions (5.2) ]. Quetiapine is not approved for use in pediatric patients under ten years of age [ see Use in Specific Populations (8.4) ]. WARNING: INCREASED MORTALITY IN ELDERLY PATIENTS WITH DEMENTIA-RELATED PSYCHOSIS; and SUICIDAL THOUGHTS AND BEHAVIORS See full prescribing information for complete boxed warning . Increased Mortality in Elderly Patients with Dementia-Related Psychosis Elderly patients with dementia-related psychosis treated with antipsychotic drugs are at an increased risk of death. Quetiapine tablets is not approved for elderly patients with dementia-related psychosis ( 5.1 ) Suicidal Thoughts and Behaviors Increased risk of suicidal thoughts and behavior in children, adolescents and young adults taking antidepressants ( 5.2 ) Monitor for worsening and emergence of suicidal thoughts and behaviors ( 5.2 )"
+    }
+  ],
+  "listed_drugs": [
+    "Quetiapine Fumarate",
+    "Quetiapine"
+  ],
+  "landscape_marks": {
+    "thread_started": 7.1,
+    "guidelines_in": 26.6,
+    "drugs_in": 26.6,
+    "data_in": 26.6,
+    "interpreted": 28.0,
+    "doses": 28.0,
+    "reviewed": 28.0,
+    "labels": 28.9,
+    "dose": 28.9
+  },
+  "writing_raw": {
+    "latest": "## Latest findings\n\n**Acute fulminant cerebellitis in children: a case series (indirect evidence)**\n2026-08-14, **case series**\nThis study examined children with fulminant cerebellitis, a rare but severe condition, through a case series and literature review. It found that aggressive management—including high-dose corticosteroids, cerebrospinal fluid diversion, and surgical decompression—can reduce morbidity and mortality, though prompt recognition remains critical (PMID [42699856](https://pubmed.ncbi.nlm.nih.gov/42699856/)).\n\n**Comprehensive treatment and 2-year follow-up in children with ADHD (indirect evidence)**\n2026-09-05, **randomized controlled trial**\nThis trial evaluated the long-term effects of intensive 3-month comprehensive treatment in children with ADHD, comparing it to standard community care. While both groups showed sustained improvements after 2 years, the community group showed worse outcomes in hyperactive/impulsive symptoms, highlighting the importance of structured initial intervention (PMID [42698352](https://pubmed.ncbi.nlm.nih.gov/42698352/)).\n\n**Hearing impairment in children with speech/language delay (indirect evidence)**\n2026-09-29, **case study**\nThis case series from Myanmar highlighted how undiagnosed hearing impairment in children with developmental delays—including speech and language concerns—can mimic or exacerbate neurodevelopmental disorders. The authors emphasized the need for routine audiological assessments to avoid misdiagnosis and ensure timely multidisciplinary intervention (PMID [42819540](https://pubmed.ncbi.nlm.nih.gov/42819540/)).",
+    "current": "## Current evidence\n---\n| Approach | Evidence level | What the evidence shows | Reference |\n|---------------------------------------------------------------------------|------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------|\n| Routine audiological assessment for children with speech/language delay | Indirect evidence | Hearing impairment may mimic or coexist with neurodevelopmental disorders; audiological assessment is critical for timely diagnosis and multidisciplinary intervention in children with developmental concerns. | (Linn et al., Case reports in pediatrics, 2026 [PMID 42819540]) |\n| Comprehensive multidisciplinary intervention for developmental delay | Insufficient evidence | No direct evidence retrieved for this specific population; however, intensive comprehensive treatment (e.g., ADHD-focused) showed maintained gains in some domains over 2 years in a different population. | (Hechtman et al., Journal of attention disorders, 2026 [PMID 42698352]) |",
+    "tail": "## Key studies\n\n1. **Linn et al. (2026)**, case-study: This case series highlights that hearing impairment may coexist with neurodevelopmental disorders or contribute to developmental difficulties in children presenting with speech and language delay, emphasizing the need for routine audiological assessment in such cases (PMID [42819540](https://pubmed.ncbi.nlm.nih.gov/42819540/)).\n\n2. **Akil et al. (2026)**, research-article: The case series and literature review describe fulminant acute cerebellitis in children, noting that aggressive management—including high-dose corticosteroids, cerebrospinal fluid diversion, and surgical decompression—can reduce morbidity and mortality (PMID [42699856](https://pubmed.ncbi.nlm.nih.gov/42699856/)).\n\n---\n*(No additional studies met the criteria for direct evidence on developmental delay, regression, or autistic tendencies in the retrieved data.)*\n\n---\n\n## Conflicting evidence\nNo direct evidence was retrieved comparing diagnostic or management approaches for a **three-year-old child with global developmental delay, regression of milestones, and autistic tendencies**. The retrieved studies focused on unrelated populations (e.g., hearing impairment, cerebellitis, ADHD, pneumonia, or diabetes) or indirect evidence, so no disagreement or contradiction was identified.\n\n---\n\n## What remains under investigation\n- **Diagnostic evaluation for coexisting conditions**: Whether routine audiological assessment should be prioritized in children with developmental delay and regression, given potential overlap with neurodevelopmental disorders (indirect evidence, Linn et al., 2026).\n- **Early intervention strategies for regression**: No direct evidence was retrieved on whether specific therapies (e.g., behavioral, pharmacological) effectively halt or reverse regression in this population.\n- **Effectiveness of multidisciplinary interventions**: While ADHD studies (Hechtman et al., 2026) show long-term gains from intensive treatment, no data was retrieved on whether similar approaches benefit children with developmental delay and autistic tendencies.\n- **Feasibility of early autism spectrum disorder (ASD) screening**: No trials or studies were found investigating optimal screening tools or timelines for ASD in children with regression and global delay.\n- **Long-term outcomes of early behavioral or pharmacological treatments**: No evidence was retrieved on whether interventions initiated at age 3 yield sustained improvements in milestones or social communication.\n- **Association between metabolic or genetic factors and regression**: No studies were found exploring whether metabolic or genetic testing should be routinely included in the workup for this population."
+  },
+  "writing_trace": {
+    "latest": {
+      "started": 8.8,
+      "first_chunk": 9.4,
+      "ended": 13.2
+    },
+    "current": {
+      "started": 8.8,
+      "first_chunk": 9.4,
+      "retried": true,
+      "ended": 14.4
+    },
+    "tail": {
+      "started": 8.8,
+      "first_chunk": 9.6,
+      "ended": 14.6
+    }
+  },
+  "reference_numbers": {
+    "1": "42819540",
+    "2": "42698352",
+    "3": "42699856",
+    "4": "42725565",
+    "5": "42812143"
+  },
+  "figure_job": "1952413717568",
+  "figure_trace": {
+    "reading": {
+      "page_status": [
+        200,
+        200,
+        200,
+        200,
+        200,
+        200
+      ]
+    },
+    "candidates": 19,
+    "removed_by_gate": {
+      "paper_not_cited": 0,
+      "paper_not_direct": 0,
+      "no_explicit_open_licence": 0,
+      "reproduced_or_permission": 0
+    },
+    "after_gates": 19,
+    "after_population_check": 19,
+    "figure_fates": [
+      {
+        "id": "PMC13516006:singaporemedj.SMJ-2026-318-f005",
+        "label": "Figure 5",
+        "fate": "text too small to read on the page (under 6.5 pt), dropped before the relevance test"
+      },
+      {
+        "id": "PMC13599426:Figure2",
+        "label": "Figure 2",
+        "fate": "text too small to read on the page (under 6.5 pt), dropped before the relevance test"
+      },
+      {
+        "id": "PMC13620239:fig2-10870547261478344",
+        "label": "Figure 2",
+        "fate": "the vision model rejected the image",
+        "vision_said": "The image displays four line graphs tracking T-scores for inattention and hyperactivity/impulsivity over 24 months for Case Management and Community groups."
+      },
+      {
+        "id": "PMC13620239:fig3-10870547261478344",
+        "label": "Figure 3",
+        "fate": "the vision model rejected the image",
+        "vision_said": "The image displays four line graphs (A-D) comparing T-scores for social skills, behavioral problems, and functional impairment between a Case Management Group and a Community Group over a 24-month period."
+      }
+    ],
+    "unreadable_before_relevance_test": 2,
+    "relevance_test": {
+      "offered": 17,
+      "model_listed": 2,
+      "all_four_yes": 2,
+      "kept_after_quote_check": 2
+    },
+    "after_relevance_test": 2,
+    "too_small_to_read": 0,
+    "repeats_of_one_paper_removed": 0,
+    "extra_figures_of_one_paper_removed": 0,
+    "image_check": {
+      "downloaded": 2,
+      "looked_at": 2,
+      "could_not_check": 0,
+      "kept": 0
+    },
+    "ready_when_the_report_was_final": true
+  },
+  "source_figures": []
+}

@@ -9,6 +9,7 @@ import re
 import sys
 from pathlib import Path
 
+
 slug = sys.argv[1] if len(sys.argv) > 1 else "how-to-treat-autism-in-children"
 folder = Path(__file__).parent / "demo_output"
 presented = (folder / f"{slug}.md").read_text(encoding="utf-8")
@@ -123,7 +124,7 @@ s_bad = [ln for ln in claims.splitlines() if re.search(r"NCT\d{8}", ln) and not 
 check("S", "no trial is described as effective", not s_bad, "; ".join(s_bad)[:150])
 # T. categories are separate
 check("T", "the Treatment Drug Landscape has two tables with the specification's columns: drugs used for treatment, then symptom-directed drugs",
-      text.count("| Drug | Indication | Dose / route (if sourced) | Approval status / date | Key evidence |") == 1 and text.count("| Drug | Indication | Key evidence |") == 1
+      text.count("| Drug | Indication | Dose / route (if sourced) | Key evidence |") == 2
       and 0 <= text.find("### Drugs used for treatment of this condition") < text.find("### Other drugs: used for symptoms"))
 check("AG", "no symptom-directed (off-label) or investigational drug sits in the treatment table",
       not re.search(r"\| (?:Off-label|Emerging)", text.split("### Other drugs: used for symptoms")[0].split("### Drugs used for treatment of this condition")[-1]))
@@ -147,8 +148,22 @@ cut = [ln[:50] for ln in lines if ln.strip() and not ln.lstrip().startswith(("#"
 check("W", "no stray ** marker and no list item cut off at 'et al.'", not cut, "; ".join(cut)[:150])
 status = state.get("source_status", {})
 ok_jobs = {k for k, v in status.items() if v.get("retrieval_status") == "success"}
-superseded = {"pubmed_fast": ("pubmed_recent",), "pubmed_fast_q": ("pubmed_quality",), "trials_fast": ("trials_deep",), "fda_fast": ("fda_deep",), "web_fast": ("web_approvals", "web_standard")}
-still_bad = [k for k, v in status.items() if not k.startswith("guideline") and v.get("retrieval_status") != "success" and not any(s in ok_jobs for s in superseded.get(k, ()))]
+FAST_KEYS = {"pubmed_fast", "pubmed_fast_q", "trials_fast", "trials_drugs_fast", "fda_fast", "web_fast"}      # the audit keeps its own copy of this rule, so a bug in the pipeline's helper cannot hide itself
+
+
+def _family(key):
+    for prefix, family in (("web_regulat", "regulator"), ("web_guideline", "guideline"), ("guideline", "guideline"), ("fda", "fda"), ("trials", "trials"), ("pubmed", "lit"), ("web", "web")):
+        if key.startswith(prefix):
+            return family
+    return key
+
+
+def _superseded(status, key):
+    """a failed fast job is not a problem when a deep search of the same kind succeeded"""
+    return key in FAST_KEYS and any(v.get("retrieval_status") == "success" for k, v in status.items() if k not in FAST_KEYS and _family(k) == _family(key))
+
+
+still_bad = [k for k, v in status.items() if not k.startswith("guideline") and v.get("retrieval_status") != "success" and not _superseded(status, k)]
 head = "\n".join(text.splitlines()[:4])
 limits = text.split("## Evidence limitations")[-1].split("\n## ")[0] if "## Evidence limitations" in text else ""
 check("X", "no top banner; a source that failed is named in Evidence limitations with 'absence of evidence cannot be concluded'",
@@ -182,3 +197,5 @@ for code, title, ok, detail in results:
     print(f"{'PASS' if ok else 'FAIL'}  {code:4} {title:{width}}  {detail}")
 print(f"\n{sum(r[2] for r in results)}/{len(results)} checks passed")
 sys.exit(0 if all(r[2] for r in results) else 1)
+
+

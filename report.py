@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 
 from verification import DOSE_LANGUAGE, ESTABLISHED_INLINE, OVERCLAIM, _sentences, is_indirect
+from landscape import source_family, superseded_by_deep
 
 DISCLAIMER = "Research support, not a substitute for clinical judgement."
 
@@ -140,9 +141,7 @@ def bottom_line_markdown(question: str, state: dict, papers: list[dict], stems: 
 
 
 # ------------------------------------------------------------------ source-failure banner
-GROUPS = [("PubMed / Europe PMC", "pubmed"), ("ClinicalTrials.gov", "trials"), ("FDA drug labels", "fda"), ("Web search", "web"), ("Guideline search", "guideline")]
-SUPERSEDED_BY = {"pubmed_fast": ("pubmed_recent",), "pubmed_fast_q": ("pubmed_quality",), "trials_fast": ("trials_deep",), "fda_fast": ("fda_deep",),
-                 "web_fast": ("web_approvals", "web_standard")}
+GROUPS = [("PubMed / Europe PMC", ("literature",)), ("ClinicalTrials.gov", ("trials",)), ("FDA drug labels", ("fda_label",)), ("Web search", ("web", "regulator")), ("Guideline search", ("guideline",))]      # source families, not job-name prefixes
 
 
 def source_problems(state: dict, core_only: bool = False) -> list[tuple[str, str, list[str]]]:
@@ -150,13 +149,13 @@ def source_problems(state: dict, core_only: bool = False) -> list[tuple[str, str
     status = state.get("source_status", {})
     ok = {k for k, v in status.items() if v.get("retrieval_status") == "success"}
     problems = []
-    for label, prefix in GROUPS:
-        if core_only and prefix == "guideline":      # a guideline-search failure is shown inside the Established care section, not as a top banner
+    for label, families in GROUPS:
+        if core_only and families == ("guideline",):      # a guideline-search failure is shown inside the Established care section, not as a top banner
             continue
-        jobs = {k: v for k, v in status.items() if k.startswith(prefix)}
+        jobs = {k: v for k, v in status.items() if source_family(k) in families}
         if not jobs:
             continue
-        bad = {k: v for k, v in jobs.items() if v.get("retrieval_status") != "success" and not any(s in ok for s in SUPERSEDED_BY.get(k, ()))}
+        bad = {k: v for k, v in jobs.items() if v.get("retrieval_status") != "success" and not superseded_by_deep(status, k)}
         if not bad:
             continue
         reasons = [f"{k}: {str(v.get('error') or v.get('retrieval_status'))[:70]}" for k, v in bad.items()]

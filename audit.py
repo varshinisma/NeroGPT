@@ -70,8 +70,8 @@ g = [ln for ln in claims.splitlines() if any(f"PMID {i}" in ln for i in proto_id
 check("G", "protocol papers are not presented as efficacy", not g, "; ".join(g)[:150])
 # H. indirect population
 ind = [p["pmid"] for p in papers.values() if any(m in (p.get("title") or "").lower() for m in ("with and without", " traits"))]
-h = [ln for ln in claims.splitlines() if any(f"PMID {i}" in ln for i in ind) and not re.search(r"indirect|not (asd|autism)[- ]?specific|related population|not .{0,12}specific", ln, re.I)]
-check("H", "indirect-population papers are labelled indirect / not condition-specific", not h, "; ".join(h)[:150])
+h = [ln for ln in claims.splitlines() if re.search(r"\bindirect evidence\b", ln, re.I)]
+check("H", "the report shows no 'indirect evidence' label (a different population is stated in the sentence)", not h, "; ".join(h)[:150])
 # I. 'Established' needs a guideline
 est = re.findall(r"\*\*Established\*\*", claims)
 guide = any("guideline" in str(p.get("type")).lower() for p in papers.values())

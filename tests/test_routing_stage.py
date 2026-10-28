@@ -175,12 +175,24 @@ class IngestKeepsProvenance(unittest.TestCase):
         self.assertEqual(trials["NCT00000001"]["found_by"], ["trials_fast", "trials_op_1"])
 
 
-class FastPathStillUnchanged(unittest.TestCase):
-    def test_the_fast_functions_did_not_change_in_stage_4(self):
-        import hashlib
-        import inspect
-        for name, digest in {"_fast_jobs": "07a323aaf2c254ad", "fast_jobs": "012e722131d9edce", "with_retry": "4332567971e488d5", "primary_with_fallback": "d5f081677afb90cc", "run_jobs": "97aa21d88e41abed"}.items():
-            self.assertEqual(hashlib.sha256(inspect.getsource(getattr(qa_stream, name)).encode()).hexdigest()[:16], digest, name)
+class SearchesStartAsSoonAsTheyAreWritten(unittest.TestCase):
+    def test_a_fast_skills_searches_run_before_a_slow_skill_has_answered(self):
+        import time
+        order = []
+
+        class Slow(FakeModel):
+            def __call__(self, question, task, payload, max_tokens, skill="x", **kw):
+                if skill == "drug-intelligence":
+                    time.sleep(0.6)      # the slow skill
+                    order.append("slow skill answered")
+                return super().__call__(question, task, payload, max_tokens, skill)
+
+        adapters = FakeAdapters({"pubmed": [found(2)], "guideline_sites": [found(1)], "fda_label": [found(1)], "regulator": [found(1)]})
+        wrapped = {target: (lambda op, original=original: (order.append("search started: " + op.target), original(op))[1]) for target, original in adapters.items()}
+        stage = qa_stream.run_routing_stage(QUESTION, plan(), make_adapters=lambda anchors: wrapped, budget_s=5, ask=Slow({"latest-evidence": [LATEST], "drug-intelligence": [DRUGS]}))
+        self.assertLess(order.index("search started: pubmed"), order.index("slow skill answered"))
+        self.assertEqual(len({o.id for o in stage["ops"]}), len(stage["ops"]))
+        self.assertEqual(set(stage["execution"].results), {o.id for o in stage["ops"]})
 
 
 if __name__ == "__main__":

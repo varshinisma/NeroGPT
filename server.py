@@ -18,7 +18,7 @@ load_dotenv(ROOT / ".env")
 HISTORY_DIR = ROOT / "conversation_history"
 
 
-def search_live_web(query: str) -> str:
+def search_live_web(query: str, timeout_s: float = 12.0) -> str:
     """Search the live web for a specific query and return up to five relevant results.
 
     Args:
@@ -28,14 +28,15 @@ def search_live_web(query: str) -> str:
         from ddgs import DDGS
         from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
+        timeout_s = max(0.5, float(timeout_s))
         def one(backend):
-            return list(DDGS(timeout=8).text(query, max_results=5, backend=backend))
+            return list(DDGS(timeout=min(8.0, timeout_s)).text(query, max_results=5, backend=backend))
         results, error = [], None
         pool = ThreadPoolExecutor(max_workers=3)
         pending = {pool.submit(one, b) for b in ("duckduckgo", "yahoo", "bing")}      # side by side: the first engine with results wins
         try:
             while pending and not results:
-                done, pending = wait(pending, timeout=12, return_when=FIRST_COMPLETED)
+                done, pending = wait(pending, timeout=timeout_s, return_when=FIRST_COMPLETED)
                 if not done:
                     break
                 for future in done:
@@ -147,19 +148,23 @@ def load_skill(skill_name: str) -> str:
     return text
 
 
-def build_model(max_tokens: int | None = None, temperature: float | None = None):
-    """Create the chat model selected by MODEL_PROVIDER (groq or mistral). max_tokens caps the output size."""
-    provider = os.getenv("MODEL_PROVIDER", "groq").lower()
+def build_model(max_tokens: int | None = None, temperature: float | None = None, model_id: str | None = None, provider: str | None = None):
+    """Create the selected provider model. ``model_id`` permits stage-specific models.
+
+    The caller selects a model for planning/screening versus prose generation; this
+    function deliberately remains provider-only and does not infer clinical intent.
+    """
+    provider = (provider or os.getenv("MODEL_PROVIDER", "groq")).lower()      # `provider` lets one stage (the plan call) use another provider than the rest
     if provider == "groq":
         if not os.getenv("GROQ_API_KEY"):
             raise RuntimeError("Set GROQ_API_KEY in .env before starting the server.")
         from agno.models.groq import Groq
-        return Groq(id=os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"), max_tokens=max_tokens, **({} if temperature is None else {"temperature": temperature}))
+        return Groq(id=model_id or os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"), max_tokens=max_tokens, timeout=float(os.getenv("MODEL_TIMEOUT_S", "30")), max_retries=0, **({} if temperature is None else {"temperature": temperature}))
     if provider == "mistral":
         if not os.getenv("MISTRAL_API_KEY"):
             raise RuntimeError("Set MISTRAL_API_KEY in .env before starting the server.")
         from agno.models.mistral import MistralChat
-        return MistralChat(id=os.getenv("MISTRAL_MODEL", "mistral-small-latest"), max_tokens=max_tokens, client_params={"timeout_ms": int(os.getenv("MODEL_TIMEOUT_S", "30")) * 1000},      # a stalled call fails after 30 s instead of hanging the answer
+        return MistralChat(id=model_id or os.getenv("MISTRAL_MODEL", "mistral-small-latest"), max_tokens=max_tokens, client_params={"timeout_ms": int(os.getenv("MODEL_TIMEOUT_S", "30")) * 1000},      # a stalled call fails after 30 s instead of hanging the answer
                            **({} if temperature is None else {"temperature": temperature}))
     raise RuntimeError("MODEL_PROVIDER must be groq or mistral.")
 

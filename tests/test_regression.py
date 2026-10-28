@@ -101,11 +101,12 @@ class RegressionTests(unittest.TestCase):
         self.assertNotIn("is effective", r["answer"])
 
     # TEST 7 -------------------------------------------------------------------------------------------------------------
-    def test7_indirect_population_is_labelled_indirect(self):
+    def test7_an_indirect_paper_is_shown_without_an_indirect_label(self):
         s = make_state()
         self.assertTrue(verification.is_indirect(s["papers"]["333333"], {"condi"}))
-        r = verification.verify_and_repair(BASE + "Nutraceuticals gave modest mood improvement (Woz et al., Mood Journal, 2026 [PMID 333333]).\n", s)
-        self.assertIn("indirect evidence", r["answer"])
+        r = verification.verify_and_repair(BASE + "Nutraceuticals gave modest mood improvement in adults (Woz et al., Mood Journal, 2026 [PMID 333333]).\n", s)
+        self.assertNotIn("indirect evidence", r["answer"].lower())
+        self.assertNotIn("indirect_unlabeled", [i["kind"] for i in r["issues_before"]])
 
     # TEST 8 -------------------------------------------------------------------------------------------------------------
     def test8_approved_indication_is_not_off_label_and_not_an_approval_for_the_core_disease(self):
@@ -337,14 +338,14 @@ class RegressionTests(unittest.TestCase):
         self.assertNotIn("*(Direct, terminated 2026)*", r["answer"])
 
 
-    def test38_an_indirect_paper_cited_in_a_table_row_is_relabelled(self):
+    def test38_an_indirect_paper_in_a_table_row_keeps_its_own_text_and_gets_no_label(self):
         s = make_state()
         answer = (BASE + "#### Other agents\n| Drug | Category | Population | Dose | Approval | Evidence |\n|---|---|---|---|---|---|\n"
                   "| **Nutra X** | Investigational | Children with condition X | Not retrieved | Not verified | RCT (Woz et al., Mood Journal, 2026 [PMID 333333]) |\n")
         r = verification.verify_and_repair(answer, s)
         self.assertEqual(r["status"], "PASS")
-        self.assertIn("Indirect evidence (different or related population)", r["answer"])
-        self.assertNotIn("Children with condition X", r["answer"])                   # the misstated population is replaced
+        self.assertNotIn("indirect evidence", r["answer"].lower())
+        self.assertNotIn("see the cited study", r["answer"])                         # the row's own text is not replaced by boilerplate
 
 
     def test39_posted_results_statements_match_the_registry_in_both_directions(self):

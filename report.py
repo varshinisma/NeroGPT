@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 
-from verification import DOSE_LANGUAGE, ESTABLISHED_INLINE, OVERCLAIM, _sentences, is_indirect
+from verification import DOSE_LANGUAGE, ESTABLISHED_INLINE, OVERCLAIM, _sentences
 from landscape import source_family, superseded_by_deep
 
 DISCLAIMER = "Research support, not a substitute for clinical judgement."
@@ -69,28 +69,51 @@ def first_author(p: dict) -> str | None:
     return surname if len(authors) == 1 else f"{surname} et al."
 
 
-def key_study_entries(papers: list[dict], stems: set[str] | None = None, limit: int = 5) -> list[dict]:
-    """Complete entries only: authors, year, design, finding, PMID. Direct evidence first, strongest design first, then newest."""
+def key_study_entries(papers: list[dict], stems: set[str] | None = None, limit: int = 8) -> list[dict]:
+    """Only complete studies with a screened evidence role can be promoted as key studies."""
     entries = []
     for p in papers:
+        triage = p.get("triage") or {}
+        relevance = triage.get("relevance")
+        if triage and (relevance not in ("direct", "indirect") or not triage.get("evidence")):
+            continue
         author, design, finding = first_author(p), design_of(p), finding_sentence(p)
         year = str(p.get("year") or "")
         if not (author and design and finding and year.isdigit() and re.fullmatch(r"\d{6,9}", str(p.get("pmid") or ""))):
             continue
         entries.append({"paper": p, "author": author, "design": design[0], "rank": design[1], "finding": finding, "year": year, "pmid": p["pmid"],
-                        "indirect": is_indirect(p, stems)})
-    entries.sort(key=lambda e: (e["indirect"], e["rank"], -int(e["year"])))
-    return entries[:limit]
+                        "relevance": relevance or "direct", "rationale": triage.get("rationale") or ""})
+    original_order = {str(p.get("pmid")): i for i, p in enumerate(papers)}
+    def entry_order(e):
+        hybrid = e["paper"].get("hybrid") or {}
+        score = hybrid.get("cross")
+        if score is None:
+            score = hybrid.get("fused")
+        return ({"direct": 0, "indirect": 1, "background": 2}.get(e["relevance"], 3),
+                -(float(score) if isinstance(score, (int, float)) else 0.0), e["rank"], -int(e["year"]), original_order.get(str(e["pmid"]), 0))
+    entries.sort(key=entry_order)
+    chosen = entries[:limit]
+    # Keep a useful non-direct tier visible when the context contains it; if needed, reserve its place
+    # by removing the lowest-ranked surplus direct item, never the last direct item.
+    for relevance in ("indirect", "background"):
+        candidate = next((e for e in entries if e["relevance"] == relevance), None)
+        if candidate and not any(e["relevance"] == relevance for e in chosen) and len(chosen) >= limit:
+            replace = next((i for i in range(len(chosen) - 1, -1, -1) if chosen[i]["relevance"] == "direct" and
+                            sum(e["relevance"] == "direct" for e in chosen) > 1), None)
+            if replace is not None:
+                chosen[replace] = candidate
+                chosen.sort(key=entry_order)
+    return chosen
 
 
-def key_studies_markdown(papers: list[dict], stems: set[str] | None = None, limit: int = 5) -> str:
+def key_studies_markdown(papers: list[dict], stems: set[str] | None = None, limit: int = 8) -> str:
     entries = key_study_entries(papers, stems, limit)
     if not entries:
         return "## Key studies\n\nNo retrieved record had all of: authors, year, study design, a stated result and a PMID, so none is listed."
     lines = []
-    for i, e in enumerate(entries, 1):
-        note = " *(indirect evidence: different or related population)*" if e["indirect"] else ""
-        lines.append(f"{i}. **{e['author']} ({e['year']})**, {e['design']}: “{e['finding']}” (PMID {e['pmid']}){note}")
+    for number, e in enumerate(entries, 1):
+        # Triage order is retained, but its internal labels are not shown to the reader.
+        lines.append(f"{number}. **{e['author']} ({e['year']})**, {e['design']}: “{e['finding']}” (PMID {e['pmid']}).")
     return "## Key studies\n\n" + "\n".join(lines)
 
 
@@ -184,9 +207,16 @@ ITEM_MARK = re.compile(r"^\s*(?:\d{1,2}[.)]|[-*•])\s+")
 def clean_model_key_studies(text: str, papers: list[dict] | None = None, stems: set[str] | None = None) -> str:
     """The model writes Key studies. Every entry must show authors, a year, a study design, a finding and a PMID; any other entry is dropped,
     and the list is renumbered. If nothing complete is left, the code-built list (verbatim abstract sentences) is used instead."""
-    m = re.search(r"(?ims)^#{2,4}\s*Key studies\s*\n(.*?)(?=^#{1,4}\s|\Z)", text)
+    m = re.search(r"(?ims)^#{2,4}\s+Key studies\s*\n(.*?)(?=^#{1,4}\s|\Z)", text)
     before = text[:m.start()].rstrip() if m else text.rstrip()
     after = text[m.end():].lstrip() if m else ""
+    candidates = {str(p.get("pmid")): p for p in (papers or []) if p.get("pmid")}
+    eligible_ids = {pid for pid, p in candidates.items()
+                    if (p.get("triage") or {}).get("relevance") in ("direct", "indirect")
+                    and bool((p.get("triage") or {}).get("evidence"))}
+    if papers is not None:
+        section = key_studies_markdown([p for p in papers if str(p.get("pmid")) in eligible_ids], stems)
+        return "\n\n".join(x for x in (before, section, after) if x)
     items = []
     for ln in (m.group(1).splitlines() if m else []):
         if not ITEM_MARK.match(ln):
@@ -195,10 +225,32 @@ def clean_model_key_studies(text: str, papers: list[dict] | None = None, stems: 
         words = re.sub(r"PMID\s*\d+|\(\s*(?:19|20)\d\d\s*\)|[*_]", "", body).split()
         complete = (re.search(r"[A-Z][A-Za-zÀ-ſ'\-]+(?: et al\.?| and [A-Z]|,)", body) and re.search(r"(?:19|20)\d\d", body) and DESIGN_WORDS.search(body)
                     and re.search(r"PMID\s*\d{6,9}", body) and body.count("**") % 2 == 0 and len(words) >= 10 and body.rstrip()[-1:] in ".)\"”")
-        if complete:
+        cite = re.search(r"PMID\s*(\d{6,9})", body)
+        justified = papers is None or (cite and cite.group(1) in eligible_ids)
+        if complete and justified:
             items.append(body)
     if items:
-        section = "## Key studies\n\n" + "\n".join(f"{i}. {b}" for i, b in enumerate(items[:5], 1))
+        if papers is not None:
+            items = items[:5]
+            def order_item(body):
+                cite = re.search(r"PMID\s*(\d{6,9})", body)
+                p = candidates.get(cite.group(1)) if cite else None
+                triage = (p or {}).get("triage") or {}
+                hybrid = (p or {}).get("hybrid") or {}
+                score = hybrid.get("cross") if hybrid.get("cross") is not None else hybrid.get("fused")
+                design = design_of(p or {})
+                return ({"direct": 0, "indirect": 1, "background": 2}.get(triage.get("relevance"), 3),
+                        -(float(score) if isinstance(score, (int, float)) else 0.0), design[1] if design else 99)
+            items.sort(key=order_item)
+            section_lines = []
+            previous = None
+            for number, body in enumerate(items, 1):
+                cite = re.search(r"PMID\s*(\d{6,9})", body)
+                p = candidates.get(cite.group(1)) if cite else None
+                section_lines.append(f"{number}. {body}")
+            section = "## Key studies\n\n" + "\n".join(section_lines)
+        else:
+            section = "## Key studies\n\n" + "\n".join(f"{i}. {b}" for i, b in enumerate(items[:5], 1))
     else:
-        section = key_studies_markdown(papers or [], stems)
+        section = key_studies_markdown([p for p in (papers or []) if str(p.get("pmid")) in eligible_ids] if papers is not None else [], stems)
     return "\n\n".join(x for x in (before, section, after) if x)

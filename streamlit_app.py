@@ -124,8 +124,6 @@ def credit_markdown(fig: dict) -> str:
     parts.append(f". Cited in this report as [{fig['reference']}]." if fig.get("reference") else ". Not discussed in the report text.")
     if fig.get("licence_label"):
         parts.append(f" Licence: [{fig['licence_label']}]({fig['licence_url']}); original image, unaltered." if fig.get("licence_url") else f" Licence: {fig['licence_label']}; original image, unaltered.")
-    if fig.get("relation") == "indirect":
-        parts.append(" Indirect evidence: a related condition or population.")
     return "- " + "".join(parts)
 
 
@@ -208,7 +206,7 @@ def run_question(question: str, index: int) -> dict:
 
         def draw():
             with report_box.container():
-                render_report(turn["markdown"] or text, turn["figures"])
+                render_report(text or turn["markdown"], turn["figures"])
 
         def events():
             nonlocal final
@@ -230,16 +228,18 @@ def run_question(question: str, index: int) -> dict:
                 turn["warnings"].append(event.get("message", ""))
                 warning_box.warning(event.get("message", ""))
             elif kind == "milestone" and event.get("name") == "first_useful_answer":
-                status.update(label=f"Preliminary answer ready ({event.get('seconds')} s); the verified report will replace it…")
+                status.update(label=f"Fast answer ready ({event.get('seconds')} s); researching and adding evidence...")
             elif kind == "verification":
                 status.update(label=f"Verification: {event.get('status')} ({event['checked']['pmids']} PMIDs, {event['checked']['trials']} trials checked)")
             elif kind == "final":
                 turn["markdown"] = event["markdown"]
                 tm = event.get("timings") or {}
-                turn["status"] = (f"Final verified answer · first token {tm.get('first_token_s')} s · first useful answer {tm.get('first_useful_s')} s · retrieval {tm.get('retrieval_deep_s')} s"
-                                  f" · verified {tm.get('verification_done_s')} s · final {tm.get('final_s')} s")
-                status.update(label="Final verified answer. Looking for figures from the papers…", state="running")
-                draw()
+                from presentation import verification_label
+                verification_status = ((event.get("state") or {}).get("verification") or {}).get("status", "INCOMPLETE")
+                verification_text = verification_label(verification_status)
+                turn["status"] = (f"Report ready · {verification_text} · first token {tm.get('first_token_s')} s · first useful answer {tm.get('first_useful_s')} s · retrieval {tm.get('retrieval_deep_s')} s"
+                                  f" · verification {tm.get('verification_done_s')} s · final {tm.get('final_s')} s")
+                status.update(label=f"Report complete · {verification_text}. Looking for figures from the papers…", state="running")
             elif kind == "figures":
                 turn["figures"] = event.get("items") or []
                 turn["figures_note"] = "" if turn["figures"] else ("No figure passed the checks for this question" + (" (or they were not ready in time)." if event.get("late") else "."))

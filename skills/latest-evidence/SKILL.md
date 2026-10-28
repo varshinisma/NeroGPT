@@ -32,6 +32,12 @@ You are given the doctor's question, its intent, and what was understood from it
    - a case study: whatever that case asks for, such as its work-up, the causes to consider, its management and its follow-up;
    - a safety or dosing question: the harms, the risk groups, what labels and guidelines say.
    A simple question has one or two needs. Use as many as the question really has, at most 6. Never add a need the question does not call for.
+   **Case-study rule.** When the question describes a patient, `case_facts` holds the case's own findings. The answer must cover the WHOLE case, not one of its findings:
+   - Keep the case's own words. Copy each finding from `case_facts` word for word into the searches. Any condition name in a search must be one the question itself names: never rename a finding into a diagnosis the question did not state (a finding described as "tendencies" or "features" stays that finding; do not write it as a named disorder).
+   - Work-up and cause: write searches on the broadest problem that frames the case together with its other findings, asking for the causes to consider, the differential diagnosis, the recommended tests (laboratory, genetic, imaging, neurophysiological, sensory) and what guideline organisations recommend for the evaluation (`guideline_sites`).
+   - Each associated finding: one search on how it is assessed or screened in this age group, and one on the services or interventions recommended for it.
+   - Management and follow-up: one search on the overall management of the whole case (medical, therapy and education services, monitoring and referral), and one on prognosis or follow-up when the question asks for it.
+   - Do not let one associated finding take over: at most half of the searches may be about that single finding; the rest are about the broader problem's evaluation and the management of the whole case.
 2. For each need write one search query as a natural-language phrase of 6 to 20 words, in standard clinical terms, with one synonym where a second wording is common.
 3. When the question asks whether something works or is safe, include one need for evidence that contradicts it (`study_types: ["negative_results"]`).
 4. Added concepts are only search terms. They are never statements of fact about the patient.
@@ -40,7 +46,7 @@ You are given the doctor's question, its intent, and what was understood from it
 ### Sources you may target (each query names ONE `target`; any skill may use any of them when the need calls for it)
 
 - `pubmed` - published studies, reviews, trial reports and guideline papers. Args: `sort` (`relevance` or `date`), `years_back` (1 to 15), `study_types` (any of `rct`, `meta_analysis`, `systematic_review`, `guideline`, `review`, `negative_results`), `open_access` (true to prefer papers with a free full text).
-- `europepmc` - a second literature index. Use it for a literature need that PubMed may miss, or as the `alternate` of a `pubmed` query. Args: `sort`, `years_back`.
+- `europepmc` - a second literature index. Use it for a literature need that PubMed may miss, or as the `alternate` of a `pubmed` query. Args: `sort`, `years_back`, `fulltext` (true searches the WORDS IN THE FULL TEXT of open-access articles, not only the title and abstract: use it for a need whose answer sits in methods or results, such as how a work-up or a procedure is done, and write the query as the words a paper would use there).
 - `guideline_sites` - recommendations from guideline organisations.
 - `regulator` - regulators' announcements: approvals, new indications, safety communications.
 - `fda_label` - official FDA drug labels (indications, dosing, warnings). Args: `condition_terms` (words of the question's condition) and `drug_names` (ONLY medicines the question itself names).

@@ -151,8 +151,7 @@ def markdown_to_pdf(markdown: str, dst: str, title: str, figures: list | None = 
                 links.append(f"[PubMed Central ({fig['pmcid']})]({fig['source_url']})")
             line = (f"{fig['label']}: " + (f"{fig['title'].rstrip('.')}. " if fig.get("title") else "") + (f"{fig['design']}. " if fig.get("design") else "") + ", ".join(links)
                     + (f". Cited in this report as [{fig['reference']}]" if fig.get("reference") else ". Not discussed in the report text") + "."
-                    + (f" Licence: [{fig['licence_label']}]({fig['licence_url']}); original image, unaltered." if fig.get("licence_label") else "")
-                    + (" Indirect evidence: a related condition or population." if fig.get("relation") == "indirect" else ""))
+                    + (f" Licence: [{fig['licence_label']}]({fig['licence_url']}); original image, unaltered." if fig.get("licence_label") else ""))
             out.append(Paragraph(inline(line), styles["figsrc"]))
         out.append(Paragraph(inline("*Each figure shows one study's result; it does not by itself establish that a treatment works or justify a recommendation.*"), styles["figsrc"]))
         return out

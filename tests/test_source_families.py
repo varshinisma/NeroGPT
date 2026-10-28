@@ -38,11 +38,11 @@ class Families(unittest.TestCase):
         self.assertFalse(landscape.family_has_deep(only_fast, "fda_label"))
         self.assertEqual(landscape.family_status({"source_status": {}}, "fda_label"), {})
 
-    def test_several_deep_searches_of_a_family_succeed_if_any_does(self):
+    def test_a_success_does_not_hide_failed_sibling_searches(self):
         state = {"source_status": {"trials_fast": failed(), "trials_op_0": failed(), "trials_op_1": empty()}}
         status = landscape.family_status(state, "trials")
-        self.assertEqual(status["retrieval_status"], "success")
-        self.assertEqual(status["evidence_status"], "not_found_after_search")
+        self.assertEqual(status["retrieval_status"], "partial")
+        self.assertEqual(status["evidence_status"], "unavailable")
 
     def test_deep_only_does_not_fall_back_to_the_fast_job(self):
         self.assertEqual(landscape.family_status({"source_status": {"trials_fast": ok()}}, "trials", deep_only=True), {})
@@ -72,13 +72,13 @@ class Families(unittest.TestCase):
     def test_the_drug_and_trial_sections_read_the_family_status(self):
         base = {"regulatory": [], "trials_by_id": {}, "drug_records": [], "papers": {}, "web": []}
         failing = {**base, "source_status": {"trials_op_0": failed("registry down")}}
-        self.assertIn("could not be retrieved", landscape.trials_markdown(failing))
+        self.assertIn("search was incomplete", landscape.trials_markdown(failing))
         self.assertIn("does not mean that no trials exist", landscape.trials_markdown(failing))
         fine = {**base, "source_status": {"trials_op_0": empty()}}
-        self.assertIn("No trials were found", landscape.trials_markdown(fine))
+        self.assertIn("completed registry searches returned no trial records", landscape.trials_markdown(fine))
         # the legacy names still work while they exist
         legacy = {**base, "source_status": {"trials_deep": failed("down")}}
-        self.assertIn("could not be retrieved", landscape.trials_markdown(legacy))
+        self.assertIn("search was incomplete", landscape.trials_markdown(legacy))
 
 
 if __name__ == "__main__":

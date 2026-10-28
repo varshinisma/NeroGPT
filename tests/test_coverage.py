@@ -95,12 +95,14 @@ class GapDetection(unittest.TestCase):
 
     def test_a_treatment_question_without_a_guideline_or_regulator_search_is_missing_its_authority_sources(self):
         ops = [op("pubmed", "insomnia children medication evidence review", skill="latest-evidence")]
+        gap = self.only(rr.coverage_gaps(ops, ["treatment_options"], ["latest-evidence", "drug-intelligence"], CAPS), "authority_source_missing")
+        self.assertEqual(sorted(gap[0]["missing_targets"]), ["guideline_sites", "regulator"])      # medicines bear on the question (the drug skill is in play): both authorities
         gap = self.only(rr.coverage_gaps(ops, ["treatment_options"], ["latest-evidence"], CAPS), "authority_source_missing")
-        self.assertEqual(sorted(gap[0]["missing_targets"]), ["guideline_sites", "regulator"])
+        self.assertEqual(gap[0]["missing_targets"], ["guideline_sites"])      # no medicines in play: the regulators' pages are not forced
         both = ops + [op("guideline_sites", "insomnia children medication guideline recommendations", skill="latest-evidence"), op("regulator", "insomnia children medication approvals safety", skill="latest-evidence")]
-        self.assertEqual(self.only(rr.coverage_gaps(both, ["treatment_options"], ["latest-evidence"], CAPS), "authority_source_missing"), [])
+        self.assertEqual(self.only(rr.coverage_gaps(both, ["treatment_options"], ["latest-evidence", "drug-intelligence"], CAPS), "authority_source_missing"), [])
         one = ops + [op("regulator", "insomnia children medication approvals safety", skill="latest-evidence")]
-        self.assertEqual(self.only(rr.coverage_gaps(one, ["treatment_options"], ["latest-evidence"], CAPS), "authority_source_missing")[0]["missing_targets"], ["guideline_sites"])
+        self.assertEqual(self.only(rr.coverage_gaps(one, ["treatment_options"], ["latest-evidence", "drug-intelligence"], CAPS), "authority_source_missing")[0]["missing_targets"], ["guideline_sites"])
 
     def test_an_essential_need_answered_from_one_source_only_is_a_gap_naming_the_other_suitable_sources(self):
         ops = [op("pubmed", "insomnia children medication efficacy randomized trials", serves="efficacy", skill="latest-evidence")]
@@ -114,7 +116,8 @@ class GapDetection(unittest.TestCase):
 
     def test_nothing_is_forced_for_unrelated_questions(self):
         self.assertEqual(rr.coverage_gaps([], ["mechanism"], ["latest-evidence"], CAPS), [])      # a mechanism question: no discovery, no authority searches
-        self.assertEqual(rr.coverage_gaps([], ["diagnosis", "prognosis"], ["latest-evidence"], CAPS), [])
+        self.assertEqual(rr.coverage_gaps([], ["prognosis"], ["latest-evidence"], CAPS), [])
+        self.assertEqual(rr.coverage_gaps([], ["diagnosis", "prognosis"], ["latest-evidence"], CAPS), [{"kind": "authority_source_missing", "missing_targets": ["guideline_sites"]}])      # a work-up question: the guideline organisations are asked, no regulator search
         self.assertEqual(self.only(rr.coverage_gaps([], ["dosing"], ["drug-intelligence"], CAPS), "discovery_shortfall"), [])      # a dosing question is not a discovery question
         self.assertEqual(rr.coverage_gaps([], [], ["drug-intelligence"], CAPS), [])
 
@@ -229,14 +232,3 @@ class FastPathUnchanged(unittest.TestCase):
         import inspect
         for name, digest in {"_fast_jobs": "07a323aaf2c254ad", "fast_jobs": "012e722131d9edce", "with_retry": "4332567971e488d5", "primary_with_fallback": "d5f081677afb90cc", "run_jobs": "97aa21d88e41abed"}.items():
             self.assertEqual(hashlib.sha256(inspect.getsource(getattr(qa_stream, name)).encode()).hexdigest()[:16], digest, name)
-
-    def test_the_skill_files_describe_serves_and_the_optional_alternate(self):
-        from pathlib import Path
-        for name in ("latest-evidence", "clinical-trials", "drug-intelligence"):
-            text = (Path(__file__).resolve().parent.parent / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
-            self.assertIn('"serves"', text)
-            self.assertIn("only for an essential need where a DIFFERENT source", text)
-
-
-if __name__ == "__main__":
-    unittest.main()

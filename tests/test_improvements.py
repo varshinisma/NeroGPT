@@ -323,7 +323,9 @@ class ModelWrittenKeyStudies(unittest.TestCase):
         self.assertEqual(verification.lint_report(out), [])
 
     def test_falls_back_to_code_built_list_when_the_model_gave_nothing_complete(self):
-        out = report.clean_model_key_studies("### Key studies\n\n1. **Restoy et al.\n", [study("100001")], None)
+        candidate = study("100001")
+        candidate["triage"] = {"relevance": "direct", "role": "emerging", "evidence": "A study of condition X reported an outcome."}
+        out = report.clean_model_key_studies("### Key studies\n\n1. **Restoy et al.\n", [candidate], None)
         self.assertIn("PMID 100001", out)
 
 
@@ -1060,7 +1062,7 @@ class EvidenceIsReadByTheModelNotFilteredByKeywords(unittest.TestCase):
         self.assertEqual([p["pmid"] for p in qa_stream.ordered_papers({"700001": a, "700002": b}, set())], ["700002"])
         self.assertFalse(qa_stream.usable(a, set()))
 
-    def test_order_is_relevance_then_date_and_never_study_design(self):
+    def test_order_is_relevance_then_evidence_strength_within_relevance_tier(self):
         old_review = study("700011", year="2015", types=("Systematic Review",))
         old_review["triage"] = {"relevance": "indirect", "role": "established", "population": "", "evidence": "x"}
         new_case = study("700012", year="2026", types=("Case Reports",))
@@ -1068,12 +1070,12 @@ class EvidenceIsReadByTheModelNotFilteredByKeywords(unittest.TestCase):
         mid = study("700013", year="2022", types=("Randomized Controlled Trial",))
         mid["triage"] = {"relevance": "direct", "role": "experimental", "population": "", "evidence": "x"}
         order = [p["pmid"] for p in qa_stream.ordered_papers({p["pmid"]: p for p in (old_review, new_case, mid)}, set())]
-        self.assertEqual(order, ["700012", "700013", "700011"])
+        self.assertEqual(order, ["700013", "700012", "700011"])
 
     def test_without_a_triage_decision_no_keyword_rule_removes_a_paper(self):
         p = study("700021", year="2025")
         p["title"] = "A study of something that shares no word with the question"
-        self.assertTrue(qa_stream.usable(p, {"zzzzz"}))
+        self.assertFalse(qa_stream.usable(p, {"zzzzz"}))
         self.assertFalse(verification.is_indirect(p, {"zzzzz"}))
 
     def test_indirect_means_the_triage_said_indirect(self):
@@ -1097,7 +1099,7 @@ class EvidenceIsReadByTheModelNotFilteredByKeywords(unittest.TestCase):
         def fake(question, task, payload, tokens, skill="drug-intelligence"):
             loaded.append(skill)
             if "papers" in payload:
-                return {"papers": [{"id": p["id"], "relevance": "direct", "role": "emerging", "population": "", "sentence": 1} for p in payload["papers"]]}
+                return {"papers": [{"id": p["id"], "relevance": "direct", "role": "emerging", "population": "", "sentence": 2} for p in payload["papers"]]}
             return {"trials": [{"id": t["id"], "relevance": "direct", "kind": "treatment_trial", "sentence": 1} for t in payload["trials"]]}
         qa_stream.ask_json = fake
         try:
@@ -1124,7 +1126,7 @@ class EvidenceIsReadByTheModelNotFilteredByKeywords(unittest.TestCase):
         finally:
             qa_stream.ask_json = original_ask
         self.assertNotIn("triage", s["papers"]["111111"])
-        self.assertTrue(qa_stream.usable(s["papers"]["111111"], set()))
+        self.assertFalse(qa_stream.usable(s["papers"]["111111"], set()))
         self.assertTrue(skipped)
 
 
@@ -1444,7 +1446,7 @@ class ALabelMustMatchWhatTheQuestionAsksFor(unittest.TestCase):
 class TheFastAnswerKeepsTheSearchOrderAndSaysWhenLabelsAreStillBeingRead(unittest.TestCase):
     def test_papers_the_triage_has_not_read_keep_the_search_engines_own_order(self):
         a, b, c = study("710001", year="2019"), study("710002", year="2026"), study("710003", year="2022")
-        got = [p["pmid"] for p in qa_stream.ordered_papers({"710001": a, "710002": b, "710003": c}, set())]
+        got = [p["pmid"] for p in qa_stream.ordered_papers({"710001": a, "710002": b, "710003": c}, set(), allow_untriaged=True)]
         self.assertEqual(got, ["710001", "710002", "710003"])      # not newest-first, not by study design
 
     def test_the_top_drugs_table_names_labels_still_being_read(self):

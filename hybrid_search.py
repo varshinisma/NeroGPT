@@ -15,12 +15,16 @@ import math
 import os
 import re
 import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 
 from tracing import traced
 EMBED_URL = "https://api.mistral.ai/v1/embeddings"
 DEFAULT_EMBED_MODEL = "mistral-embed"
+BATCH = 24      # texts per embedding request
+MAX_QUERIES = 9      # intent queries (besides the question) each paper is compared with
 RRF_K = 60
 TEXT_CHARS = 700
 _cache: dict = {}
@@ -74,23 +78,37 @@ def embed(texts: list[str], timeout: float | None = None) -> list[list[float]] |
     if not key or not texts:
         return None
     model = os.getenv("EMBED_MODEL", "").strip() or DEFAULT_EMBED_MODEL
-    wait = timeout if timeout is not None else float(os.getenv("EMBED_TIMEOUT_S", "3"))
+    wait = timeout if timeout is not None else float(os.getenv("EMBED_TIMEOUT_S", "6"))
     keys = [hashlib.sha1((model + "|" + t).encode("utf-8")).hexdigest() for t in texts]
     with _lock:
         missing = [(k, t) for k, t in zip(keys, texts) if k not in _cache]
     if missing:
         unique = list(dict.fromkeys(missing))
-        try:
-            response = httpx.post(EMBED_URL, headers={"Authorization": f"Bearer {key}"}, json={"model": model, "input": [t for _, t in unique]}, timeout=wait)
-            response.raise_for_status()
-            data = sorted(response.json().get("data") or [], key=lambda d: d.get("index", 0))
-            if len(data) != len(unique):
+        batches = [unique[i:i + BATCH] for i in range(0, len(unique), BATCH)]      # a large pool is embedded in parallel batches: one big request used to run past the time allowed
+
+        def one(batch):
+            for attempt in (1, 2):      # one retry after a rate limit, a server error or a timeout
+                try:
+                    response = httpx.post(EMBED_URL, headers={"Authorization": f"Bearer {key}"}, json={"model": model, "input": [t for _, t in batch]}, timeout=wait)
+                    if response.status_code in (429, 500, 502, 503) and attempt == 1:
+                        time.sleep(1.0)
+                        continue
+                    response.raise_for_status()
+                    data = sorted(response.json().get("data") or [], key=lambda d: d.get("index", 0))
+                    if len(data) != len(batch):
+                        return False
+                    with _lock:
+                        for (k, _), item in zip(batch, data):
+                            _cache[k] = item["embedding"]
+                    return True
+                except Exception:
+                    if attempt == 2:
+                        return False
+                    time.sleep(1.0)
+            return False
+        with ThreadPoolExecutor(max_workers=min(4, len(batches))) as pool:
+            if not all(pool.map(one, batches)):
                 return None
-        except Exception:
-            return None
-        with _lock:
-            for (k, _), item in zip(unique, data):
-                _cache[k] = item["embedding"]
     with _lock:
         return [_cache[k] for k in keys]
 
@@ -108,7 +126,7 @@ def _ranks(values: list[float]) -> list[int]:
 
 
 @traced("hybrid_rerank", "chain")
-def rerank(question: str, papers: dict, trace: dict | None = None) -> None:
+def rerank(question: str, papers: dict, trace: dict | None = None, queries: list[str] | None = None) -> None:
     """Reorder `papers` (pmid -> record) IN PLACE by the fused ranking, and store each paper's `hybrid` scores. The sources' own order is one of the three rankings, so a paper the sources put first
     is never buried by a weak text match. Does nothing when switched off or when there are fewer than 3 papers."""
     trace = trace if trace is not None else {}
@@ -117,19 +135,28 @@ def rerank(question: str, papers: dict, trace: dict | None = None) -> None:
         return
     ids = list(papers)
     docs = [paper_text(papers[i]) for i in ids]
-    lexical = bm25_scores(question, docs)
-    vectors = embed([question] + docs)
-    semantic = [cosine(vectors[0], v) for v in vectors[1:]] if vectors else None
+    asked = [question] + [q for q in dict.fromkeys(" ".join(str(x).split()) for x in (queries or [])) if q and q != question][:MAX_QUERIES]      # the question and the intent queries: each paper is judged against EACH of them
+    lex_by_query = [bm25_scores(q, docs) for q in asked]
+    vectors = embed(asked + docs)
+    sem_by_query = [[cosine(vectors[k], v) for v in vectors[len(asked):]] for k in range(len(asked))] if vectors else None
     source_rank = list(range(1, len(ids) + 1))
-    rankings = [source_rank, _ranks(lexical)] + ([_ranks(semantic)] if semantic else [])
+    lex_ranks = [[len(ids) if s[i] <= 0 else r[i] for i in range(len(ids))] for s, r in ((s, _ranks(s)) for s in lex_by_query)]      # a paper with no word in common with a query is last for it (not first by the order of the sources)
+    sem_ranks = [_ranks(s) for s in sem_by_query] if sem_by_query else []
+    best_lex = [min(r[i] for r in lex_ranks) for i in range(len(ids))]      # a paper counts at its best rank over the queries: found for a narrow intent query it is not buried by the broad question
+    best_sem = [min(r[i] for r in sem_ranks) for i in range(len(ids))] if sem_ranks else None
+    rankings = [source_rank, best_lex] + ([best_sem] if best_sem else [])
     fused = [sum(1.0 / (RRF_K + r[i]) for r in rankings) for i in range(len(ids))]
+    lexical = lex_by_query[0]
+    semantic = sem_by_query[0] if sem_by_query else None
     for i, pmid in enumerate(ids):
-        papers[pmid]["hybrid"] = {"fused": round(fused[i], 5), "lexical": round(lexical[i], 3), "semantic": round(semantic[i], 4) if semantic else None}
+        by = [(sem_ranks[k][i], k) for k in range(len(asked))] if sem_ranks else [(lex_ranks[k][i], k) for k in range(len(asked))]
+        papers[pmid]["hybrid"] = {"fused": round(fused[i], 5), "lexical": round(lexical[i], 3), "semantic": round(semantic[i], 4) if semantic else None,
+                                  "best_query": asked[min(by)[1]], "best_lexical_rank": best_lex[i], "best_semantic_rank": best_sem[i] if best_sem else None}
     order = sorted(range(len(ids)), key=lambda i: -fused[i])
     reordered = {ids[i]: papers[ids[i]] for i in order}
     papers.clear()
     papers.update(reordered)
-    trace.update({"hybrid": "semantic + lexical + source order" if semantic else "lexical + source order (embedding call unavailable)", "papers_ranked": len(ids)})
+    trace.update({"hybrid": "semantic + lexical + source order" if semantic else "lexical + source order (embedding call unavailable)", "papers_ranked": len(ids), "queries_used": len(asked)})
 
 
 # ------------------------------------------------------------------ second stage: a cross-encoder reads the question and each paper TOGETHER
@@ -178,6 +205,15 @@ def cross_rerank(question: str, papers: dict, trace: dict | None = None, top: in
     ids = list(papers)[:top]
     try:
         scores = scorer(question, [paper_text(papers[i]) for i in ids])
+        matched = {}      # papers whose best-matching intent query is not the question: the cross-encoder reads them with that query too, and the higher verdict counts
+        for position, pmid in enumerate(ids):
+            best = (papers[pmid].get("hybrid") or {}).get("best_query")
+            if best and best != question:
+                matched.setdefault(best, []).append(position)
+        scores = list(scores)
+        for query, positions in matched.items():
+            for position, extra in zip(positions, scorer(query, [paper_text(papers[ids[p]]) for p in positions])):
+                scores[position] = max(float(scores[position]), float(extra))
     except Exception as error:
         trace["cross_encoder"] = f"skipped: {type(error).__name__}"
         return

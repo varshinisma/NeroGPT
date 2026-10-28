@@ -77,6 +77,10 @@ class FastPathIsUnchanged(unittest.TestCase):
         self.assertLess(source.index('clock.mark("first_token_s")'), source.index("threading.Thread(target=plan_worker"))
         self.assertLess(source.index("threading.Thread(target=plan_worker"), source.index('yield event("token", stage="INITIAL", text=chunk)'))
 
+    def test_the_first_answer_does_not_wait_for_the_relevance_reading(self):
+        source = inspect.getsource(qa_stream.stream_answer)
+        self.assertLess(source.index('yield event("token", stage="INITIAL", text=chunk)'), source.index("triage_evidence(state, question, skipped)"))
+
     def test_routing_does_not_import_or_change_the_fast_path(self):
         source = inspect.getsource(rr)
         self.assertNotIn("qa_stream", source.replace("qa_stream.py", ""))
@@ -180,6 +184,23 @@ class SkillSelection(unittest.TestCase):
         self.assertEqual(rr.baseline_operations("How is condition X treated?", ["drug-intelligence"]), [])
         self.assertEqual([o.args["sort"] for o in rr.baseline_operations("How is condition X treated?", ["latest-evidence"])], ["relevance", "date"])
         self.assertTrue(rr.baseline_operations("How is condition X treated?", [], fallback=True))
+
+
+class HeldExecution(unittest.TestCase):
+    def test_searches_start_when_submitted_and_a_search_submitted_after_the_budget_is_ignored(self):
+        adapters = FakeAdapters({"pubmed": [found(1)], "trials": [found(1)]})
+        ex = rr.Execution([], adapters, 5, hold=True)
+        ex.submit([op("pubmed", op_id="a")])
+        deadline = time.time() + 2
+        while not adapters.calls and time.time() < deadline:
+            time.sleep(0.01)
+        self.assertEqual(len(adapters.calls), 1)      # it ran before finish() was called
+        ex.budget_s = 0.0
+        ex.finish()
+        ex.submit([op("trials", "x y z w", op_id="b", condition="alpha")])
+        self.assertEqual([c[2] for c in adapters.calls], ["a"])
+        self.assertIn("a", ex.results)
+        self.assertNotIn("b", ex.results)
 
 
 class Execution(unittest.TestCase):

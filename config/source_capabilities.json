@@ -1,21 +1,111 @@
 {
   "_comment": "What each search target can answer, and the one place where a minimum number of searches is asked for. DATA used only to notice a possible gap before retrieval; the model decides what to add, every addition is validated, and nothing here names a disease, a drug or a patient group.",
   "sources": {
-    "pubmed": {"offers": "published studies, reviews and trial reports", "suits": ["treatment_options", "efficacy", "safety", "diagnosis", "prognosis", "mechanism", "drug_interaction"]},
-    "europepmc": {"offers": "a second literature index", "suits": ["treatment_options", "efficacy", "safety", "diagnosis", "prognosis", "mechanism", "drug_interaction"]},
-    "guideline_sites": {"offers": "recommendations of guideline organisations", "suits": ["guideline_recommendation", "treatment_options", "diagnosis", "dosing"]},
-    "regulator": {"offers": "approvals, new indications and safety communications", "suits": ["regulatory_status", "safety"]},
-    "fda_label": {"offers": "official drug labels: indications, dosing, warnings", "suits": ["dosing", "regulatory_status", "safety", "drug_interaction", "treatment_options"]},
-    "web": {"offers": "targeted web pages: medicine names, doses and context the other sources do not give", "suits": ["treatment_options", "dosing", "regulatory_status", "guideline_recommendation"]},
-    "trials": {"offers": "registered trials and their status", "suits": ["trial_status", "efficacy", "treatment_options"]}
+    "pubmed": {
+      "offers": "published studies, reviews and trial reports",
+      "suits": [
+        "treatment_options",
+        "efficacy",
+        "safety",
+        "diagnosis",
+        "prognosis",
+        "mechanism",
+        "drug_interaction"
+      ]
+    },
+    "europepmc": {
+      "offers": "a second literature index",
+      "suits": [
+        "treatment_options",
+        "efficacy",
+        "safety",
+        "diagnosis",
+        "prognosis",
+        "mechanism",
+        "drug_interaction"
+      ]
+    },
+    "guideline_sites": {
+      "offers": "recommendations of guideline organisations",
+      "suits": [
+        "guideline_recommendation",
+        "treatment_options",
+        "diagnosis",
+        "dosing"
+      ]
+    },
+    "regulator": {
+      "offers": "approvals, new indications and safety communications",
+      "suits": [
+        "regulatory_status",
+        "safety"
+      ]
+    },
+    "fda_label": {
+      "offers": "official drug labels: indications, dosing, warnings",
+      "suits": [
+        "dosing",
+        "regulatory_status",
+        "safety",
+        "drug_interaction",
+        "treatment_options"
+      ]
+    },
+    "web": {
+      "offers": "targeted web pages: medicine names, doses and context the other sources do not give",
+      "suits": [
+        "treatment_options",
+        "dosing",
+        "regulatory_status",
+        "guideline_recommendation"
+      ]
+    },
+    "trials": {
+      "offers": "registered trials and their status",
+      "suits": [
+        "trial_status",
+        "efficacy",
+        "treatment_options"
+      ]
+    }
   },
-  "authority": {
-    "applies_when_info_needed_has": ["treatment_options", "guideline_recommendation", "regulatory_status"],
-    "min_searches": {"guideline_sites": 1, "regulator": 1}
-  },
+  "authority": [
+    {
+      "applies_when_info_needed_has": [
+        "treatment_options",
+        "guideline_recommendation",
+        "diagnosis"
+      ],
+      "min_searches": {
+        "guideline_sites": 1
+      }
+    },
+    {
+      "applies_when_info_needed_has": [
+        "regulatory_status",
+        "safety",
+        "dosing",
+        "drug_interaction"
+      ],
+      "min_searches": {
+        "regulator": 1
+      }
+    },
+    {
+      "applies_when_info_needed_has": [
+        "treatment_options"
+      ],
+      "when_skill": "drug-intelligence",
+      "min_searches": {
+        "regulator": 1
+      }
+    }
+  ],
   "discovery": {
     "skill": "drug-intelligence",
-    "applies_when_info_needed_has": ["treatment_options"],
+    "applies_when_info_needed_has": [
+      "treatment_options"
+    ],
     "min_web_queries": 3,
     "purposes": [
       "the medicines used for the condition, by generic name",

@@ -24,9 +24,7 @@ TIMEOUT = 15
 USER_AGENT = "NeuroGPT-agent/1.0"
 
 
-_ncbi_lock = threading.Lock()
-_ncbi_last_call = 0.0
-NCBI_MIN_GAP = 0.11 if os.getenv("NCBI_API_KEY") else 0.35  # NCBI allows ~3 requests/second without an API key, 10 with one
+from ratelimit import limiter, source_of_url
 
 
 import httpx
@@ -36,23 +34,19 @@ _http = httpx.Client(timeout=TIMEOUT, headers={"User-Agent": USER_AGENT}, follow
 
 
 def _get(url: str, params: dict) -> bytes:
-    """GET over a pooled keep-alive connection, with spacing for NCBI and retries on rate-limit / temporary server errors."""
-    global _ncbi_last_call
+    """GET over a pooled keep-alive connection, at most the allowed requests per second to each source (ratelimit.py), and one retry on a rate-limit / temporary server error."""
     if url.startswith(EUTILS) and os.getenv("NCBI_API_KEY"):
         params = {**params, "api_key": os.environ["NCBI_API_KEY"]}
-    for attempt in range(4):
-        if url.startswith(EUTILS):
-            with _ncbi_lock:  # serialise NCBI calls across threads
-                wait = (0.11 if os.getenv("NCBI_API_KEY") else 0.35) - (time.time() - _ncbi_last_call)      # about 10 requests a second with a key, 3 without
-                if wait > 0:
-                    time.sleep(wait)
-                _ncbi_last_call = time.time()
+    source = source_of_url(url)
+    for attempt in range(2):      # one retry: a request that still fails is reported as a failed source
+        if source != "other":
+            limiter.acquire(source)      # one shared limit per source for the legacy and the routed searches together
         try:
             response = _http.get(url, params=params)
         except httpx.HTTPError as error:  # callers catch urllib.error.URLError
             raise urllib.error.URLError(str(error)) from error
-        if response.status_code in (429, 500, 502, 503) and attempt < 3:
-            time.sleep(1.0 * (attempt + 1))
+        if response.status_code in (429, 500, 502, 503) and attempt < 1:
+            time.sleep(1.0)
             continue
         if response.status_code >= 400:
             raise urllib.error.HTTPError(url, response.status_code, response.reason_phrase, None, None)
@@ -151,7 +145,45 @@ def search_pubmed(query: str, max_results: int = 8, years_back: int = 2, sort: s
 
 
 @traced("search_clinical_trials", "tool")
-def search_clinical_trials(condition: str, intervention: str = "", status: str = "", max_results: int = 8, drug_only: bool = False) -> str:
+def _ctgov_condition_text(condition) -> str:
+    """Serialize model-produced condition concepts into the string required by API v2 `query.cond`.
+
+    The routed planner can return several concepts as a list. Passing that Python list directly
+    to the HTTP client produced a value like "['condition A', 'condition B']", which the API
+    rejects. Flatten structured values and join normalized phrases as ordinary condition text.
+    """
+    def flatten(value):
+        if isinstance(value, dict):
+            for key in ("normalized", "primary", "condition", "name", "term", "label"):
+                if value.get(key):
+                    yield from flatten(value[key])
+                    return
+            for child in value.values():
+                yield from flatten(child)
+        elif isinstance(value, (list, tuple, set)):
+            for child in value:
+                yield from flatten(child)
+        elif value is not None:
+            yield str(value)
+
+    generic = {"what", "which", "could", "would", "should", "please", "patient", "patients", "child", "children", "adult", "adults",
+               "infant", "infants", "workup", "work-up", "management", "diagnosis", "diagnostic", "treatment", "therapy", "trial", "trials",
+               "year", "years", "month", "months", "week", "weeks", "day", "days", "old", "has", "have", "with", "the", "and", "for", "this"}
+    if isinstance(condition, str) and " OR " in condition:      # an explicit OR between concepts: each concept is cleaned on its own and the operator is kept (the registry reads OR in capitals)
+        parts = [_ctgov_condition_text(part) for part in condition.split(" OR ")]
+        return " OR ".join(p for p in parts if p)
+    phrases = []
+    for raw in flatten(condition):
+        cleaned = remove_age_expressions(raw)
+        for clause in re.split(r"[,;.!?\n]+", cleaned):
+            words = [w.lower() for w in re.findall(r"[A-Za-z][A-Za-z0-9-]*", clause) if w.lower() not in generic]
+            phrase = " ".join(words).strip()
+            if phrase and phrase not in phrases:
+                phrases.append(phrase)
+    return " ".join(phrases)
+
+
+def search_clinical_trials(condition: str | list | dict, intervention: str = "", status: str = "", max_results: int = 8, drug_only: bool = False) -> str:
     """Search ClinicalTrials.gov for current and recent clinical trials. Returns JSON with NCT ID, phase,
     CURRENT recruitment status, primary endpoint, sponsor, dates, last-update date and whether results are posted.
 
@@ -166,19 +198,27 @@ def search_clinical_trials(condition: str, intervention: str = "", status: str =
         max_results: Number of trials to return (1-20).
     """
     max_results = max(1, min(int(max_results), 20))
-    params = {"query.cond": condition, "pageSize": max_results, "sort": "LastUpdatePostDate:desc", "format": "json"}
+    condition_query = _ctgov_condition_text(condition)
+    if not condition_query:
+        return json.dumps({"error": "ClinicalTrials.gov search not run: no usable condition terms", "query": {"source": "ClinicalTrials.gov", "endpoint": CTGOV}})
+    allowed_status = {"RECRUITING", "NOT_YET_RECRUITING", "ACTIVE_NOT_RECRUITING", "COMPLETED", "TERMINATED", "WITHDRAWN", "SUSPENDED", "ENROLLING_BY_INVITATION", "UNKNOWN"}
+    status_values = [x.strip().upper() for x in str(status or "").split(",") if x.strip()]
+    if status_values and any(x not in allowed_status for x in status_values):
+        return json.dumps({"error": "ClinicalTrials.gov search not run: invalid overall-status filter", "query": {"source": "ClinicalTrials.gov", "condition": condition_query, "status": status}})
+    params = {"query.cond": condition_query, "pageSize": max_results, "sort": "LastUpdatePostDate:desc", "format": "json"}
     if intervention:
         params["query.intr"] = intervention
     if drug_only:      # only trials whose registered intervention type is a drug or a biological
         params["query.term"] = "AREA[InterventionType](DRUG OR BIOLOGICAL)"
     if status:
-        params["filter.overallStatus"] = status.replace(" ", "")
+        params["filter.overallStatus"] = ",".join(status_values)
+    query_trace = {"source": "ClinicalTrials.gov", "endpoint": CTGOV, "params": params}
     try:
         studies = json.loads(_get(CTGOV, params)).get("studies", [])
-    except (urllib.error.URLError, TimeoutError, ValueError) as error:
-        return json.dumps({"error": f"ClinicalTrials.gov search failed: {error}"})
+    except (urllib.error.URLError, TimeoutError, ValueError, TypeError, KeyError) as error:
+        return json.dumps({"error": f"ClinicalTrials.gov search failed: {error}", "query_trace": [{**query_trace, "status": "failed", "reason": f"{type(error).__name__}: {str(error)[:160]}"}]})
     if not studies:
-        return json.dumps({"results": [], "note": "No trials found. Try broader terms.", "searched_at": _now()})
+        return json.dumps({"results": [], "note": "No studies matched this completed query.", "query_trace": [{**query_trace, "status": "no_match"}], "searched_at": _now()})
 
     results = []
     for study in studies:
@@ -209,7 +249,7 @@ def search_clinical_trials(condition: str, intervention: str = "", status: str =
             "results_posted": study.get("hasResults", False),
             "url": f"https://clinicaltrials.gov/study/{nct}",
         })
-    return json.dumps({"results": results, "searched_at": _now(),
+    return json.dumps({"results": results, "query_trace": [{**query_trace, "status": "found"}], "searched_at": _now(),
                        "note": "Status is as of last_update. Ongoing does not mean effective."}, ensure_ascii=False)
 
 
@@ -250,17 +290,21 @@ def search_pubmed_quick(query: str, max_results: int = 6, years_back: int = 3, s
 
 
 @traced("search_europepmc_quick", "tool")
-def search_europepmc_quick(query: str, max_results: int = 6, years_back: int = 3, sort: str = "relevance") -> str:
+def search_europepmc_quick(query: str, max_results: int = 6, years_back: int = 3, sort: str = "relevance", fulltext: bool = False) -> str:
     """FAST literature search in ONE call via Europe PMC (restricted to PubMed/MEDLINE records, so PMIDs are PubMed PMIDs).
     Same result fields as search_pubmed. Falls back to search_pubmed_quick if Europe PMC fails."""
     first_year = date.today().year - int(years_back) if years_back else 1900
     q = f"({query}) AND SRC:MED AND FIRST_PDATE:[{first_year}-01-01 TO {date.today().year}-12-31]"
+    if fulltext:      # the words are searched in the FULL TEXT of the open-access articles (methods, results, discussion), not only in the title and abstract
+        q = f"BODY:({query}) AND SRC:MED AND OPEN_ACCESS:y AND FIRST_PDATE:[{first_year}-01-01 TO {date.today().year}-12-31]"
     if sort == "date":
         q += " sort_date:y"
     params = {"query": q, "resultType": "core", "format": "json", "pageSize": max(1, min(int(max_results), 15))}
     try:
         data = json.loads(_get("https://www.ebi.ac.uk/europepmc/webservices/rest/search", params))["resultList"]["result"]
     except (urllib.error.URLError, TimeoutError, ValueError, KeyError):
+        if fulltext:      # PubMed cannot search full texts: the failure is reported, not answered with a different kind of search
+            return json.dumps({"error": "Europe PMC full-text search failed"})
         return search_pubmed_quick(query, max_results, years_back, sort)
     results = []
     for r in data:
@@ -280,7 +324,15 @@ def search_europepmc_quick(query: str, max_results: int = 6, years_back: int = 3
 FDA_LABEL_API = "https://api.fda.gov/drug/label.json"
 _CONDITION_FILLER = {"disorder", "disease", "syndrome", "spectrum", "condition", "chronic", "acute", "symptom", "symptoms", "children", "child",
                      "pediatric", "paediatric", "adolescent", "adults", "treatment", "therapy", "treat", "management", "drug", "drugs"}
+
+
 _LABEL_NOISE = {"ORAL", "ORALLY", "DISINTEGRATING", "TABLETS", "TABLET", "INJECTION", "SOLUTION", "EXTENDED", "RELEASE", "SODIUM", "HYDROCHLORIDE", "ER"}
+
+
+def remove_age_expressions(text: str) -> str:
+    """Remove demographic age spans (digits or written numbers) from a search query without a number-word denylist."""
+    value = re.sub(r"\b(?:\d+|[a-z]+(?:[- ][a-z]+)?)\s*[- ]?(?:years?|months?|weeks?|days?)\s*[- ]old\b", " ", str(text or ""), flags=re.I)
+    return re.sub(r"\b(?:aged|age)\s+\d+\b|\b\d+\s*(?:y/o|yo)\b", " ", value, flags=re.I)
 
 
 def condition_stems(terms: list[str], limit: int = 3) -> list[str]:

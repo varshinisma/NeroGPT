@@ -44,7 +44,7 @@ PATTERNS: list[tuple[str, re.Pattern, str]] = [
     ("title_name", re.compile(rf"\b(?:Mr|Mrs|Ms|Miss|Dr|Prof|Master|Baby|Smt|Shri|Sri|Kumari)\.?\s+{NAME}(?:\s+{NAME2})?(?:['’]s)?"), "the patient"),
     ("name_verb", re.compile(rf"\b(?!{NOT_NAMES}\b)({NAME})(?:['’]s(?=\s+[A-Za-z0-9])|(?=\s+(?:has|had|presents|presented|complains|suffers|developed|was diagnosed|is diagnosed)\b))"), "the patient"),
     ("marked_name", re.compile(rf"\b(?:patient name|name|named|called)\s*(?:is|:|-)?\s+(?!the\b|of\b)({NAME}(?:\s+{NAME}){{0,2}})"), "the patient"),
-    ("name_age", re.compile(rf"\b(?!(?:Male|Female|Man|Woman|Boy|Girl|Child|Infant|Patient|Baby|Adult|Adolescent|Toddler|Age|Aged)\b){NAME}(?=\s*,\s*{AGE_AFTER})"), "the patient"),
+    ("name_age", re.compile(rf"\b(?!{NOT_NAMES}\b)(?!(?:Male|Female|Man|Woman|Boy|Girl|Child|Infant|Patient|Baby|Adult|Adolescent|Toddler|Age|Aged)\b){NAME}(?:\s+{NAME2}){{0,2}}(?=\s*(?:,\s*)+{AGE_AFTER})"), "the patient"),
 ]
 PHONE_CAND = re.compile(r"(?<![\w.])\+?\(?\d[\d\s().\-]{8,16}\d(?![\w.])")
 PHONE_WORD = re.compile(r"\b(?:phone|tel|telephone|mobile|cell|contact|call|ph|whatsapp)\b", re.I)

@@ -13,6 +13,7 @@ Vocabulary
 from __future__ import annotations
 
 import json
+import os
 import re
 import threading
 import time
@@ -27,7 +28,7 @@ TRIAL_STATUSES = ("recruiting", "completed", "any")
 PRIORITIES = ("essential", "supporting")
 INFO_NEEDED = ("treatment_options", "efficacy", "safety", "dosing", "diagnosis", "prognosis", "mechanism", "guideline_recommendation", "trial_status", "regulatory_status", "drug_interaction")
 SAFE_FALLBACK_SKILLS = ("latest-evidence", "clinical-trials", "drug-intelligence")
-MAX_OPERATIONS = 14
+MAX_OPERATIONS = int(os.getenv("ROUTING_MAX_QUERIES", "14"))      # the most routed searches one question may run (the coverage check may add a few more, see MAX_COVERAGE_ADDITIONS)
 MAX_ESCALATIONS = 4
 STOP_WORDS = set("a an the of in on for to and or with without about from by at as is are was were be been do does did can could should would how what which who why when where this that these those".split())
 STATE_TEXT = {      # the one wording of each state (the report's sections show it; landscape.py imports it)
@@ -119,6 +120,8 @@ def validate_args(target: str, args) -> dict:
             out["years_back"] = min(15, max(1, int(args.get("years_back", 5))))
         except (TypeError, ValueError):
             out["years_back"] = 5
+        if target == "europepmc" and args.get("fulltext") is True:
+            out["fulltext"] = True      # the words are searched in the full text of open-access articles
         if target == "pubmed":
             types = [t for t in (args.get("study_types") if isinstance(args.get("study_types"), list) else []) if t in STUDY_TYPES]
             if types:
@@ -327,15 +330,32 @@ class Execution:
     """Operations run in parallel under a time budget. Unfinished work is recorded (never dropped silently): searches that never started are `not_run`, searches that were running are `timed_out`,
     and any that finish later are kept in `late` with their results so the caller can say that they arrived too late to be used."""
 
-    def __init__(self, ops: list[Operation], adapters: dict, budget_s: float, workers: int = 6, clock=time.monotonic, retry: bool = True):
-        self.ops, self.adapters, self.budget_s, self.clock, self.retry = ops, adapters, budget_s, clock, retry
+    def __init__(self, ops: list[Operation], adapters: dict, budget_s: float, workers: int = 6, clock=time.monotonic, retry: bool = True, hold: bool = False):
+        """`hold=True`: the searches start as soon as they are submitted (`submit`) and the budget starts when `finish()` is called, so searches written early run while the rest are still being written."""
+        self.ops, self.adapters, self.budget_s, self.clock, self.retry = list(ops), adapters, budget_s, clock, retry
         self.results: dict[str, Result] = {op.id: Result() for op in ops}
         self.late: dict[str, Result] = {}
         self._lock = threading.Lock()
-        self._deadline = clock() + budget_s
-        self._pool = ThreadPoolExecutor(max_workers=max(1, min(workers, len(ops) or 1)))
+        self._deadline = float("inf") if hold else clock() + budget_s
+        self._closed = False
+        self._pool = ThreadPoolExecutor(max_workers=max(1, workers if hold else min(workers, len(ops) or 1)))
         self._futures = {op.id: self._pool.submit(self._run, op) for op in ops}
-        done, pending = wait(list(self._futures.values()), timeout=budget_s)
+        if not hold:
+            self.finish()
+
+    def submit(self, ops: list[Operation]) -> None:
+        if self._closed:      # the budget has ended: a search written after that is not started
+            return
+        for op in ops:
+            self.ops.append(op)
+            self.results[op.id] = Result()
+            self._futures[op.id] = self._pool.submit(self._run, op)
+
+    def finish(self) -> None:
+        """Wait for the searches up to the budget (counted from now) and record what did not finish."""
+        self._closed = True
+        self._deadline = self.clock() + self.budget_s
+        done, pending = wait(list(self._futures.values()), timeout=self.budget_s)
         by_future = {f: op_id for op_id, f in self._futures.items()}
         for future in done:
             self.results[by_future[future]] = future.result()
@@ -344,7 +364,7 @@ class Execution:
             if future.cancel():
                 self.results[op_id] = Result(status="not_run", error="not started before the budget ended")
             else:
-                self.results[op_id] = Result(status="timed_out", error=f"no answer within {budget_s:.0f} s")
+                self.results[op_id] = Result(status="timed_out", error=f"no answer within {self.budget_s:.0f} s")
                 future.add_done_callback(lambda f, op_id=op_id: self._arrived_late(op_id, f))
         self._pool.shutdown(wait=False, cancel_futures=True)
 
@@ -535,7 +555,8 @@ def make_adapters(*, search_pubmed, search_europepmc_quick, search_clinical_tria
     def europepmc(op):
         form = boolean_form(op.query, anchors)
         sort, years = op.args.get("sort", "relevance"), op.args.get("years_back", 5)
-        return cached("pm", f"{form}|{sort}|{years}|epmc", 900, lambda: search_europepmc_quick(form, max_results=6, years_back=years, sort=sort))
+        full = bool(op.args.get("fulltext"))
+        return cached("pm", f"{form}|{sort}|{years}|epmc|{full}", 900, lambda: search_europepmc_quick(form, max_results=8 if full else 6, years_back=years, sort=sort, **({"fulltext": True} if full else {})))
 
     def trials(op):
         condition, intervention = op.args.get("condition", ""), op.args.get("intervention", "")
@@ -548,6 +569,12 @@ def make_adapters(*, search_pubmed, search_europepmc_quick, search_clinical_tria
             wider = search("")
             if classify_raw(wider)[0] == "completed_found":
                 return wider
+        words = condition.split()
+        if classify_raw(raw)[0] == "completed_empty" and len(words) > 3 and " OR " not in condition:      # a compound condition (several findings in one phrase) matches no single record: each concept on its own
+            chunks = [" ".join(words[i:i + 3]) for i in range(0, len(words), 3)]
+            alternatives = cached("ct", f"{condition}|any-concept|{status}|{drug_only}|routing", 300, lambda: search_clinical_trials(" OR ".join(chunks), "", status, 10, drug_only))
+            if classify_raw(alternatives)[0] == "completed_found":
+                return alternatives
         return raw
 
     def fda_label(op):
@@ -648,11 +675,19 @@ def coverage_gaps(ops: list[Operation], info_needed: list, skills: list[str], ca
         if len(used) == 1 and others:
             gaps.append({"kind": "single_source_need", "need_id": need_id, "need": group[0].need, "serves": served, "used": sorted(used), "other_sources": others,
                          "offers": {t: sources[t].get("offers", "") for t in others}})
-    authority = capabilities.get("authority") or {}
-    if any(n in needs for n in authority.get("applies_when_info_needed_has", [])):      # treatment, guideline and approval questions: the guideline organisations' and the regulators' own pages give evidence no literature search gives
-        missing = [t for t, least in (authority.get("min_searches") or {}).items() if sum(1 for op in ops if op.target == t) < int(least)]
-        if missing:
-            gaps.append({"kind": "authority_source_missing", "missing_targets": missing})
+    rules = capabilities.get("authority") or []
+    rules = [rules] if isinstance(rules, dict) else rules      # one rule or a list of rules
+    missing: list[str] = []
+    for rule in rules:      # the guideline organisations' and the regulators' own pages give evidence no literature search gives; each rule says when it applies
+        if not any(n in needs for n in rule.get("applies_when_info_needed_has", [])):
+            continue
+        if rule.get("when_skill") and rule["when_skill"] not in skills:
+            continue
+        for target, least in (rule.get("min_searches") or {}).items():
+            if sum(1 for op in ops if op.target == target) < int(least) and target not in missing:
+                missing.append(target)
+    if missing:
+        gaps.append({"kind": "authority_source_missing", "missing_targets": missing})
     discovery = capabilities.get("discovery") or {}
     if discovery.get("skill") in skills and any(n in needs for n in discovery.get("applies_when_info_needed_has", [])):
         have = [op for op in ops if op.skill == discovery["skill"] and op.target == "web"]

@@ -210,7 +210,7 @@ The fast search (about 3 s, six searches) is fixed and never changed by anything
 3. **Query transformation**: each chosen skill writes JSON `{"queries": [{need_id, need, serves, target, query, args, priority, alternate?}]}` (an empty list is allowed). Each query has exactly one `target`: `pubmed`, `europepmc`, `guideline_sites`, `regulator`, `fda_label`, `web` or `trials`. An essential need gets a query for every source that can answer it.
 4. **Validation in code** (`parse_operations`): the target must be on the allowlist, the query must keep the question's own subject words, a drug may be named only if the question names it, arguments are clamped, duplicates and near-duplicates are merged.
 5. **Coverage check** (`coverage_gaps`, data in `config/source_capabilities.json`): finds an information need with no search on a suitable source, a treatment question without a guideline or regulator search, too few web-discovery searches, or an essential need served by one source only. One bounded model call writes the missing searches; they are validated the same way.
-6. **Run** in parallel under a time budget, one retry for transient errors, late results recorded. The older ("legacy") deep jobs still run beside them (`LEGACY_DEEP=off` skips them).
+6. **Run** in parallel under a time budget, one retry for transient errors, late results recorded. The older ("legacy") deep jobs run beside them as the baseline (`ENABLE_LEGACY_SEARCH=false` skips them), and everything is merged into one set (by PMID, then DOI, then title; each record keeps every search that found it). If the routing fails, the legacy results still make the report and the limitations say "Deep routing unavailable; results use the standard search only." Each run logs, per search, its mode, source, records returned and records the other mode did not find, and ends with a one-line summary (`state["search_log"]`).
 7. **Escalation**: a need that returned nothing, or nothing relevant after the relevance reading, is retried once on an alternate source (at most 4 retries, one hard deadline). Unfinished work is listed in the limitations.
 8. **Section states**: a report section with no content says why (not applicable / not retrieved / no relevant evidence / failed / timed out); a failed or unsearched source is never reported as "no evidence".
 
@@ -230,6 +230,8 @@ The sources do the retrieving (PubMed matches words in titles, abstracts and ind
 | Cross-encoder | The top 36 papers re-scored by reading the question and each paper's title and abstract start together; the score is fused with the hybrid position | `Xenova/ms-marco-MiniLM-L-6-v2`, run locally with `fastembed` (ONNX, no GPU); `CROSS_ENCODER_MODEL` overrides |
 
 The cross-encoder also screens web, guideline and regulator results with a threshold; borderline results are left to the model-based relevance reading. Each stage switches itself off, and says why in the trace, when disabled, with fewer than three papers, or when the model is not ready in time.
+
+**Passages (chunks).** The abstract of each of the best-ranked papers (and the full-text sections read below) is cut into short passages. The same local cross-encoder scores every passage against the question, in the background beside the relevance reading, and the writer is shown each paper's best passages (3 by default) with only the start of its abstract (`chunking.py`; `CHUNKING=off` to disable, `CHUNKS_PER_PAPER` to change). Passages are pieces of the paper's own text, so verification still finds every number. If the model is not ready, the writer gets the abstract as before.
 
 **Full text.** After ranking, the top 6 papers with a free full text (a PubMed Central ID in the open-access subset) have their methods, results and conclusion fetched in the background (`fulltext.py`, 6 s limit) and shown to the writer beside the abstract. Numbers from those sections count as retrieved text in verification. Other papers stay abstract-only; searching itself is still on titles and abstracts.
 
@@ -254,6 +256,7 @@ The cross-encoder also screens web, guideline and regulator results with a thres
 ├── audit.py             Independent audit script for a saved report (32 checks)
 ├── retrieval_routing.py Source-aware deep-search routing: validated operations (a `target` from a fixed allowlist), the seven search adapters, retry and time budget, coverage check, escalation, section states
 ├── hybrid_search.py     BM25 + embedding ranking (RRF) and the cross-encoder re-ranking
+├── chunking.py          Passage (chunk) ranking with the cross-encoder; the writer sees each paper's best passages
 ├── fulltext.py          Methods, results and conclusion of the best open-access papers (read after ranking)
 ├── source_figures.py    Original figures of cited open-access papers (caption, licence, selection)
 ├── tracing.py           Optional LangSmith tracing of model calls and tools
@@ -301,7 +304,9 @@ Never commit `.env`; `.gitignore` already excludes it. Copy `.env.example` and f
 |---|---|---|
 | `MODEL_PROVIDER` | yes | `mistral` or `groq`. Chooses the language model provider. |
 | `MISTRAL_API_KEY` | if `mistral` | Key from the Mistral console. |
-| `MISTRAL_MODEL` | if `mistral` | Model id, for example `open-mistral-nemo` (fast, cheap) or `mistral-small-latest` (better at following formats, a little slower). |
+| `MISTRAL_MODEL` | if `mistral` | Default Mistral model for every stage. Use `mistral-medium-latest` for clinical planning and screening. |
+| `MISTRAL_REASONING_MODEL` | optional | Overrides the model for question planning, source-query decisions, label decisions and evidence triage. Defaults to `MISTRAL_MODEL`. |
+| `MISTRAL_WRITER_MODEL` | optional | Overrides the model that writes the streamed FAST and DEEP report prose. Defaults to `MISTRAL_MODEL`; set a smaller Mistral model only after evaluating output quality. |
 | `GROQ_API_KEY` | if `groq` | Key from Groq. |
 | `GROQ_MODEL` | optional | Default `openai/gpt-oss-120b`. |
 | `MODEL_TIMEOUT_S` | optional | A model call with no answer after this many seconds fails instead of hanging the report (default 30). |
@@ -309,9 +314,12 @@ Never commit `.env`; `.gitignore` already excludes it. Copy `.env.example` and f
 | `NCBI_API_KEY` | recommended | Free key that raises PubMed's rate limit from about 3 to 10 requests a second. Get it at ncbi.nlm.nih.gov -> account -> Account settings -> API Key Management. |
 | `NEUROGPT_NO_BROWSER` | optional | Set to `1` to stop the server opening your browser on start. |
 | `HYBRID_SEARCH`, `CROSS_ENCODER` | optional | `off` turns the hybrid ranking or the cross-encoder off (default on). `EMBED_MODEL` and `CROSS_ENCODER_MODEL` change the models. |
-| `DEEP_ROUTING` | optional | `off` turns the model-written, source-aware deep searches off (default on; `QUERY_EXPANSION=off` does the same). |
-| `LEGACY_DEEP` | optional | `off` skips the older deep search jobs and runs only the routed searches (default on). |
-| `ROUTING_DEADLINE_S`, `ROUTING_BUDGET_S`, `ESCALATION_DEADLINE_S` | optional | Hard time limits in seconds for the routed searches (defaults 30, 18, 25). |
+| `ENABLE_DEEP_ROUTING` | optional | `false` turns the model-written, source-aware deep searches off (default on; the older `DEEP_ROUTING=off` and `QUERY_EXPANSION=off` still work when this is not set). |
+| `ENABLE_LEGACY_SEARCH` | optional | `false` skips the older fixed deep searches (default on; the older `LEGACY_DEEP=off` still works when this is not set). |
+| `ROUTING_MAX_QUERIES` / `ROUTING_MAX_COVERAGE_ADDITIONS` | optional | The most routed searches per question (default 14) and the most the coverage check adds (default 4). |
+| `RATE_<SOURCE>_PER_S` | optional | Requests per second to `PUBMED`, `EUROPEPMC`, `CLINICALTRIALS`, `FDA` or `TAVILY`, shared by both modes (PubMed: 2.5 without an NCBI key, 8 with one, under NCBI's 3 and 10). |
+| `PLANNER_PROVIDER` / `PLANNER_MODEL` | optional | Provider and model of the plan call only (for example `groq` and `qwen/qwen3.8-27b`); the routed search calls stay on the Mistral model. |
+| `ROUTING_DEADLINE_S`, `ROUTING_BUDGET_S`, `ESCALATION_DEADLINE_S` | optional | Hard time limits in seconds for the routed searches (defaults 55, 18, 25). |
 | `COVERAGE_CHECK`, `COVERAGE_CALL_S` | optional | `off` skips the coverage check; the time its one model call may take (default 8). |
 | `SCREEN_THRESHOLD`, `SCREEN_MARGIN` | optional | Cross-encoder screen for web results (defaults -8 and 2). |
 | `FULL_TEXT`, `FULL_TEXT_PAPERS`, `FULL_TEXT_WAIT_S` | optional | Full-text sections of the best open-access papers: on/off, how many papers (6), time limit (6 s). |

@@ -62,7 +62,7 @@ class Renderers(unittest.TestCase):
             md = landscape.trials_markdown(empty_state(trials=sec))
             self.assertTrue(md.startswith("## Clinical trials"))
             self.assertIn(landscape.STATE_LINES[sec], md)
-        self.assertIn("No trials were found in the registry search.", landscape.trials_markdown(qa_stream.new_state("q")))      # the earlier wording is unchanged without a state
+        self.assertIn("trial status is unknown", landscape.trials_markdown(qa_stream.new_state("q")).lower())      # no completed registry result is not a negative finding
 
 
 class ComputingTheStates(unittest.TestCase):

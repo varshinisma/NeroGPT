@@ -19,7 +19,7 @@ from tests.test_routing_stage import DRUGS, FakeModel, LATEST, QUESTION, plan  #
 
 
 def papers_json(*pmids):
-    return json.dumps({"results": [{"pmid": p, "title": f"Title {p}", "year": 2024, "authors": ["A B"], "journal": "J", "abstract_excerpt": f"Abstract {p}. It reports a result.",
+    return json.dumps({"results": [{"pmid": p, "title": f"Title {p}", "year": 2024, "authors": ["A B"], "journal": "J", "abstract_excerpt": f"The randomized study evaluated a clinically meaningful outcome in the target population and reported a result for record {p}.",
                                     "study_type": ["Randomized Controlled Trial"], "publication_date": "2024-01-01"} for p in pmids]})
 
 
@@ -47,7 +47,7 @@ class TriageOfNewRecordsOnly(unittest.TestCase):
         def fake(question, task, payload, max_tokens, skill="x"):
             ids = [p["id"] for p in payload.get("papers", [])]
             self.offered += ids
-            return {"papers": [f"{i}|direct|emerging|1" for i in ids]}
+            return {"papers": [f"{i}|direct|emerging|2" for i in ids]}
         qa_stream.ask_json = fake
 
     def tearDown(self):

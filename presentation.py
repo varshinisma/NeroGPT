@@ -76,6 +76,24 @@ def numberize(text: str, papers: dict) -> tuple[str, list[str]]:
 
 
 def closing_note(status: str) -> str:
-    check = ("All citations, trial IDs, links and numbers in this report were checked against the retrieved sources."
+    check = ("Citation identifiers, trial IDs, links and numbers were checked against the retrieved sources; the clinical interpretation remains a synthesis of that evidence."
              if status == "PASS" else "Some items could not be fully verified; the detail is in the saved verification record.")
     return f"\n\n---\n*{DISCLAIMER}* {check}"
+
+
+def verification_label(status: str) -> str:
+    """UI wording that keeps verification outcome separate from a completed pipeline run."""
+    if status == "PASS":
+        return "Verification passed"
+    if status == "NEEDS_REPAIR":
+        return "Verification needs repair"
+    return "Verification incomplete"
+
+
+def verification_label(status: str) -> str:
+    """UI wording that keeps verification outcome separate from a completed pipeline run."""
+    if status == "PASS":
+        return "Verification passed"
+    if status == "NEEDS_REPAIR":
+        return "Verification needs repair"
+    return "Verification incomplete"

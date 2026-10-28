@@ -54,18 +54,24 @@ def family_has_deep(state: dict, family: str) -> bool:
 
 
 def family_status(state: dict, family: str, deep_only: bool = False) -> dict:
-    """The status of one source family: the deep searches when there are any (a success if any succeeded, else partial, else failed), otherwise the fast job. {} when the family was never searched."""
+    """Aggregate every operation in a source family without hiding a failed sibling query."""
     status = state.get("source_status", {})
     keys = [k for k in family_keys(state, family) if k not in FAST_JOB_KEYS] or ([] if deep_only else family_keys(state, family))
     if not keys:
         return {}
     rows = [status[k] for k in keys]
-    for wanted in ("success", "partial", "failed"):
-        chosen = [r for r in rows if r.get("retrieval_status") == wanted]
-        if chosen:
-            found = any(r.get("evidence_status") == "found" for r in chosen)
-            return {"retrieval_status": wanted, "evidence_status": "found" if found else chosen[0].get("evidence_status"), "error": next((r.get("error") for r in chosen if r.get("error")), None)}
-    return dict(rows[0])
+    statuses = {r.get("retrieval_status") for r in rows}
+    if statuses == {"success"}:
+        retrieval = "success"
+    elif statuses == {"failed"}:
+        retrieval = "failed"
+    elif statuses <= {"failed", "partial"}:
+        retrieval = "partial" if "partial" in statuses else "failed"
+    else:
+        retrieval = "partial"
+    evidence = "found" if any(r.get("evidence_status") == "found" for r in rows) else ("not_found_after_search" if retrieval == "success" else "unavailable")
+    errors = [str(r["error"])[:100] for r in rows if r.get("error")]
+    return {"retrieval_status": retrieval, "evidence_status": evidence, "error": "; ".join(dict.fromkeys(errors)) or None}
 
 
 def superseded_by_deep(status: dict, key: str) -> bool:
@@ -97,10 +103,12 @@ def record_source_status(state: dict, raw: dict) -> None:
         error = data.get("error") if isinstance(data, dict) else None
         if error:
             partial = "timed out" in str(error).lower()
-            state["source_status"][key] = {"retrieval_status": "partial" if partial else "failed", "evidence_status": "unavailable", "error": str(error)[:160]}
+            state["source_status"][key] = {"retrieval_status": "partial" if partial else "failed", "evidence_status": "unavailable", "error": str(error)[:160],
+                                           **({"query_trace": data["query_trace"]} if data.get("query_trace") else {})}
             continue
         n = len(data) if isinstance(data, list) else len(data.get("results", []))
-        state["source_status"][key] = {"retrieval_status": "success", "evidence_status": "found" if n else "not_found_after_search", "error": None}
+        state["source_status"][key] = {"retrieval_status": "success", "evidence_status": "found" if n else "not_found_after_search", "error": None,
+                                       **({"query_trace": data["query_trace"]} if isinstance(data, dict) and data.get("query_trace") else {})}
 
 
 def drug_intelligence_status(state: dict, drug_stage_ok: bool) -> str:
@@ -204,6 +212,8 @@ def landscape_markdown(state: dict, used_rows: list[dict], trial_rows: list[dict
     """The specification's Treatment Drug Landscape, as TWO tables: drugs used for treatment of this condition, and other drugs (symptom-directed or still in trials). Columns: drug, category, indication, dose / route (if sourced),
     approval status / date, key evidence. Investigational drugs are never listed as established treatment; doses come only from a label or source for the use shown."""
     head = "## Treatment Drug Landscape\n\n"
+    if medicines_not_needed(state):
+        return head + "*Not listed: " + MEDICINES_NOT_ASKED + "*"
     status = state.get("source_status", {})
     st = family_status(state, "fda_label")
     reg = [r for r in state.get("regulatory", []) if fda_relevant(r)]
@@ -224,6 +234,7 @@ def landscape_markdown(state: dict, used_rows: list[dict], trial_rows: list[dict
         brands = ", ".join(b for b in r.get("brands", []) if b.lower() != r["generic"].lower())
         statement = r.get("indication_statement") or r.get("model_evidence") or r["indication_excerpt"]
         associated = " [associated symptom or comorbidity, not the condition itself]" if r.get("model_relation") == "treats_associated_symptom_or_comorbidity" else ""
+        associated += age_note(r, state.get("patient_age_years"))
         efficacy = re.search(r"Efficacy was established[^.]*\.", statement or "")
         evidence = (f"FDA label: {efficacy.group(0)} " if efficacy else "FDA label. ") + (f"[DailyMed label]({label_link(r, stems)})" if r.get("url") else "")
         entries.append((0, "", f"| {product_name(r)} | \"{_cell(statement, 800)}\"{associated} | {_dose_cell(r)} | "
@@ -288,8 +299,59 @@ def notable_latest_drug(state: dict) -> dict | None:
     return best
 
 
+AGE_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14,
+                "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20}
+UNIT_YEARS = {"year": 1.0, "yr": 1.0, "month": 1 / 12, "week": 1 / 52}
+
+
+def patient_age_years(text: str) -> float | None:
+    """The patient's age in years when the question states it ('3-year-old', 'three year old', '18 month old', 'aged 7'); None otherwise. Number words are plain language, not clinical terms."""
+    t = str(text or "").lower()
+    m = re.search(r"\b(\d+(?:\.\d+)?|" + "|".join(AGE_WORDS) + r")[- ]*(year|yr|month|week)s?[- ]*old\b", t)
+    if m:
+        value = float(m.group(1)) if m.group(1)[0].isdigit() else float(AGE_WORDS[m.group(1)])
+        return round(value * UNIT_YEARS[m.group(2)], 2)
+    m = re.search(r"\baged?\s+(\d+(?:\.\d+)?)\b", t)
+    return float(m.group(1)) if m else None
+
+
+def label_age_range(text: str) -> tuple[float, float] | None:
+    """The age range a label's text states ('ages 5 to 17 years', '6 to 17 years', '18 years and older', 'under 12 years'); None when it states none."""
+    t = str(text or "").lower()
+    m = re.search(r"(\d{1,2})\s*(?:to|-|\u2013|through)\s*(\d{1,2})\s*years", t)
+    if m:
+        return float(m.group(1)), float(m.group(2))
+    m = re.search(r"(\d{1,2})\s*years?(?: of age)?\s*(?:and|or)\s*older", t)
+    if m:
+        return float(m.group(1)), 120.0
+    m = re.search(r"(?:under|younger than|less than)\s*(\d{1,2})\s*years", t)
+    return (0.0, float(m.group(1))) if m else None
+
+
+def age_note(record: dict, patient_age: float | None) -> str:
+    """' (labelled for ages 5 to 17 years; this patient is about 3)' when the label states an age range that does not include the patient; '' otherwise."""
+    if patient_age is None:
+        return ""
+    span = label_age_range(" ".join(str(record.get(k) or "") for k in ("indication_excerpt", "indication_statement", "dose_statement")))
+    if not span or span[0] <= patient_age <= span[1]:
+        return ""
+    low, high = span
+    shown = f"{low:g} years and older" if high >= 120 else (f"under {high:g} years" if low == 0 else f"{low:g} to {high:g} years")
+    return f" (labelled for ages {shown}; this patient is about {patient_age:g})"
+
+
+MEDICINES_NOT_ASKED = ("this question does not ask about medicines, so no medicines are listed. Medicines used for associated symptoms, if any, were not searched for.")
+
+
+def medicines_not_needed(state: dict) -> bool:
+    """True only when the question's understanding says medicines are not needed (an explicit False); unknown (None) keeps the earlier behaviour."""
+    return state.get("medicines_needed") is False
+
+
 def top_drugs_markdown(state: dict) -> str:
     """Phase 1 'top treatment drugs': the FDA-labelled drugs of this condition first (built by code from the label records), then the most notable latest drug (investigational)."""
+    if medicines_not_needed(state):
+        return "**Top treatment drugs:** not listed: " + MEDICINES_NOT_ASKED
     status = family_status(state, "fda_label")
     where = "deep pass" if family_has_deep(state, "fda_label") else "fast pass"
     reg = [r for r in state.get("regulatory", []) if fda_relevant(r)][:4]
@@ -297,7 +359,7 @@ def top_drugs_markdown(state: dict) -> str:
     rows = ["| Drug | Indication named in the FDA label | Source |", "|---|---|---|"]
     for r in reg:
         link = f"[DailyMed]({r['url']})" if r.get("url") else "FDA label"
-        rows.append(f"| {product_name(r)} | \"{_cell(r.get('model_evidence') or r['indication_excerpt'], 420)}\" | {link} |")
+        rows.append(f"| {product_name(r)} | \"{_cell(r.get('model_evidence') or r['indication_excerpt'], 420)}\"{age_note(r, state.get('patient_age_years'))} | {link} |")
     if latest:
         rows.append(f"| {latest['drug']} (latest, investigational) | Being tested in a registered {latest['phase']} trial, {latest['status']}; not an approved treatment | "
                     f"[{latest['nct']}]({latest['url']}) |" if latest.get("url") else f"| {latest['drug']} (latest, investigational) | Being tested in a registered {latest['phase']} trial; not an approved treatment | {latest['nct']} |")
@@ -310,7 +372,11 @@ def top_drugs_markdown(state: dict) -> str:
     if status.get("retrieval_status") in ("failed", "partial"):
         return ("**Top treatment drugs:** the FDA drug-label source was unavailable in the " + where + " (" + str(status.get("error")) +
                 "); the full drug landscape follows. This does not mean that no drug exists.")
-    return "**Top treatment drugs:** no retrieved FDA label was judged relevant to the question in the " + where + "; the full landscape follows."
+    if status.get("retrieval_status") == "success":
+        terms = ", ".join(str(x) for x in state.get("fda_terms", []) if x)
+        searched = f" using the query concepts {terms}" if terms else ""
+        return "**Top treatment drugs:** no retrieved FDA label was judged relevant to the question in the " + where + searched + "; this search result does not establish that no approved treatment exists. The full landscape follows."
+    return "**Top treatment drugs:** FDA label search status was not recorded, so this report cannot conclude whether a relevant label was found; the full landscape follows."
 
 
 LABEL_SPLIT = re.compile(r"\s*[•●]\s*|\s*\(\s*\d+(?:\.\d+)*\s*\)\s*|;\s+|\s+(?=\d+\.\d+\s+[A-Z])")
@@ -360,12 +426,11 @@ def trial_reading(t: dict) -> str:
 
 
 def is_treatment_trial(t: dict) -> bool:
-    """Whether a registry record is shown as a treatment trial. The model's verified triage decides (landscape.verify_trial_triage); with no triage the registry's own metadata is used
-    (an interventional study that names an intervention)."""
+    """Only a verified triage decision may classify a registry record as a treatment trial."""
     triage = t.get("triage")
     if triage:
         return triage["relevance"] in ("direct", "indirect") and triage["kind"] == "treatment_trial"
-    return (t.get("design") or "").upper() == "INTERVENTIONAL" and bool(t.get("interventions"))
+    return False
 
 
 def trials_markdown(state: dict) -> str:
@@ -376,23 +441,44 @@ def trials_markdown(state: dict) -> str:
         sec = section_state(state, "trials")
         if sec in STATE_LINES:
             return head + STATE_LINES[sec]
-        st = family_status(state, "trials", deep_only=True)
-        if st.get("retrieval_status") in ("failed", "partial"):
-            return head + "The trial registry could not be retrieved (" + str(st.get("error")) + "); trial status is unavailable. This does not mean that no trials exist."
-        return head + "No trials were found in the registry search."
-    direct = [t for t in trials if is_treatment_trial(t)]
-    other = [t for t in trials if not is_treatment_trial(t)]
-    if not direct:
-        body = "No interventional treatment trial was identified among the retrieved records."
+        st = family_status(state, "trials")
+        routing = state.get("routing") or {}
+        need_trials = "trial_status" in ((state.get("understanding") or {}).get("info_needed") or [])
+        incomplete = st.get("retrieval_status") in ("failed", "partial") or (routing.get("unfinished") and need_trials)
+        if incomplete:
+            reason = f" ({st['error']})" if st.get("error") else ""
+            return head + "The clinical-trial search was incomplete" + reason + "; no trial records were available from the searches that finished. Trial status is unknown, and this does not mean that no trials exist."
+        if st.get("retrieval_status") == "success":
+            return head + "The completed registry searches returned no trial records matching the searches used. This does not establish that no relevant trials exist."
+        return head + "No completed clinical-trial search result is available, so trial status is unknown."
+    needs = set((state.get("understanding") or {}).get("info_needed") or [])
+    allowed_kinds = {"treatment_trial"}
+    if needs.intersection({"diagnosis", "trial_status"}):
+        allowed_kinds.add("diagnostic_or_assessment")
+    # When a user did not ask about trials, only records that directly bear on
+    # the clinical question earn space in the report. A trial-search question
+    # can also show useful related records.
+    accepted_relevance = {"direct", "indirect"} if "trial_status" in needs else {"direct"}
+    relevant = [t for t in trials if (t.get("triage") or {}).get("relevance") in accepted_relevance
+                and (t.get("triage") or {}).get("kind") in allowed_kinds]
+    other = [t for t in trials if t not in relevant]
+    unreviewed = [t for t in trials if not t.get("triage")]
+    if not relevant:
+        body = (f"{len(unreviewed)} registry record(s) were retrieved but their relevance could not be verified, so no conclusion about matching trials can be drawn."
+                if unreviewed else "No relevant treatment or assessment trial was identified among the retrieved and screened records.")
     else:
         out = ["| Trial | Intervention | Phase | Status (last update) | What the record shows |", "|---|---|---|---|---|"]
-        for t in direct:
+        for t in relevant:
             note = " **Specific syndrome record; do not generalise to the whole condition.**" if re.search(r"syndrome", t.get("title") or "", re.I) else ""
             link = f"[{t['nct_id']}]({t['url']})" if t.get("url") else t["nct_id"]
             out.append(f"| {link} | {_cell('; '.join((t.get('interventions') or [])[:2]) or (t.get('title') or ''), 90)} | {nice_phase(t.get('phase'))} | "
                        f"{nice_status(t.get('recruitment_status'))} ({t.get('last_update')}) | {trial_reading(t)}.{note} |")
         body = "\n".join(out)
     extra = f"\n\n{len(other)} further registry record(s) were retrieved and are not shown (judged not to be treatment trials for this question)." if other else ""
+    if unreviewed:
+        extra += f"\n\n{len(unreviewed)} registry record(s) have no verified relevance decision and are not classified as matching trials."
+    if (state.get("routing") or {}).get("unfinished") and "trial_status" in ((state.get("understanding") or {}).get("info_needed") or []):
+        extra += "\n\nThe question-routed trial search did not finish; this table reflects only the available registry records and may be incomplete."
     return head + body + extra + "\n\n*Registry status shows that research is being conducted, not that a treatment works. Registry status is separate from published results.*"
 
 
@@ -419,8 +505,17 @@ def limitations_markdown(state: dict, skipped: list[str], notes: list[str] | Non
              if read else "Findings are drawn from abstracts, registry records and web pages, not full texts; study quality was not appraised from the full papers.",
              "Doses appear only where an FDA label gives them for this condition (section 2.1); for any other use, see a prescribing source. Approval dates appear only where a retrieved source states them."]
     items += notes or []
+    routing = state.get("source_status", {}).get("deep_routing")
+    if routing and routing.get("retrieval_status") == "failed":      # the first limitation: the model-written searches were not available, the standard search made the report
+        items.insert(0, "Deep routing unavailable; results use the standard search only.")
+    elif routing:
+        items.insert(0, "Deep routing finished only in part (time limit); some of the model-written searches were not completed.")
+    if "unavailable" in str((state.get("hybrid_trace") or {}).get("hybrid", "")):      # the semantic (meaning-based) ranking could not run: the order came from keywords and the sources' own order
+        items.append("The meaning-based (semantic) ranking of the retrieved papers was unavailable in this run, so their order rests on keyword matching and the sources' own order.")
     partial: dict[str, str] = {}
     for key, st in state.get("source_status", {}).items():
+        if key == "deep_routing":
+            continue
         if st["retrieval_status"] != "success":
             partial.setdefault(source_name(key), "timed out" if "timed out" in str(st.get("error")).lower() else "did not respond fully")
     for name, why in partial.items():
@@ -723,7 +818,7 @@ def _from_line(item, names: tuple):
     return item
 
 
-def verify_paper_triage(items, offered: dict) -> dict:
+def verify_paper_triage(items, offered: dict, information_needs: list[str] | None = None, broad_question: bool = False) -> dict:
     """The model's reading of each retrieved paper: relevance to the question, evidence role, population. A paper counts as relevant (direct, indirect, background) only when the
     sentence number the model gives exists in that paper's text; otherwise it is 'uncertain'. The population wording is kept only if it is in the paper's text."""
     out = {}
@@ -733,12 +828,38 @@ def verify_paper_triage(items, offered: dict) -> dict:
         if rec is None or item.get("relevance") not in PAPER_RELEVANCE:
             continue
         n = _number(item.get("sentence"))
-        grounded = n is not None and 1 <= n <= len(rec["sentences"])
+        # A title identifies a record but does not establish that it answers a
+        # clinical question.  Main-report evidence needs a supporting abstract
+        # or full-text sentence; title-only matches stay uncertain.
+        grounded = n is not None and 1 < n <= len(rec["sentences"])
         relevance = item["relevance"] if (grounded or item["relevance"] in ("not_relevant", "uncertain")) else "uncertain"
         population = _norm(str(item.get("population", ""))).strip(" .,;:")
+        rationale = " ".join(str(item.get("rationale") or item.get("contribution") or "").split())[:240]
+        need = _norm(str(item.get("need") or item.get("information_need") or "")).strip()
+        scope = str(item.get("scope") or "").strip().lower()
+        allowed_needs = {str(x).strip() for x in (information_needs or []) if str(x).strip()}
+        if relevance in ("direct", "indirect") and allowed_needs and need not in allowed_needs:
+            relevance = "uncertain"
+        if relevance in ("indirect", "background") and len(rationale) < 10:
+            relevance = "uncertain"      # those roles require an explicit, question-specific reason to keep them
+        kinds = " ".join(str(x) for x in (rec.get("study_type") or [])).lower()
+        is_case_report = "case report" in kinds or "case-study" in kinds or "case study" in kinds
+        # An isolated patient with a different named disorder can describe a
+        # plausible differential, but it cannot establish a general work-up or
+        # management step.  The model must explicitly establish that a case
+        # report evaluates an approach applicable beyond that individual.
+        if is_case_report and relevance == "direct" and scope != "generalizable":
+            relevance = "background"
+        if is_case_report and scope == "case_specific" and relevance in ("direct", "indirect"):
+            relevance = "background"
+        elif is_case_report and broad_question and relevance == "direct":
+            # A one-patient record can be useful related context for a broad
+            # work-up/management question, but cannot itself establish its
+            # general answer. Keep it below direct evidence.
+            relevance = "indirect"
         out[str(item["id"])] = {"relevance": relevance, "role": item.get("role") if item.get("role") in PAPER_ROLES else None,
                                 "population": population if 4 <= len(population) <= 120 and _grounded(population, " ".join(rec["sentences"])) else "",
-                                "evidence": rec["sentences"][n - 1] if grounded else ""}
+                                "evidence": rec["sentences"][n - 1] if grounded else "", "rationale": rationale if 10 <= len(rationale) <= 240 else "", "need": need if relevance in ("direct", "indirect") and (not allowed_needs or need in allowed_needs) else "", "scope": scope if scope in ("generalizable", "case_specific", "context_only") else ""}
     return out
 
 

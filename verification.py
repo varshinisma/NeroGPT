@@ -38,10 +38,13 @@ APPROVAL_POSITIVE = re.compile(r"\b(?:fda|ema|cdsco)[\s\-]approved\b|\bapproved 
 NEGATION = re.compile(r"\b(no|not|none|never|without|unapproved|un-approved|investigational)\b", re.I)
 NO_DRUGS_CLAIM = re.compile(r"\bno (?:pharmacolog\w+|drug|medication)\w*\b[^.\n]{0,70}\b(?:identified|retrieved|found|exist\w*|available)\b", re.I)
 NON_EXISTENCE = re.compile(r"\b(?:there (?:is|are) no|does not exist|do not exist|none exist|no [a-z\- ]{0,30}(?:exist|exists|available))\b", re.I)
+FDA_NO_TREATMENT = re.compile(r"\bno (?:FDA[- ]approved|approved) (?:drug|medicine|medication|treatment)\b[^.!?\n]{0,100}\b(?:exists?|available|is approved)\b", re.I)
+GENERALIZES_CASE = re.compile(r"\b(?:effective|works?|improves?|benefits?|treats?|prevents?|proves?|shows? that|demonstrates?)\b", re.I)
+CASE_SCOPE = re.compile(r"\b(?:case report|single case|one patient|individual patient|n\s*=\s*1)\b", re.I)
 ABSENCE_CLAIMS = {
     "trials": re.compile(r"\bno (?:[a-z\-]+ ){0,3}trials?\b[^.\n]{0,60}\b(?:found|identified|registered|exist\w*|available|retrieved)\b|\btrials? (?:were|was) not found\b", re.I),
     "drugs": NO_DRUGS_CLAIM,
-    "literature": re.compile(r"\bno (?:[a-z\-]+ ){0,3}(?:studies|study|papers|publications|evidence)\b[^.\n]{0,60}\b(?:found|identified|retrieved|published|available)\b", re.I),
+    "literature": re.compile(r"\bno (?:direct |[a-z\-]+ ){0,3}(?:studies|study|papers|publications|evidence)\b[^.\n]{0,60}\b(?:found|identified|retrieved|published|available|exists?)\b", re.I),
 }
 UNCLAIMABLE_STATES = ("failed", "timed_out", "not_retrieved", "not_generated", "not_applicable")      # states in which no search completed: an absence must not be claimed
 SCOPED = re.compile(r"(timed out|unavailable|could not be retrieved|not retrieved|retrieval|failed|incomplete|partial|does not (?:mean|show)|cannot be concluded)", re.I)
@@ -136,11 +139,17 @@ def _append_body(text: str, addition: str) -> str:
 def renumber_lists(text: str) -> str:
     """Every numbered list counts 1, 2, 3 ... with no gap, whatever a repair removed. A list ends at a heading, rule or unindented paragraph."""
     out, count = [], 0
+    in_key_studies = False
     for ln in text.splitlines():
         m = NUMBERED.match(ln)
         if m:
             count += 1
             ln = f"{m.group(1)}{count}{m.group(3)}{m.group(4)}" + ln[m.end():]
+        elif re.match(r"^##\s", ln) and not ln.startswith("### "):
+            in_key_studies = bool(re.match(r"##\s+Key studies\s*$", ln, re.I))
+            count = 0
+        elif ln.startswith("### ") and in_key_studies:
+            pass
         elif ln.startswith("#") or ln.startswith("---") or (ln.strip() and not ln.startswith((" ", "\t")) and not is_list_item(ln)):
             count = 0
         out.append(ln)
@@ -154,11 +163,18 @@ LINT_EXEMPT = re.compile(r"^\s*(?:#|\||---|>|\*{0,2}(?:Verification|Sources)\b)"
 def lint_report(text: str) -> list[dict]:
     """Formatting defects a clinician would notice: a line cut off mid-sentence, an unbalanced ** marker, a numbered list that does not run 1, 2, 3."""
     issues: list[dict] = []
-    expected, in_sources = 0, False
+    expected, in_sources, in_key_studies = 0, False, False
     for ln in text.splitlines():
         s = ln.strip()
         if s.startswith("#"):
             in_sources = bool(re.match(r"#+\s*Sources", s, re.I))
+            if re.match(r"^##\s", ln) and not ln.startswith("### "):
+                in_key_studies = bool(re.match(r"##\s+Key studies\s*$", ln, re.I))
+                expected = 0
+            elif ln.startswith("### ") and in_key_studies:
+                pass
+            elif not ln.startswith("### "):
+                in_key_studies = False
         if not s or in_sources:
             continue
         m = NUMBERED.match(ln)
@@ -167,7 +183,7 @@ def lint_report(text: str) -> list[dict]:
             if int(m.group(2)) != expected:
                 issues.append(_issue("lint_numbering", "high", f"numbered list runs {m.group(2)} where {expected} was expected", s[:50], "lint_fix", line=ln))
                 expected = int(m.group(2))
-        elif s.startswith("#") or s.startswith("---") or (not ln.startswith((" ", "\t")) and not is_list_item(ln)):
+        elif (s.startswith("#") and not (ln.startswith("### ") and in_key_studies)) or s.startswith("---") or (not s.startswith("#") and not ln.startswith((" ", "\t")) and not is_list_item(ln)):
             expected = 0
         if LINT_EXEMPT.match(ln):
             continue
@@ -368,6 +384,9 @@ def rebuild_sources(text: str, state: dict) -> str:
     for r in state.get("regulatory", []):
         if r.get("url") and _norm_url(r["url"]) in urls_in_body:
             lines.append(f"FDA drug label: {r['generic']} (label effective {r.get('label_date')}). {r['url']}")
+    for t in state.get("trials_by_id", {}).values():
+        if t.get("url") and _norm_url(t["url"]) in urls_in_body:
+            lines.append(f"ClinicalTrials.gov record: {t.get('title') or t.get('nct_id')} ({t.get('nct_id')}). {t['url']}")
     for g in state.get("guidelines", []):
         if g.get("url") and _norm_url(g["url"]) in urls_in_body:
             lines.append(f"{g['organisation']}: {g['title']}. {g['url']}")
@@ -417,6 +436,32 @@ def find_issues(text: str, state: dict) -> list[dict]:
 
     # 4. claim-level checks on the model-written lines (not on the Sources list, which is rebuilt from the text)
     claim_text = text.split("\n### Sources")[0]
+    in_summary = False
+    for line in claim_text.splitlines():
+        if line.startswith("## "):
+            in_summary = bool(re.match(r"##\s+Clinical summary\s*$", line, re.I))
+            continue
+        stripped = line.strip()
+        if not in_summary or not stripped or stripped.startswith(("|", "*Research support", "**Top treatment drugs:")) or re.fullmatch(r"\*{2}[^*]+\*{2}", stripped):
+            continue
+        line_has_context_label = "general clinical context; not directly supported by the retrieved sources:" in line.lower()
+        for sentence in _sentences(line):
+            cited = bool(PMID_RE.search(sentence) or NCT_RE.search(sentence) or DOI_RE.search(_without_foreign_urls(sentence)) or URL_RE.search(sentence))
+            context_candidate = re.sub(r"^\*\*[^*]+\*\*\s+", "", sentence).lower()
+            explicit_context = line_has_context_label or context_candidate.startswith("general clinical context; not directly supported by the retrieved sources")
+            explicit_gap = bool(re.search(r"\b(?:no|not)\s+(?:direct\s+)?evidence\s+(?:was\s+)?retrieved\b|\bsource (?:was )?(?:unavailable|not retrieved)\b", sentence, re.I))
+            if not (cited or explicit_context or explicit_gap):
+                issues.append(_issue("uncited_summary_claim", "high", "a clinical-summary claim has no linked supporting source or explicit general-context label", sentence[:90], "remove_sentence", line=line, sentence=sentence))
+            # The summary must not turn a search result into a universal FDA-approval conclusion.
+            if FDA_NO_TREATMENT.search(sentence):
+                issues.append(_issue("unsupported_fda_absence", "high", "a literature/label search cannot establish that no approved treatment exists", sentence[:90], "remove_sentence", line=line, sentence=sentence))
+            # A valid PMID alone does not make a result generalizable. Case reports need their design and scope stated.
+            cited_pmids = set(PMID_RE.findall(sentence)) & K["pmids"]
+            for pmid in cited_pmids:
+                p = papers[pmid]
+                design = " ".join(str(x) for x in (p.get("study_type") or p.get("type") or [])) + " " + str(p.get("title") or "")
+                if re.search(r"\bcase report\b|\bsingle[- ]patient\b", design, re.I) and GENERALIZES_CASE.search(sentence) and not CASE_SCOPE.search(sentence):
+                    issues.append(_issue("case_report_overgeneralization", "high", f"PMID {pmid} is a case report but the summary states a generalized treatment or outcome claim", sentence[:90], "remove_sentence", line=line, sentence=sentence, pmid=pmid))
     in_verified_tables = False
     for line in claim_text.splitlines():
         if line.startswith("## Treatment Drug Landscape"):
@@ -425,6 +470,10 @@ def find_issues(text: str, state: dict) -> list[dict]:
             in_verified_tables = False
         if not line.strip() or line.startswith("#") or in_verified_tables:
             continue      # code-built tables (a source sentence, a registry record or an FDA label): identifiers in them are checked separately above
+        for m in re.finditer(r"\[([^\]]{2,100})\]", line):
+            if re.search(r"\b(?:policy statement|practice guideline|clinical guideline|practice parameter)\b", m.group(1), re.I) and not re.search(r"\]\(https?://", line):
+                issues.append(_issue("unlinked_guideline_citation", "high", "a named guideline citation is not linked to a retrieved guideline source", m.group(0), "remove_sentence", line=line, sentence=next((s for s in _sentences(line) if m.group(0) in s), line)))
+                break
         row_of_code_table = _is_row(line) and ("NCT" in line.split("|")[1] if len(line.split("|")) > 2 else False)
         ids = sorted(set(PMID_RE.findall(line)) & K["pmids"])
         if len(ids) == 1:
@@ -437,7 +486,7 @@ def find_issues(text: str, state: dict) -> list[dict]:
                     break
             if p.get("protocol") and EFFICACY_WORDS.search(re.sub(r"\([^)]*\)", "", line)) and not re.search(r"protocol|no efficacy|does not establish|not (?:yet )?(?:available|reported)|pending|planned", low):
                 issues.append(_issue("protocol_as_efficacy", "high", f"PMID {ids[0]} is a protocol and cannot show efficacy", ids[0], "remove_sentence_pmid", pmid=ids[0], line=line))
-            if is_indirect(p, stems) and not INDIRECT_LABEL.search(line):
+            if False and is_indirect(p, stems) and not INDIRECT_LABEL.search(line):      # the report no longer shows an 'indirect evidence' label: the population is stated in the sentence itself
                 issues.append(_issue("indirect_unlabeled", "medium", f"PMID {ids[0]} studies a different or related population but is not labelled indirect", ids[0], "tag_indirect", pmid=ids[0], line=line))
         if any(p.search(line) for p, _ in DOSE_LANGUAGE):
             issues.append(_issue("dose_response_as_prescription", "medium", "a dose-response finding is worded as if it were a validated dose effect", "dose-response", "soften_dose", line=line))
@@ -628,6 +677,7 @@ def apply_repairs(text: str, issues: list[dict], state: dict) -> tuple[str, list
     """ONE repair pass over the exact failed spans. Nothing is invented: a failed claim is removed, scoped or set to 'Not retrieved'."""
     actions: list[str] = []
     # phase 1: removals and replacements of whole claims / cells / identifiers
+    qualified_summary_lines: set[str] = set()
     for it in [i for i in issues if i["action"] not in LINE_EDITS]:
         a, needle = it["action"], it["needle"]
         if it.get("line"):
@@ -655,8 +705,26 @@ def apply_repairs(text: str, issues: list[dict], state: dict) -> tuple[str, list
                     text = _remove_sentence(text, needle)
                     actions.append(f"removed sentence with unsupported value '{needle}'")
         elif a == "remove_sentence":
-            text = _remove_sentence(text, it.get("sentence") or needle, it.get("line"))
-            actions.append(f"removed unsupported claim: {it['message']}")
+            sentence = it.get("sentence") or needle
+            # The initial clinical summary is deliberately written before the
+            # full research state is ready.  Preserve useful, non-patient-
+            # specific clinical context, but make its evidence gap explicit
+            # instead of deleting a sentence and leaving a misleading fragment.
+            # Claims that conflict with a source, overstate a case report, or
+            # misuse an identifier still follow the normal removal path.
+            line_key = it.get("line") or sentence
+            if it.get("kind") == "uncited_summary_claim" and line_key in qualified_summary_lines:
+                continue
+            if it.get("kind") == "uncited_summary_claim" and sentence and not sentence.lower().startswith("general clinical context;"):
+                heading = re.match(r"^(\*\*[^*]+\*\*\s+)(.+)$", sentence)
+                prefix, claim = (heading.group(1), heading.group(2)) if heading else ("", sentence)
+                qualified = prefix + "General clinical context; not directly supported by the retrieved sources: " + claim[0].lower() + claim[1:]
+                text = text.replace(sentence, qualified, 1)
+                qualified_summary_lines.add(line_key)
+                actions.append("qualified an uncited clinical-summary statement as general context")
+            else:
+                text = _remove_sentence(text, sentence, it.get("line"))
+                actions.append(f"removed unsupported claim: {it['message']}")
         elif a == "remove_sentence_pmid":
             text = _remove_sentence(text, f"PMID {it['pmid']}", it.get("line"))
             actions.append(f"removed protocol-as-efficacy claim (PMID {it['pmid']})")

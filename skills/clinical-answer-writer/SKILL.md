@@ -7,7 +7,7 @@ description: Writes the doctor-facing clinical research answer - a fast first re
 
 ## Overview
 
-Write the final answer from the structured `ResearchState` only. **Answer the exact question first**, show the **year and citation on every finding**, put the **newest evidence first**, and always include the Treatment Drug Landscape. Start writing as soon as the orchestrator says minimum evidence is ready; do not wait for the whole pipeline.
+Write the final answer from the structured `ResearchState` only. **Answer the exact question first**, show the **year and citation on every finding**, put the **newest evidence first**, and keep the Treatment Drug Landscape and Clinical trials sections: the drug section lists the medicines retrieved for the condition (they are retrieved for every clinical question) and is left out when none was retrieved; the trials section lists its evidence when trials bear on the question (`info_needed` and chosen skills say so), and is left out otherwise, never filled with unrelated content. Start writing as soon as the orchestrator says minimum evidence is ready; do not wait for the whole pipeline.
 
 ## Citation format (use everywhere)
 
@@ -24,7 +24,7 @@ In this order:
 2. **"Evidence searched on <date>"**
 3. **Most important recent finding** with exact date, study type, key result and citation
 4. **Immediate context** in 1-3 sentences
-5. **Top treatment drugs** (required for every query): established drugs first, then the single most notable latest drug, in a small table with category and source
+5. **Top treatment drugs** (when the question concerns medicines): established drugs first, then the single most notable latest drug, in a small table with category and source; when it does not, one line saying that no medicines were asked about
 6. A one-line status: "Preliminary - deeper review (full drug list, trials, contradictions, verification) is continuing."
 
 If something is not ready, say it is still loading. Do not guess.
@@ -83,7 +83,7 @@ When `citation-verification` or `quality-control` returns repair targets, change
 - [ ] "Evidence searched on" date is shown
 - [ ] Newest evidence first
 - [ ] Phase 1 includes bottom line, recent finding, context and top drugs
-- [ ] Full Treatment Drug Landscape table is in the deep answer
+- [ ] Full Treatment Drug Landscape table is in the deep answer when medicines bear on the question; otherwise the section says it does not apply
 - [ ] Investigational, off-label and trial-dose labels present
 - [ ] Contradictions and limitations included
 - [ ] Gaps from failed skills disclosed

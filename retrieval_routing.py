@@ -17,6 +17,7 @@ import os
 import re
 import threading
 import time
+import observability
 from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -201,7 +202,7 @@ def parse_operations(skill: str, reply, question: str, anchors: set[str], *, max
         if declined(reply):
             return [], []      # the skill said its source is not needed for this question: that is an answer, not an error
         return [], [{"item": None, "reason": "the reply has no list of queries"}]
-    need_floor = 2 if len(anchors) >= 4 else 1
+    need_floor = 1      # one shared term is enough: a work-up search (hearing, EEG, metabolic) may name a test, not the question's words
     ops, rejected, seen = [], [], set()
     for n, item in enumerate(items):
         op, why = _parse_one(item, skill, question, anchors, n, need_floor=need_floor)
@@ -380,7 +381,8 @@ class Execution:
     def _call(self, op: Operation) -> Result:
         began = self.clock()
         try:
-            raw = self.adapters[op.target](op)
+            with observability.tool(f"{op.target}"):
+                raw = self.adapters[op.target](op)
         except KeyError:
             return Result(status="failed", error=f"no adapter for target {op.target}", seconds=0.0, attempts=1)
         except Exception as error:
@@ -523,7 +525,7 @@ OPEN_ACCESS_FILTER = "pubmed pmc[sb]"
 TRIAL_STATUS_FILTER = {"recruiting": "RECRUITING,NOT_YET_RECRUITING,ACTIVE_NOT_RECRUITING", "completed": "COMPLETED", "any": ""}
 
 
-def boolean_form(text: str, anchors: set[str], required: int = 3, optional: int = 10) -> str:
+def boolean_form(text: str, anchors: set[str], required: int = 3, optional: int = 10, expand=None) -> str:
     """A long natural-language search as a boolean query that returns papers: PubMed and Europe PMC require EVERY word of a long phrase, which finds nothing. The first few words of the phrase that belong to the
     question (its condition and patient details) are required; the other concept words are alternatives (OR), so the source's own relevance ranking can weigh them. Years and filler words are dropped."""
     words = [w for w in re.findall(r"[a-zA-Z][a-zA-Z0-9\-]{2,}", text) if w.lower() not in STOP_WORDS and not re.fullmatch(r"20\d\d|\d+", w)]
@@ -532,18 +534,28 @@ def boolean_form(text: str, anchors: set[str], required: int = 3, optional: int 
     rest = [w for w in words if w not in must][:optional]
     if not must:
         return " ".join(words[:8])
+    alternatives = expand(must) if expand else {}      # {term: MeSH alternatives}: a term made of required words may also be matched by the vocabulary's other names for it
+    taken: set[str] = set()
+    groups: dict[str, str] = {}
+    for term, extra in alternatives.items():
+        tokens = [w for w in re.findall(r"[a-zA-Z][a-zA-Z0-9\-]{2,}", term.lower()) if w not in STOP_WORDS]
+        if extra and tokens and all(t in must for t in tokens) and not taken & set(tokens):
+            taken |= set(tokens)
+            groups[next(w for w in must if w in tokens)] = "(" + (tokens[0] if len(tokens) == 1 else "(" + " AND ".join(tokens) + ")") + " OR " + " OR ".join(extra) + ")"
+    must = [groups.get(w, w) for w in must if w in groups or w not in taken]
     return "(" + " AND ".join(must) + ")" + (" AND (" + " OR ".join(rest) + ")" if rest else "")
 
 
 def make_adapters(*, search_pubmed, search_europepmc_quick, search_clinical_trials, search_fda_labels, guideline_search, regulator_search, web_search, anchors: set[str],
-                  guideline_filter=None, cache=None) -> dict:
+                  guideline_filter=None, cache=None, mesh=None) -> dict:
     """target -> function(operation) -> the search tool's own JSON string. The search functions are the existing ones, passed in. `cache(kind, key, ttl_seconds, fn)` is the pipeline's result cache when given.
-    `guideline_filter(raw_json) -> raw_json` keeps only pages from the authoritative guideline organisations."""
+    `guideline_filter(raw_json) -> raw_json` keeps only pages from the authoritative guideline organisations.
+    `mesh(words, target) -> {term: [alternatives]}` adds the MeSH vocabulary's other names for the condition terms a routed search requires (mesh_expand.py); None leaves the searches as written."""
     def cached(kind, key, ttl, fn):
         return cache(kind, key, ttl, fn) if cache else fn()
 
     def pubmed(op):
-        form = boolean_form(op.query, anchors)
+        form = boolean_form(op.query, anchors, expand=(lambda words: mesh(words, "pubmed")) if mesh else None)
         types = op.args.get("study_types") or []
         if types:
             form = f"({form}) AND (" + " OR ".join(STUDY_FILTERS[t] for t in types) + ")"
@@ -553,7 +565,7 @@ def make_adapters(*, search_pubmed, search_europepmc_quick, search_clinical_tria
         return cached("pm", f"{form}|{sort}|{years}|routing", 900, lambda: search_pubmed(form, max_results=8 if sort == "date" else 6, years_back=years, sort=sort))
 
     def europepmc(op):
-        form = boolean_form(op.query, anchors)
+        form = boolean_form(op.query, anchors, expand=(lambda words: mesh(words, "europepmc")) if mesh else None)
         sort, years = op.args.get("sort", "relevance"), op.args.get("years_back", 5)
         full = bool(op.args.get("fulltext"))
         return cached("pm", f"{form}|{sort}|{years}|epmc|{full}", 900, lambda: search_europepmc_quick(form, max_results=8 if full else 6, years_back=years, sort=sort, **({"fulltext": True} if full else {})))
@@ -579,7 +591,7 @@ def make_adapters(*, search_pubmed, search_europepmc_quick, search_clinical_tria
 
     def fda_label(op):
         terms, drugs = op.args.get("condition_terms") or [], op.args.get("drug_names") or []
-        return cached("fda", f"{' '.join(terms)}|{','.join(drugs)}|routing", 3600, lambda: search_fda_labels(terms, drugs or None, 8))
+        return cached("fda", f"{' '.join(terms)}|{','.join(drugs)}|routing|wide", 3600, lambda: search_fda_labels(terms, drugs or None, 8))
 
     def guideline_sites(op):
         raw = cached("web", f"{op.query}|guideline", 300, lambda: guideline_search(op.query))

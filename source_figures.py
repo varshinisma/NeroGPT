@@ -24,6 +24,7 @@ import hashlib
 import html
 import io
 import json
+import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
@@ -38,6 +39,8 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
 MAX_BYTES = 4_000_000
 EXTENSIONS = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif"}
 RUBRIC_KEYS = ("helps_answer", "clinically_meaningful", "adds_beyond_report", "not_decorative", "answers_what_is_asked")
+# a figure must pass these. 'adds_beyond_report' is still asked, but a picture of a result the report already states in words (a forest plot, a flow diagram) is useful to the doctor: FIGURE_STRICT=on requires all five again
+REQUIRED_KEYS = RUBRIC_KEYS if os.getenv("FIGURE_STRICT", "off").strip().lower() == "on" else tuple(k for k in RUBRIC_KEYS if k != "adds_beyond_report")
 # a caption that says the figure comes from somewhere else, or is used with permission: the article's licence may not cover it
 REPRODUCED = re.compile(r"\b(?:reproduced|reprinted|redrawn|adapted|modified|taken|used)\b[^.]{0,80}\b(?:from|with permission|by permission|courtesy)\b|with (?:kind )?permission|courtesy of|©|copyright", re.I)
 _http = httpx.Client(timeout=12, follow_redirects=True, headers=HEADERS)
@@ -144,7 +147,7 @@ def reason_grounded(reason: str, caption: str) -> bool:
     return len(mine & theirs) >= 3 and len(mine & theirs) >= 0.6 * len(mine)
 
 
-def verify_rubric(items, available: list[dict], limit: int = 6) -> list[dict]:
+def verify_rubric(items, available: list[dict], limit: int = 8) -> list[dict]:
     """The text model's four yes/no answers per figure -> the figures that pass all four, each with a justification quoted from its real caption. A figure the model did not mention, answered
     'no' to, or justified with words that are not in the caption is dropped. Order = the model's order (most useful first)."""
     by_id = {f["id"]: f for f in available}
@@ -153,7 +156,7 @@ def verify_rubric(items, available: list[dict], limit: int = 6) -> list[dict]:
         if not isinstance(item, dict):
             continue
         fig = by_id.get(str(item.get("id", "")).strip())
-        if fig is None or any(fig["id"] == c["id"] for c in chosen) or not all(item.get(k) is True for k in RUBRIC_KEYS) or not reason_grounded(str(item.get("reason", "")), fig["caption"]):
+        if fig is None or any(fig["id"] == c["id"] for c in chosen) or not all(item.get(k) is True for k in REQUIRED_KEYS) or not reason_grounded(str(item.get("reason", "")), fig["caption"]):
             continue
         chosen.append({**fig, "reason": " ".join(str(item["reason"]).split())})
         if len(chosen) >= limit:
@@ -214,7 +217,7 @@ def accept_image_check(raw) -> tuple[bool, str]:
     return keep, shows
 
 
-MIN_TEXT_POINTS = 6.5
+MIN_TEXT_POINTS = float(os.getenv("FIGURE_MIN_TEXT_POINTS", "5.0"))      # was 6.5: journal figures are wide with small lettering, and a PDF can be zoomed; the vision check still has to confirm the picture is legible
 PAGE_TEXT_WIDTH_PTS = 495.0      # the picture width inside its frame in the PDF (text width minus the frame's padding)
 PAGE_MAX_HEIGHT_PTS = 5.6 * 72
 
@@ -282,7 +285,7 @@ def download(figure: dict, folder: Path, get=None) -> dict | None:
         return None
 
 
-MAX_FIGURES = 6
+MAX_FIGURES = 8
 MAX_PER_PAPER = 3
 MAX_CHECKS = 6      # at most this many figures are shown to the vision model per question
 SAME_FIGURE = 0.7      # two figures of one paper whose captions share at least this fraction of their words show the same thing again (for example the same plot for a subset of the trials)
@@ -330,7 +333,7 @@ def select_figures(found: list[dict], cited_pmids: set, direct_pmids: set, rubri
     readable = []
     for fig, height in zip(passed, screened):
         if height is False:
-            fates.append({"id": fig["id"], "label": fig.get("label"), "fate": "text too small to read on the page (under 6.5 pt), dropped before the relevance test"})
+            fates.append({"id": fig["id"], "label": fig.get("label"), "fate": f"text too small to read on the page (under {MIN_TEXT_POINTS:g} pt), dropped before the relevance test"})
         elif height is not None:
             readable.append(fig)      # None: the image could not be fetched; it is dropped, never assumed readable
     trace["unreadable_before_relevance_test"] = sum(1 for h in screened if h is False)
@@ -341,7 +344,7 @@ def select_figures(found: list[dict], cited_pmids: set, direct_pmids: set, rubri
         raw = rubric(passed)
         chosen = verify_rubric(raw, passed)
         listed = [item for item in raw if isinstance(item, dict)]
-        trace["relevance_test"] = {"offered": len(passed), "model_listed": len(listed), "all_four_yes": sum(1 for i in listed if all(i.get(k) is True for k in RUBRIC_KEYS)), "kept_after_quote_check": len(chosen)}
+        trace["relevance_test"] = {"offered": len(passed), "model_listed": len(listed), "all_required_yes": sum(1 for i in listed if all(i.get(k) is True for k in REQUIRED_KEYS)), "kept_after_quote_check": len(chosen)}
     except Exception:
         chosen = []
     trace["after_relevance_test"] = len(chosen)
@@ -356,7 +359,7 @@ def select_figures(found: list[dict], cited_pmids: set, direct_pmids: set, rubri
     trace["too_small_to_read"] = sum(1 for f in downloaded if not f["readable"])
     for f in downloaded:
         if not f["readable"]:
-            fates.append({"id": f["id"], "label": f.get("label"), "fate": "text too small to read on the page (under 6.5 pt)", "text_points": text_height_points(Path(f["path"]).read_bytes())})
+            fates.append({"id": f["id"], "label": f.get("label"), "fate": f"text too small to read on the page (under {MIN_TEXT_POINTS:g} pt)", "text_points": text_height_points(Path(f["path"]).read_bytes())})
     downloaded = [f for f in downloaded if f["readable"]]      # text smaller than ~6.5 pt on the page cannot be read by the doctor: the figure is skipped
     per_paper, deduped, removed = {}, [], 0
     for fig in downloaded:      # a paper can have several relevant figures, but not repeats of one another: a figure whose caption is nearly the same as one already kept from its paper is dropped

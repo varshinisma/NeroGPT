@@ -86,7 +86,7 @@ check("L", "the closing note matches the verification status and shows no intern
       ("checked against the retrieved sources" in presented if _status == "PASS" else "could not be fully verified" in presented)
       and not re.search(r"Repaired:|\[remaining\]|Repair passes", presented), _status)
 # M. failures not turned into absence
-failed = [k for k, v in state["source_status"].items() if v["retrieval_status"] != "success"]
+failed = [k for k, v in list(state["source_status"].items()) if v["retrieval_status"] != "success"]
 m = [s for s in sentences(claims) if re.search(r"\b(there (is|are) no|does not exist|none exist)\b", s, re.I) and failed and re.search(r"drug|approved|treatment", s, re.I)]
 check("M", "no non-existence claim while a drug/regulatory source failed", not m, "; ".join(m)[:150])
 # N. doses
@@ -124,8 +124,9 @@ s_bad = [ln for ln in claims.splitlines() if re.search(r"NCT\d{8}", ln) and not 
 check("S", "no trial is described as effective", not s_bad, "; ".join(s_bad)[:150])
 # T. categories are separate
 check("T", "the Treatment Drug Landscape has two tables with the specification's columns: drugs used for treatment, then symptom-directed drugs",
-      text.count("| Drug | Indication | Dose / route (if sourced) | Key evidence |") == 2
-      and 0 <= text.find("### Drugs used for treatment of this condition") < text.find("### Other drugs: used for symptoms"))
+      text.count("| Drug | Indication | Dose / route (if sourced) | Key evidence |") >= 1
+      and 0 <= text.find("### Drugs used for treatment of this condition")
+      and (text.find("### Other drugs: used for symptoms") < 0 or text.find("### Drugs used for treatment of this condition") < text.find("### Other drugs: used for symptoms")))
 check("AG", "no symptom-directed (off-label) or investigational drug sits in the treatment table",
       not re.search(r"\| (?:Off-label|Emerging)", text.split("### Other drugs: used for symptoms")[0].split("### Drugs used for treatment of this condition")[-1]))
 # status honesty

@@ -38,20 +38,198 @@ class DynamicQueryTests(unittest.TestCase):
         self.assertEqual(understanding["answer_format"], "stepwise_plan")
 
 
+class FutureDateNoteTests(unittest.TestCase):
+    def test_only_papers_used_as_evidence_get_a_future_date_note(self):
+        papers = {"1": {"pmid": "1", "year": "2999", "triage": {"relevance": "direct"}},
+                  "2": {"pmid": "2", "year": "2999", "triage": {"relevance": "uncertain"}},
+                  "3": {"pmid": "3", "year": "2999"},
+                  "4": {"pmid": "4", "year": "2001", "triage": {"relevance": "direct"}}}
+        notes = qa_stream.future_date_notes(papers)
+        self.assertEqual(len(notes), 1)
+        self.assertIn("PMID 1 ", notes[0])      # a screened-out paper named in a note would become a numbered reference
+
+
+class RecentSearchTests(unittest.TestCase):
+    def test_relevance_picks_the_papers_and_the_date_only_orders_them(self):
+        found = json.dumps({"results": [{"pmid": "1", "year": "2024"}, {"pmid": "2", "year": "2026"}, {"pmid": "3", "year": "2026"}, {"pmid": "4", "year": ""}]})
+        with mock.patch.object(qa_stream, "search_pubmed", return_value=found) as search:
+            out = json.loads(qa_stream.best_of_recent("q", 8))
+        self.assertEqual(search.call_args.kwargs["sort"], "relevance")      # never the date sort: it would fill the slots with the newest papers whatever their fit
+        self.assertEqual([p["pmid"] for p in out["results"]], ["2", "3", "1", "4"])      # newest first; one year keeps the relevance order
+
+    def test_an_error_or_empty_answer_is_passed_on_unchanged(self):
+        for raw in ('{"error": "down"}', '{"results": []}', "not json"):
+            with mock.patch.object(qa_stream, "search_pubmed", return_value=raw):
+                self.assertEqual(qa_stream.best_of_recent("q", 8), raw)
+
+    def test_the_recent_jobs_use_it(self):
+        plan = {"condition": "condition x", "plan_status": "ok", "pubmed_query": '("aaa bbb") AND ("child") AND ("workup")', "understanding": {}}
+        with mock.patch.object(qa_stream, "best_of_recent", return_value="{}") as recent, mock.patch.object(qa_stream.mesh_expand, "prefetch"):
+            qa_stream.plan_pubmed_jobs(plan)["pubmed_plan_recent"]()
+        self.assertEqual(recent.call_args.args[1], 6)
+
+
+class QueryFocusTests(unittest.TestCase):
+    QUESTION = "Child has aaaa bbbb with cccc regression and dddd features. What is the work-up and management?"
+    QUERY = '(aaaa bbbb OR cccc regression OR dddd spectrum disorder) AND (child OR pediatric) AND (workup OR management)'
+
+    def plan(self, **extra):
+        return {"pubmed_query": self.QUERY, "main_problem": "aaaa bbbb with cccc regression", "associated_findings": ["dddd features"], **extra}
+
+    def test_a_finding_that_only_accompanies_the_main_problem_leaves_the_condition_group(self):
+        out = qa_stream.focus_condition_group(self.plan(), self.QUESTION)
+        self.assertEqual(out["pubmed_query"], '(aaaa bbbb OR cccc regression) AND (child OR pediatric) AND (workup OR management)')
+        self.assertEqual(out["query_focus"]["dropped_from_condition_group"], ["dddd spectrum disorder"])
+
+    def test_nothing_changes_when_the_names_are_not_in_the_question(self):
+        for extra in ({"main_problem": "zzzz yyyy"}, {"associated_findings": ["qqqq"]}, {"main_problem": "zzzz yyyy aaaa bbbb"}, {"main_problem": ""}, {"associated_findings": []}):
+            out = qa_stream.focus_condition_group(self.plan(**extra), self.QUESTION)
+            self.assertEqual(out["pubmed_query"], self.QUERY)
+            self.assertNotIn("query_focus", out)
+
+    def test_the_group_is_never_emptied(self):
+        plan = self.plan(pubmed_query="(dddd spectrum disorder OR dddd features) AND (child)")
+        self.assertEqual(qa_stream.focus_condition_group(plan, self.QUESTION)["pubmed_query"], "(dddd spectrum disorder OR dddd features) AND (child)")
+
+    def test_a_query_of_another_shape_is_left_alone(self):
+        plan = self.plan(pubmed_query="aaaa bbbb AND dddd")
+        self.assertEqual(qa_stream.focus_condition_group(plan, self.QUESTION)["pubmed_query"], "aaaa bbbb AND dddd")
+
+
+class SeparateFindingsTests(unittest.TestCase):
+    QUERY = '(("aaaa bbbb" OR "cccc regression") AND ("dddd features" OR "dddd spectrum")) AND ("work-up" OR "management")'
+    FACTS = ["Child aged three", "aaaa bbbb", "cccc regression", "dddd features"]
+
+    def plan(self, **extra):
+        return {"pubmed_query": self.QUERY, "drugs": [], "understanding": {"case_facts": self.FACTS}, **extra}
+
+    def test_the_groups_of_a_wrapped_query_are_found(self):
+        self.assertEqual(qa_stream.top_level_groups(self.QUERY), ['"aaaa bbbb" OR "cccc regression"', '"dddd features" OR "dddd spectrum"', '"work-up" OR "management"'])
+        self.assertEqual(qa_stream.top_level_groups("(a OR b"), [])
+
+    def test_a_group_tied_to_one_other_finding_is_taken_out_of_the_query(self):
+        out = qa_stream.separate_findings(self.plan())
+        self.assertEqual(out["pubmed_query"], '("aaaa bbbb" OR "cccc regression") AND ("work-up" OR "management")')
+        self.assertEqual(out["query_focus"]["dropped_groups"], ['"dddd features" OR "dddd spectrum"'])
+
+    def test_a_group_with_a_named_medicine_or_a_short_case_is_never_taken_out(self):
+        self.assertEqual(qa_stream.separate_findings(self.plan(drugs=["dddd"]))["pubmed_query"], self.QUERY)
+        short = self.plan(understanding={"case_facts": self.FACTS[:2]})
+        self.assertEqual(qa_stream.separate_findings(short)["pubmed_query"], self.QUERY)
+
+    def test_a_word_shared_with_the_main_group_does_not_hide_the_other_finding(self):
+        query = '("aaaa bbbb" OR "cccc regression") AND ("dddd features" OR "regressive dddd") AND ("work-up")'
+        self.assertEqual(qa_stream.separate_findings(self.plan(pubmed_query=query))["pubmed_query"], '("aaaa bbbb" OR "cccc regression") AND ("work-up")')
+
+    def test_a_trials_section_nobody_asked_for_lists_only_directly_relevant_trials(self):
+        state = {"section_states": {"trials": {"state": "not_applicable"}}, "understanding": {"info_needed": ["diagnosis"]},
+                 "trials_by_id": {"NCT1": {"nct_id": "NCT1", "triage": {"relevance": "direct", "kind": "treatment_trial"}},
+                                  "NCT2": {"nct_id": "NCT2", "triage": {"relevance": "indirect", "kind": "treatment_trial"}}}}
+        shown = landscape.trials_markdown(state)
+        self.assertIn("NCT1", shown)      # the trial search is mandatory: a trial that matches the condition is shown
+        self.assertIn("| NCT2", shown)      # the trial section is mandatory for every question: a related (indirect) treatment trial is shown too
+        state["understanding"]["info_needed"].append("trial_status")
+        self.assertIn("NCT2", landscape.trials_markdown(state))
+
+    def test_the_patient_group_stays(self):
+        query = '("aaaa bbbb" OR "cccc regression") AND ("dddd features") AND ("child" OR "pediatric") AND ("work-up")'
+        self.assertEqual(qa_stream.separate_findings(self.plan(pubmed_query=query))["pubmed_query"], '("aaaa bbbb" OR "cccc regression") AND ("child" OR "pediatric") AND ("work-up")')
+
+
+class PruneSkillsTests(unittest.TestCase):
+    def test_medicine_and_trial_skills_need_a_reason_in_the_plan(self):
+        plan = {"skills": ["latest-evidence", "drug-intelligence", "clinical-trials"], "intent": "case_evaluation", "drugs": [], "understanding": {"info_needed": ["diagnosis"], "medicines_needed": False}}
+        out = qa_stream.prune_unjustified_skills(plan)
+        self.assertEqual(out["skills"], ["latest-evidence"])
+        self.assertEqual(out["skills_pruned"], ["drug-intelligence", "clinical-trials"])
+
+    def test_the_skills_stay_when_the_plan_calls_for_them(self):
+        plan = {"skills": ["latest-evidence", "drug-intelligence", "clinical-trials"], "intent": "drug_treatment", "drugs": [], "understanding": {"info_needed": ["treatment_options", "trial_status"], "medicines_needed": True}}
+        self.assertEqual(qa_stream.prune_unjustified_skills(plan)["skills"], ["latest-evidence", "drug-intelligence", "clinical-trials"])
+
+    def test_a_failed_plan_keeps_every_skill(self):
+        plan = {"plan_status": "fallback", "skills": ["drug-intelligence"], "understanding": {}}
+        self.assertEqual(qa_stream.prune_unjustified_skills(plan)["skills"], ["drug-intelligence"])
+
+
+class RoutedPubmedTests(unittest.TestCase):
+    def test_a_newest_first_request_returns_the_best_matches_not_the_newest_papers(self):
+        with mock.patch.object(qa_stream, "search_pubmed", return_value='{"results": [{"pmid": "1", "year": "2023"}, {"pmid": "2", "year": "2025"}]}') as search:
+            out = json.loads(qa_stream.routed_pubmed("q", max_results=8, years_back=2, sort="date"))
+        self.assertEqual(search.call_args.kwargs["sort"], "relevance")
+        self.assertEqual([p["pmid"] for p in out["results"]], ["2", "1"])
+
+    def test_other_sorts_are_passed_through(self):
+        with mock.patch.object(qa_stream, "search_pubmed", return_value="{}") as search:
+            qa_stream.routed_pubmed("q", max_results=6, years_back=5, sort="relevance")
+        self.assertEqual(search.call_args.kwargs, {"max_results": 6, "years_back": 5, "sort": "relevance"})
+
+
+class RelatedTopicTests(unittest.TestCase):
+    PLAN = {"condition": "condition x", "plan_status": "ok", "pubmed_query": '("aaa bbb") AND ("child") AND ("workup")', "understanding": {},
+            "related_topics": ["kinds of causes to consider", "first line laboratory tests"]}
+
+    def jobs(self, plan=None):
+        with mock.patch.object(qa_stream.mesh_expand, "prefetch"):
+            return qa_stream.plan_pubmed_jobs(plan or self.PLAN)
+
+    def test_one_search_per_topic_within_the_patient_group(self):
+        jobs = self.jobs()
+        self.assertTrue({"pubmed_plan_topic_1", "pubmed_plan_topic_2"} <= set(jobs))
+        with mock.patch.object(qa_stream, "search_pubmed", return_value="{}") as search:
+            jobs["pubmed_plan_topic_1"]()
+        self.assertEqual(search.call_args.args[0], '(kinds of causes to consider) AND ("child")')
+        self.assertEqual(search.call_args.kwargs["sort"], "relevance")
+
+    def test_no_topics_no_topic_searches(self):
+        self.assertFalse([n for n in self.jobs({**self.PLAN, "related_topics": []}) if "_topic_" in n])
+
+    def test_the_topics_reach_the_ranking_queries(self):
+        queries = qa_stream.intent_queries({}, {**self.PLAN, "understanding": {"info_needed": ["diagnosis"]}})
+        self.assertTrue(any("first line laboratory tests" in q for q in queries))
+
+
 class ModelStageTests(unittest.TestCase):
     def test_mistral_reasoning_and_writer_models_can_be_configured_separately(self):
         settings = {"MODEL_PROVIDER": "mistral", "MISTRAL_MODEL": "mistral-medium-latest",
                     "MISTRAL_REASONING_MODEL": "mistral-medium-latest", "MISTRAL_WRITER_MODEL": "mistral-small-latest"}
-        settings = {**settings, "PLANNER_PROVIDER": "", "PLANNER_MODEL": ""}      # the plan call's own provider is tested separately
+        settings = {**settings, "PLANNER_PROVIDER": "", "PLANNER_MODEL": "", "TRIAGE_PROVIDER": "", "TRIAGE_MODEL": ""}      # the plan call's own provider is tested separately
         with mock.patch.dict(os.environ, settings, clear=False):
             self.assertEqual(qa_stream.model_id_for("planning"), "mistral-medium-latest")
             self.assertEqual(qa_stream.model_id_for("triage"), "mistral-medium-latest")
             self.assertEqual(qa_stream.model_id_for("writer"), "mistral-small-latest")
 
+    def test_a_rate_limit_message_tells_how_long_to_wait(self):
+        self.assertAlmostEqual(qa_stream.retry_after_seconds("Rate limit reached. Please try again in 7.2s.", 3.0), 7.7)
+        self.assertEqual(qa_stream.retry_after_seconds("Please try again in 460ms", 3.0), 1.0)      # at least one second
+        self.assertEqual(qa_stream.retry_after_seconds("try again in 12m30s", 3.0), qa_stream.RATE_LIMIT_MAX_WAIT_S)      # never longer than the cap
+        self.assertEqual(qa_stream.retry_after_seconds("429 too many requests", 6.0), 6.0)      # no hint: the default
+
+    def test_the_triage_calls_can_use_another_provider_and_model(self):
+        settings = {"MODEL_PROVIDER": "mistral", "MISTRAL_MODEL": "open-mistral-nemo", "MISTRAL_REASONING_MODEL": "mistral-medium-latest",
+                    "TRIAGE_PROVIDER": "groq", "TRIAGE_MODEL": "some/model"}
+        with mock.patch.dict(os.environ, settings, clear=False):
+            self.assertEqual(qa_stream.triage_choice(), ("groq", "some/model"))
+            self.assertEqual(qa_stream.model_id_for("triage"), "some/model")      # never the Mistral model id
+        with mock.patch.dict(os.environ, {**settings, "TRIAGE_PROVIDER": "", "TRIAGE_MODEL": ""}, clear=False):
+            self.assertEqual(qa_stream.triage_choice(), (None, None))
+            self.assertEqual(qa_stream.model_id_for("triage"), "mistral-medium-latest")
+
+    def test_the_search_writing_calls_can_use_their_own_provider_and_model(self):
+        settings = {"MODEL_PROVIDER": "mistral", "MISTRAL_MODEL": "open-mistral-nemo", "MISTRAL_REASONING_MODEL": "", "TRIAGE_PROVIDER": "", "TRIAGE_MODEL": "",
+                    "QUERY_PROVIDER": "groq", "QUERY_MODEL": "some/model"}
+        with mock.patch.dict(os.environ, settings, clear=False):
+            self.assertEqual(qa_stream.query_choice(), ("groq", "some/model"))
+            self.assertEqual(qa_stream.model_id_for("queries"), "some/model")
+            self.assertEqual(qa_stream.model_id_for("triage"), "open-mistral-nemo")      # the relevance reading keeps the default model
+        with mock.patch.dict(os.environ, {**settings, "QUERY_PROVIDER": "", "QUERY_MODEL": ""}, clear=False):
+            self.assertEqual(qa_stream.query_choice(), (None, None))
+            self.assertEqual(qa_stream.model_id_for("queries"), "open-mistral-nemo")
+
     def test_mistral_models_are_cached_by_stage_and_passed_to_the_provider(self):
         settings = {"MODEL_PROVIDER": "mistral", "MISTRAL_MODEL": "mistral-medium-latest",
                     "MISTRAL_REASONING_MODEL": "mistral-medium-latest", "MISTRAL_WRITER_MODEL": "mistral-small-latest"}
-        settings = {**settings, "PLANNER_PROVIDER": "", "PLANNER_MODEL": ""}
+        settings = {**settings, "PLANNER_PROVIDER": "", "PLANNER_MODEL": "", "TRIAGE_PROVIDER": "", "TRIAGE_MODEL": ""}
         with mock.patch.dict(os.environ, settings, clear=False), mock.patch.object(qa_stream.server, "build_model", side_effect=lambda **kw: kw) as build:
             old = qa_stream._models
             qa_stream._models = {}
@@ -131,11 +309,11 @@ class EvidenceSelectionTests(unittest.TestCase):
                                                    "rationale": "Addresses one diagnostic component."}], offered, information_needs=["diagnosis", "treatment_options"], broad_question=True)
         self.assertEqual(decision["case"]["relevance"], "indirect")
 
-    def test_non_trial_question_hides_indirect_registry_records(self):
+    def test_non_trial_question_shows_indirect_treatment_trials(self):
         state = qa_stream.new_state("condition work-up")
         state["understanding"] = {"info_needed": ["diagnosis"]}
         state["trials_by_id"] = {"NCT1": {"nct_id": "NCT1", "title": "Related condition trial", "interventions": ["Intervention"], "phase": [], "recruitment_status": "RECRUITING", "last_update": "2026-01-01", "triage": {"relevance": "indirect", "kind": "treatment_trial", "evidence": "x"}}}
-        self.assertNotIn("NCT1", landscape.trials_markdown(state))
+        self.assertIn("NCT1", landscape.trials_markdown(state))
 
     def test_relevance_requires_a_need_from_the_actual_question(self):
         offered = {"record": {"sentences": ["Study title", "The study reports an assessment outcome in the target population."]}}

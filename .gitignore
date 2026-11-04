@@ -40,3 +40,11 @@ demo_output/cli_test_runs/
 demo_output/figures/
 .streamlit/secrets.toml
 *.tmp
+
+# Looked-up MeSH synonyms (mesh_expand.py)
+cache/
+
+# Local working folders (latency records, file backups made while editing)
+observability/
+backups/
+demo_output/

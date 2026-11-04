@@ -22,7 +22,7 @@ You are given the doctor's question, its intent and what was understood from it.
 
 - A `trials` query needs `args.condition` (the condition words from the question, with its patient group when the question names one: 1 to 12 words) and `args.intervention` (a treatment type, or a drug the question names; empty when the search is about the condition only).
 - Always include ONE broad search with only the condition words (and the patient group): narrower registry searches often return nothing, and a broad one keeps the registry covered. Write no qualifiers such as AND or OR in the condition.
-- Write nothing when trials do not bear on the question (for example a question about how something works, or a question about one drug's dosing).
+- Every clinical question about a patient or a condition gets the broad condition search (and, when the question or the case names an intervention type, one search for it), even when the question asks about diagnosis or work-up only: the report always shows the registered trials that match the condition and the patient group, or says plainly that none were found. Keep the patient group. Write nothing only when the question is about how something works or about one drug's dosing.
 - You may also write a query for another source when a trial need is better answered there, for example a `web` search for the registry page of a named trial.
 
 ### Sources you may target (each query names ONE `target`; any skill may use any of them when the need calls for it)

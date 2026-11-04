@@ -10,9 +10,11 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from urllib.parse import quote
 
+import conditions as cond_groups
 from retrieval_routing import STATE_TEXT
 
 def _json(text):
@@ -208,6 +210,9 @@ def _dose_cell(r: dict) -> str:
 CATEGORY_ORDER = ("Approved", "Guideline-recommended", "Off-label", "Emerging")
 
 
+SHOW_SYMPTOM_DRUGS = os.getenv("SHOW_SYMPTOM_DRUGS", "0").strip().lower() in {"1", "true", "yes", "on"}      # the "Other drugs: used for symptoms" table is off by default (the treatment table, the announcements and the safety warnings remain)
+
+
 def landscape_markdown(state: dict, used_rows: list[dict], trial_rows: list[dict] | None = None) -> str:
     """The specification's Treatment Drug Landscape, as TWO tables: drugs used for treatment of this condition, and other drugs (symptom-directed or still in trials). Columns: drug, category, indication, dose / route (if sourced),
     approval status / date, key evidence. Investigational drugs are never listed as established treatment; doses come only from a label or source for the use shown."""
@@ -229,7 +234,8 @@ def landscape_markdown(state: dict, used_rows: list[dict], trial_rows: list[dict
         intro = (f"No FDA drug label names this condition (labels searched with: {terms}), so no drug below is FDA-approved for it." if used_rows
                  else f"No FDA drug label with an indication matching the condition was found when searched (search terms: {terms}).") + "\n\n"
     stems = [x for x in (state.get("core_stems") or []) if len(x) >= 4]
-    entries: list[tuple[int, str, str]] = []
+    groups = state_groups(state)
+    entries: list[tuple] = []      # (tier, other-table row, treatment-table row, the condition's position, the condition label)
     for r in reg:
         brands = ", ".join(b for b in r.get("brands", []) if b.lower() != r["generic"].lower())
         statement = r.get("indication_statement") or r.get("model_evidence") or r["indication_excerpt"]
@@ -238,7 +244,8 @@ def landscape_markdown(state: dict, used_rows: list[dict], trial_rows: list[dict
         efficacy = re.search(r"Efficacy was established[^.]*\.", statement or "")
         evidence = (f"FDA label: {efficacy.group(0)} " if efficacy else "FDA label. ") + (f"[DailyMed label]({label_link(r, stems)})" if r.get("url") else "")
         entries.append((0, "", f"| {product_name(r)} | \"{_cell(statement, 800)}\"{associated} | {_dose_cell(r)} | "
-                           f"{_cell(evidence, 400)} FDA-approved for the use shown; label effective {r.get('label_date') or 'date not retrieved'}. |"))
+                           f"{_cell(evidence, 400)} FDA-approved for the use shown; label effective {r.get('label_date') or 'date not retrieved'}. |",
+                        cond_groups.sort_index(statement, groups), cond_groups.tag_label(statement, groups)))
     for r in used_rows:
         guideline = r.get("category", "").startswith("Guideline")
         tier = 1 if r.get("relevance") == "treats_condition" and not r.get("category", "").startswith("Studied") else 2      # a drug that a retrieved source describes for the condition itself (guideline or review); a drug for an associated symptom is not, whoever recommends it
@@ -249,30 +256,39 @@ def landscape_markdown(state: dict, used_rows: list[dict], trial_rows: list[dict
         if guideline:
             pop += " [guideline-recommended]"
         dose = (f"\"{_cell(r['dose'], 300)}\" " + (f"[source]({r['dose_url']}) " if r.get("dose_url") else "") + "(from a retrieved page, not an FDA label)") if r.get("dose") else "Not stated in the retrieved source for this use"
+        about = " ".join(str(r.get(k) or "") for k in ("purpose", "excerpt", "label", "population"))
         entries.append((tier, f"| {drug_name(r)} | {_cell(r['purpose'], 200)}{pop} | {dose} | {said}{_cell(r['label'], 500)} |", f"| {drug_name(r)} | {_cell(r['purpose'], 200)}{pop} | "
-                              f"{dose} | {said}{_cell(r['label'], 500)} ({r.get('category') or 'Off-label'}; no FDA-labelled indication for this condition in the retrieved labels) |"))
+                              f"{dose} | {said}{_cell(r['label'], 500)} ({r.get('category') or 'Off-label'}; no FDA-labelled indication for this condition in the retrieved labels) |",
+                        cond_groups.sort_index(about, groups), cond_groups.tag_label(about, groups)))
     for r in []:      # trial drugs are not listed here: the Clinical trials section is the only place trials appear
         link = f"[{r['nct']}]({r['url']})" if r.get("url") else r["nct"]
         entries.append((3, f"| {drug_name(r)} | Registered conditions: {_cell(r['conditions'], 160)}. Ages: {_cell(r['ages'], 80)} | Investigational, {r['phase']}; not approved. {r['status']}, last update {r['updated']}. {link}. Primary outcome: {_cell(r['primary'], 200)}. A registry entry does not show that the drug works. |", f"| {drug_name(r)} | Emerging: investigational, {r['phase']} | Registered conditions: {_cell(r['conditions'], 160)}. Ages: {_cell(r['ages'], 80)} | "
                            f"Investigational: trial-specific dosing is in the registry record | Not approved. {r['status']}, last update {r['updated']} | "
                            f"{link}. Primary outcome: {_cell(r['primary'], 200)}. A registry entry does not show that the drug works. |"))
-    entries.sort(key=lambda e: e[0])
+    entries.sort(key=(lambda e: (e[3], e[0])) if groups else (lambda e: e[0]))      # several conditions: grouped by condition in the order the question names them, established drugs first within each
     columns = ["| Drug | Indication | Dose / route (if sourced) | Key evidence |", "|---|---|---|---|"]
     short_columns = ["| Drug | Indication | Dose / route (if sourced) | Key evidence |", "|---|---|---|---|"]
+    labels = [e[4] for e in entries if e[0] <= 1]
     treatment = [e[2] for e in entries if e[0] <= 1]      # Approved, Guideline-recommended: used for the treatment of this condition
     other = [e[1] for e in entries if e[0] >= 2]      # three columns only: drug, indication, key evidence          # Off-label (symptom-directed) and Emerging (still in trials): not established treatments of this condition
     if not treatment:
-        treatment = [state_row(sec, "drug") if (sec in STATE_LINES and not reg and not used_rows) else "| None retrieved | | | No FDA label or guideline page naming a drug for this condition was retrieved in this run. This does not mean none exists. |"]
+        labels = ["Not specified"]
+        treatment = [state_row(sec, "drug") if (sec in STATE_LINES and not reg and not used_rows) else "| None retrieved | | | No FDA label or guideline page naming a drug for this condition was retrieved in this run. This does not mean none exists; non-drug treatments the sources support are in Current evidence. |"]
     if not other:
         other = [state_row(sec, "drug") if (sec in STATE_LINES and not reg and not used_rows) else "| None retrieved | | | No symptom-directed drug for this condition was retrieved in this run. This does not mean none exists. |"]
     dose_note = ("Doses appear only where an FDA label or source gives them for the use shown" + ("; each dose entry is a short summary of the label's dosing section for this condition, "
                  "with every number checked against the label text (full text in the DailyMed link)" if any(r.get("dose_summary") for r in reg) else "") + "; individual dosing is a prescriber's decision.")
-    first = ("### Drugs used for treatment of this condition\n\n"
+    if groups:
+        columns = ["| Condition | Drug | Indication | Dose / route (if sourced) | Key evidence |", "|---|---|---|---|---|"]
+        treatment = with_condition_column(treatment, labels)
+        intro = (f"*This question names {len(groups)} conditions ({'; '.join(cond_groups.names(groups))}). Every drug, announcement and trial below carries the condition it is for; "
+                 "a drug labelled for more than one of them shows all of them.*\n\n") + intro
+    first = (("### Drugs used for treatment of these conditions\n\n" if groups else "### Drugs used for treatment of this condition\n\n") +
              "*Approved: an FDA label names this condition. Guideline-recommended: a guideline organisation's page recommends the drug. Used in practice: a retrieved review or page describes the drug for this condition, with no FDA label or guideline for it (see the category in Key evidence). " + dose_note + "*\n\n" + "\n".join(columns + treatment))
-    second = ("### Other drugs: used for symptoms (not established treatments of this condition)\n\n"
+    second = "" if not SHOW_SYMPTOM_DRUGS else ("### Other drugs: used for symptoms (not established treatments of this condition)\n\n"
               "*Drugs that a retrieved review, guideline or web page describes as used for the condition, its symptoms or co-occurring conditions, for which no FDA label for this use was retrieved. "
               "Drugs still being tested in trials are listed in the Clinical trials section below.*\n\n" + "\n".join(short_columns + other))
-    return (head + intro + first + "\n\n" + second + "\n\n" + regulatory_updates_markdown(state) + "\n\n" + safety_alerts_markdown(state.get("drug_labels", []), state.get("listed_drugs")))
+    return (head + intro + first + "\n\n" + (second + "\n\n" if second else "") + regulatory_updates_markdown(state) + "\n\n" + safety_alerts_markdown(state.get("drug_labels", []), state.get("listed_drugs"), label_condition_tags(state)))
 
 
 def is_late_phase(t: dict, min_phase: int = 2) -> bool:
@@ -295,7 +311,8 @@ def notable_latest_drug(state: dict) -> dict | None:
             name = _trial_drug_name(raw)
             key = (t.get("last_update") or "", rank)      # the most recently updated late-phase drug trial; the phase only breaks a tie
             if name and name.lower() not in approved and (best_key is None or key > best_key):
-                best, best_key = {"drug": name, "nct": t["nct_id"], "phase": nice_phase(t.get("phase")), "status": nice_status(t.get("recruitment_status")), "url": t.get("url")}, key
+                best, best_key = {"drug": name, "nct": t["nct_id"], "phase": nice_phase(t.get("phase")), "status": nice_status(t.get("recruitment_status")), "url": t.get("url"),
+                                  "conditions": " ".join(t.get("conditions") or []) + " " + str(t.get("title") or "")}, key
     return best
 
 
@@ -332,7 +349,11 @@ def age_note(record: dict, patient_age: float | None) -> str:
     """' (labelled for ages 5 to 17 years; this patient is about 3)' when the label states an age range that does not include the patient; '' otherwise."""
     if patient_age is None:
         return ""
-    span = label_age_range(" ".join(str(record.get(k) or "") for k in ("indication_excerpt", "indication_statement", "dose_statement")))
+    span = None
+    for key in ("indication_excerpt", "indication_statement", "dose_statement"):      # the sentence that names the condition decides: an age range of another indication in the same label (a different disease) must not replace it
+        span = label_age_range(str(record.get(key) or ""))
+        if span:
+            break
     if not span or span[0] <= patient_age <= span[1]:
         return ""
     low, high = span
@@ -344,8 +365,33 @@ MEDICINES_NOT_ASKED = ("this question does not ask about medicines, so no medici
 
 
 def medicines_not_needed(state: dict) -> bool:
-    """True only when the question's understanding says medicines are not needed (an explicit False); unknown (None) keeps the earlier behaviour."""
-    return state.get("medicines_needed") is False
+    """Always False: the drugs related to the condition are listed for every question (the medication assessment is mandatory). `medicines_needed` only says whether medicines are what the question is about."""
+    return False
+
+
+def state_groups(state: dict) -> list[dict]:
+    """The conditions a multi-condition question names (empty for a one-condition question: every table is then unchanged)."""
+    return cond_groups.groups_of(state)
+
+
+def with_condition_column(rows: list[str], labels: list[str]) -> list[str]:
+    """Puts a Condition cell in front of each table row."""
+    return [f"| {label} |" + row[1:] if row.startswith("|") else row for row, label in zip(rows, labels)]
+
+
+def label_condition_tags(state: dict) -> dict[str, str]:
+    """{drug (lower case): the condition(s) its label's indication is about}, for a multi-condition question; {} for a one-condition question."""
+    groups = state_groups(state)
+    if not groups:
+        return {}
+    out: dict[str, str] = {}
+    for r in state.get("regulatory", []):
+        text = " ".join(str(r.get(k) or "") for k in ("indication_statement", "model_evidence", "indication_excerpt"))
+        label = cond_groups.tag_label(text, groups, empty="")
+        for name in {str(r.get("generic") or "").lower(), *[str(b).lower() for b in r.get("brands") or []]}:
+            if name and label:
+                out[name] = label
+    return out
 
 
 def top_drugs_markdown(state: dict) -> str:
@@ -354,21 +400,29 @@ def top_drugs_markdown(state: dict) -> str:
         return "**Top treatment drugs:** not listed: " + MEDICINES_NOT_ASKED
     status = family_status(state, "fda_label")
     where = "deep pass" if family_has_deep(state, "fda_label") else "fast pass"
-    reg = [r for r in state.get("regulatory", []) if fda_relevant(r)][:4]
+    groups = state_groups(state)
+    reg_all = [r for r in state.get("regulatory", []) if fda_relevant(r)]
+    reg = (cond_groups.interleave(reg_all, lambda r: str(r.get("model_evidence") or r.get("indication_excerpt") or ""), groups)[:max(4, 2 * len(groups))] if groups else reg_all[:4])
     latest = notable_latest_drug(state)
-    rows = ["| Drug | Indication named in the FDA label | Source |", "|---|---|---|"]
+    rows = ["| Condition | Drug | Indication named in the FDA label | Source |", "|---|---|---|---|"] if groups else ["| Drug | Indication named in the FDA label | Source |", "|---|---|---|"]
+    if groups:
+        reg.sort(key=lambda r: cond_groups.sort_index(str(r.get("model_evidence") or r.get("indication_excerpt") or ""), groups))      # grouped by condition, in the order the question names them
     for r in reg:
         link = f"[DailyMed]({r['url']})" if r.get("url") else "FDA label"
-        rows.append(f"| {product_name(r)} | \"{_cell(r.get('model_evidence') or r['indication_excerpt'], 420)}\"{age_note(r, state.get('patient_age_years'))} | {link} |")
-    if latest:
+        cell = f"{cond_groups.tag_label(str(r.get('model_evidence') or r.get('indication_excerpt') or ''), groups)} | " if groups else ""
+        rows.append(f"| {cell}{product_name(r)} | \"{_cell(r.get('model_evidence') or r['indication_excerpt'], 420)}\"{age_note(r, state.get('patient_age_years'))} | {link} |")
+    if latest and groups:
+        link = f"[{latest['nct']}]({latest['url']})" if latest.get("url") else latest["nct"]
+        rows.append(f"| {cond_groups.tag_label(latest.get('conditions') or latest['drug'], groups)} | {latest['drug']} (latest, investigational) | Being tested in a registered {latest['phase']} trial, {latest['status']}; not an approved treatment | {link} |")
+    elif latest:
         rows.append(f"| {latest['drug']} (latest, investigational) | Being tested in a registered {latest['phase']} trial, {latest['status']}; not an approved treatment | "
                     f"[{latest['nct']}]({latest['url']}) |" if latest.get("url") else f"| {latest['drug']} (latest, investigational) | Being tested in a registered {latest['phase']} trial; not an approved treatment | {latest['nct']} |")
     waiting = [r for r in state.get("regulatory", []) if r.get("model_relevant") is None and (r.get("indication_statement") or r.get("indication_excerpt"))]
-    pending = f"\n\n*{len(waiting)} retrieved FDA label(s) were still being read when this table was shown; the drug landscape below lists every label once it has been read.*" if waiting else ""
+    pending = ""
     if reg or latest:
         return "**Top treatment drugs (established first, then the most notable latest drug)**\n\n" + "\n".join(rows) + pending
     if waiting:
-        return f"**Top treatment drugs:** {len(waiting)} retrieved FDA label(s) were still being read when this was shown; the drug landscape below lists them once they have been read."
+        return "**Top treatment drugs:** the drugs for this condition and its symptoms are listed in the Treatment Drug Landscape below."
     if status.get("retrieval_status") in ("failed", "partial"):
         return ("**Top treatment drugs:** the FDA drug-label source was unavailable in the " + where + " (" + str(status.get("error")) +
                 "); the full drug landscape follows. This does not mean that no drug exists.")
@@ -436,10 +490,10 @@ def is_treatment_trial(t: dict) -> bool:
 def trials_markdown(state: dict) -> str:
     """Section 3: registered treatment trials (the table of other registry records is summarised in one line, not printed)."""
     head = "## Clinical trials\n\n"
-    trials = list(state.get("trials_by_id", {}).values())[:12]
+    trials = list(state.get("trials_by_id", {}).values())[:int(os.getenv("TRIALS_SHOWN", "20"))]
     if not trials:
         sec = section_state(state, "trials")
-        if sec in STATE_LINES:
+        if sec in STATE_LINES and sec != "not_applicable":
             return head + STATE_LINES[sec]
         st = family_status(state, "trials")
         routing = state.get("routing") or {}
@@ -458,20 +512,28 @@ def trials_markdown(state: dict) -> str:
     # When a user did not ask about trials, only records that directly bear on
     # the clinical question earn space in the report. A trial-search question
     # can also show useful related records.
-    accepted_relevance = {"direct", "indirect"} if "trial_status" in needs else {"direct"}
+    accepted_relevance = {"direct", "indirect"}      # the trial section is mandatory for every question: a treatment trial for a closely related population or problem (a treatment trial for the broader disorder that the child's features point to) earns its row
+    groups = state_groups(state)
+    def trial_text(t: dict) -> str:
+        return " ".join(list(t.get("conditions") or []) + [str(t.get("title") or "")] + list(t.get("interventions") or [])[:2])
     relevant = [t for t in trials if (t.get("triage") or {}).get("relevance") in accepted_relevance
-                and (t.get("triage") or {}).get("kind") in allowed_kinds]
+                and (t.get("triage") or {}).get("kind") in allowed_kinds
+                and (not groups or cond_groups.tag_indexes(trial_text(t), groups))]      # several conditions: a record that names none of them is not shown
+    if groups:
+        relevant.sort(key=lambda t: cond_groups.sort_index(trial_text(t), groups))      # grouped by condition, in the order the question names them
     other = [t for t in trials if t not in relevant]
     unreviewed = [t for t in trials if not t.get("triage")]
     if not relevant:
         body = (f"{len(unreviewed)} registry record(s) were retrieved but their relevance could not be verified, so no conclusion about matching trials can be drawn."
                 if unreviewed else "No relevant treatment or assessment trial was identified among the retrieved and screened records.")
     else:
-        out = ["| Trial | Intervention | Phase | Status (last update) | What the record shows |", "|---|---|---|---|---|"]
+        out = (["| Condition | Trial | Intervention | Phase | Status (last update) | What the record shows |", "|---|---|---|---|---|---|"] if groups
+               else ["| Trial | Intervention | Phase | Status (last update) | What the record shows |", "|---|---|---|---|---|"])
         for t in relevant:
             note = " **Specific syndrome record; do not generalise to the whole condition.**" if re.search(r"syndrome", t.get("title") or "", re.I) else ""
             link = f"[{t['nct_id']}]({t['url']})" if t.get("url") else t["nct_id"]
-            out.append(f"| {link} | {_cell('; '.join((t.get('interventions') or [])[:2]) or (t.get('title') or ''), 90)} | {nice_phase(t.get('phase'))} | "
+            who = (cond_groups.tag_label(trial_text(t), groups) + " | ") if groups else ""
+            out.append(f"| {who}{link} | {_cell('; '.join((t.get('interventions') or [])[:2]) or (t.get('title') or ''), 90)} | {nice_phase(t.get('phase'))} | "
                        f"{nice_status(t.get('recruitment_status'))} ({t.get('last_update')}) | {trial_reading(t)}.{note} |")
         body = "\n".join(out)
     extra = f"\n\n{len(other)} further registry record(s) were retrieved and are not shown (judged not to be treatment trials for this question)." if other else ""
@@ -513,7 +575,7 @@ def limitations_markdown(state: dict, skipped: list[str], notes: list[str] | Non
     if "unavailable" in str((state.get("hybrid_trace") or {}).get("hybrid", "")):      # the semantic (meaning-based) ranking could not run: the order came from keywords and the sources' own order
         items.append("The meaning-based (semantic) ranking of the retrieved papers was unavailable in this run, so their order rests on keyword matching and the sources' own order.")
     partial: dict[str, str] = {}
-    for key, st in state.get("source_status", {}).items():
+    for key, st in list(state.get("source_status", {}).items()):
         if key == "deep_routing":
             continue
         if st["retrieval_status"] != "success":
@@ -563,8 +625,39 @@ REGULATOR_RELATIONS = ("treats_condition", "treats_associated_symptom_or_comorbi
 PAPER_RELEVANCE = ("direct", "indirect", "background", "not_relevant", "uncertain")
 PAPER_ROLES = ("established", "emerging", "experimental", "insufficient_or_negative", "conflicting", "ongoing", "background")
 TRIAL_KINDS = ("treatment_trial", "diagnostic_or_assessment", "other")
-DRUG_NAME = re.compile(r"[A-Za-z][A-Za-z\-]{3,}(?: [A-Za-z\-]{3,}){0,2}")
+DRUG_NAME = re.compile(r"[A-Za-z][A-Za-z\-]{3,}(?: [A-Za-z\-]{3,}){0,2}(?: (?:[A-Z]|[IVX]{2,4}|\d{1,3}))?")      # a trailing letter, roman numeral or number is part of a name (a salt or a type)
 _QUOTES = str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"', "–": "-", "—": "-", " ": " ", "•": " ", "●": " "})
+
+
+HOMEOPATHIC = re.compile(r"(?i)homeopath|\bHPUS\b|\b\d{1,3}\s?[XCK]\b|\bnux vomica\b|\bhomoeopath")
+NOT_FOR_CHILDREN = re.compile(r"(?i)(?:safety and (?:effectiveness|efficacy)|effectiveness|efficacy)[^.]{0,80}(?:pediatric|paediatric|children|patients? (?:under|below|younger than) \d+)[^.]{0,80}(?:not (?:been )?(?:established|studied|evaluated)|have not been)"
+                              r"|not (?:recommended|indicated|approved) (?:for use )?(?:in|for) (?:pediatric|paediatric|children|patients? (?:under|below|younger than) \d+)")
+CHILD_QUESTION = re.compile(r"(?i)\b(?:child|children|infants?|toddlers?|pediatric|paediatric|preschool\w*|adolescents?|kids?|\d+[- ]?(?:year|month)s?[- ]?old)\b")
+
+
+def unsuitable_label(question: str, record: dict) -> str | None:
+    """Why an FDA label should not be shown as a drug for this question, or None. A homeopathic product is not an approved medicine for a clinical question;
+    for a question about a child, a label whose own paediatric-use section says safety and effectiveness are not established (and gives no paediatric age range) is an adult-only drug."""
+    blob = " ".join(str(record.get(k) or "") for k in ("generic", "indication_excerpt", "indication_statement")) + " " + " ".join(record.get("brands") or [])
+    if HOMEOPATHIC.search(blob):
+        return "homeopathic product"
+    # a label whose age range starts above the patient's age is still listed: age_note() shows 'labelled for ages ...; this patient is about N' beside it, so the reader sees the drug and its limit
+    if CHILD_QUESTION.search(question or ""):
+        peds = str((record.get("label_extras") or {}).get("pediatric_use") or "")
+        if peds and NOT_FOR_CHILDREN.search(peds) and not label_age_range(peds):
+            return "adult-only label (paediatric safety and effectiveness not established)"
+    return None
+
+
+def drop_unsuitable_labels(question: str, records: list[dict]) -> list[str]:
+    """Marks such labels not relevant (they are then neither listed nor used); returns the drug names removed."""
+    removed = []
+    for r in records:
+        if r.get("model_relevant") and unsuitable_label(question, r):
+            r["model_relevant"] = False
+            r["excluded_reason"] = unsuitable_label(question, r)
+            removed.append(r.get("generic"))
+    return removed
 
 
 def fda_relevant(r: dict) -> bool:
@@ -909,7 +1002,7 @@ def _warning_key(drug: str, text: str) -> str:
     return re.sub(r"[^a-z]+", " ", t).strip()[:260]
 
 
-def safety_alerts_markdown(labels: list[dict], listed: list[str] | None = None) -> str:
+def safety_alerts_markdown(labels: list[dict], listed: list[str] | None = None, tags: dict[str, str] | None = None) -> str:
     """2.5 FDA boxed warnings of the drugs, in the label's own words. Drugs whose boxed warning says the same thing share one row (each drug links to its own label).
     Side effects belong here, not in the 'used for' column."""
     rows = [x for x in labels if x.get("boxed_warning") and x.get("url")]
@@ -921,15 +1014,19 @@ def safety_alerts_markdown(labels: list[dict], listed: list[str] | None = None) 
     if no_box:
         coverage += f" No boxed warning on the retrieved label of: {', '.join(dict.fromkeys(no_box))}."
     if no_label:
-        coverage += f" No FDA label could be matched for: {', '.join(no_label)}."
+        coverage += f" The boxed-warning text could not be retrieved for: {', '.join(no_label)}; read their full labels (linked above) before any use."
     if not rows:
+        if not (listed or labels):
+            return head + "*No drug is listed for this question, so no boxed warning was checked.*"
+        if not labels:
+            return head + "*No boxed warning text was retrieved for the listed drugs." + coverage + " This is not a complete safety review: read the full label.*"
         return head + "*No boxed warning was found in the retrieved FDA labels of the drugs." + coverage + " This is not a complete safety review: read the full label.*"
     groups: dict[str, list[dict]] = {}
     for x in rows:
         groups.setdefault(_warning_key(x["drug"], x["boxed_warning"]), []).append(x)
     lines = ["| Drug(s) (FDA label) | Boxed warning, in the label's words |", "|---|---|"]
     for members in groups.values():
-        drugs = ", ".join(f"[{_cell(m['drug'])}]({m['url']})" for m in members)
+        drugs = ", ".join(f"[{_cell(m['drug'])}]({m['url']})" + (f" ({tags[m['drug'].lower()]})" if tags and tags.get(m["drug"].lower()) else "") for m in members)
         lines.append(f"| {drugs} | \"{_cell(boxed_warning_text(members[0]['boxed_warning']), 900)}\" |")
     return head + "\n".join(lines) + "\n\n*These are the labels' own boxed warnings, not a complete safety review: read the full label." + coverage + "*"
 
@@ -971,12 +1068,25 @@ def regulatory_updates_markdown(state: dict, limit: int = 6) -> str:
             recent.append((when, x))
         else:
             left_out += 1
+    groups = state_groups(state)
+    off_topic = 0
+    if groups:      # several conditions: an announcement that is about none of them is not listed
+        kept = []
+        for when, x in recent:
+            if cond_groups.tag_indexes(" ".join(str(x.get(k) or "") for k in ("title", "quote", "drug")), groups):
+                kept.append((when, x))
+            else:
+                off_topic += 1
+        recent = kept
     recent.sort(key=lambda pair: pair[0], reverse=True)      # newest first
     note = (f"\n\n*{left_out} further regulator page(s) were read but are not listed: the page states no date, or a date more than {RECENT_YEARS} years old, so they cannot be shown as recent.*" if left_out else "")
+    if off_topic:
+        note += f"\n\n*{off_topic} regulator page(s) concerned none of the question's conditions and are not listed.*"
     if not recent:
         return head + f"*No FDA, EMA or CDSCO announcement dated within the last {RECENT_YEARS} years was found for this question. This does not mean none exists.*" + note
-    lines = ["| Date | Type | Announcement | What the regulator's page says |", "|---|---|---|---|"]
+    lines = (["| Condition | Date | Type | Announcement | What the regulator's page says |", "|---|---|---|---|---|"] if groups else ["| Date | Type | Announcement | What the regulator's page says |", "|---|---|---|---|"])
     for when, x in recent[:limit]:
         kind = x["type"] + (" (associated symptom or comorbidity)" if x["relation"] == "treats_associated_symptom_or_comorbidity" else "")
-        lines.append(f"| {_cell(x['date'])} | {kind} | [{_link_text(x['title'])}]({x['url']}) | \"{_cell(x['quote'], 700)}\" |")
+        who = (cond_groups.tag_label(" ".join(str(x.get(k) or "") for k in ("title", "quote", "drug")), groups) + " | ") if groups else ""
+        lines.append(f"| {who}{_cell(x['date'])} | {kind} | [{_link_text(x['title'])}]({x['url']}) | \"{_cell(x['quote'], 700)}\" |")
     return head + "\n".join(lines) + "\n\n*Page wording from the regulator's own site; read the page for the full announcement.*" + note

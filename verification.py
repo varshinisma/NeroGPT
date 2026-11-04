@@ -53,6 +53,15 @@ DOSE_LANGUAGE = [(re.compile(r"dose[\s-]dependent", re.I), "dose-response (explo
                  (re.compile(r"(?:with )?stronger effects? at higher doses", re.I), "with an exploratory dose-response relationship reported")]
 SOFTER = {"confirmed": "reported", "confirms": "reports", "proven": "reported", "proved": "reported", "proves": "suggests", "validated": "supported", "definitive": "preliminary",
           "definitively": "preliminarily", "conclusively": "tentatively"}
+NEGATED_BEFORE = re.compile(r"(?i)\b(?:no|not|never|without|lack(?:s|ing)?|absence of|neither|nor|cannot|can't|little|insufficient)\b(?:\W+\w+){0,3}\W*$")
+def soften_overclaims(text: str) -> str:
+    """Soften 'confirmed/proven/definitive...' in a positive claim. A negated phrase ('no definitive biomarker') is left alone: rewording it to 'no preliminary biomarker' would change its meaning."""
+    def swap(m):
+        if NEGATED_BEFORE.search(text[:m.start()][-40:]):
+            return m.group(0)
+        return SOFTER.get(m.group(0).lower(), m.group(0))
+    return OVERCLAIM.sub(swap, text)
+
 ESTABLISHED_HEADING = re.compile(r"^\W*\*{0,2}\s*established\s*\*{0,2}\s*:?\s*$", re.I)
 ESTABLISHED_INLINE = re.compile(r"\*\*established\*\*|\b(?:is|are) established\b|\bestablished (?:to|for|treatment)\b", re.I)
 INDIRECT_LABEL = re.compile(r"indirect|related population|not (?:\w+-)?specific|adjacent", re.I)
@@ -92,7 +101,8 @@ def evidence_blob(state: dict) -> str:
     for w in state.get("web", []):
         parts += [w.get("title") or "", w.get("snippet") or ""]
     for r in state.get("regulatory", []):
-        parts += [r.get("indication_excerpt") or "", r.get("indication_statement") or "", r.get("dose_statement") or "", r.get("dose_general") or "", str(r.get("label_date"))]
+        parts += [r.get("indication_excerpt") or "", r.get("indication_statement") or "", r.get("dose_statement") or "", r.get("dose_general") or "", str(r.get("label_date")),
+                  r.get("dose_summary") or "", " ".join(str(v or "") for v in (r.get("label_extras") or {}).values())]      # the label's own safety and dosing sentences (the medication assessment copies them)
     for g in state.get("guidelines", []):
         parts += [g.get("title") or "", g.get("excerpt") or "", g.get("text") or "", str(g.get("year"))]
     for d in state.get("drug_labels", []):
@@ -290,7 +300,7 @@ def fix_future_dates(text: str, state: dict) -> tuple[str, list[str]]:
 
 
 def _failed_sources(state: dict) -> list[str]:
-    return [k for k, v in state.get("source_status", {}).items() if v.get("retrieval_status") != "success"]
+    return [k for k, v in list(state.get("source_status", {}).items()) if v.get("retrieval_status") != "success"]
 
 
 # ------------------------------------------------------------------ citation normalisation (adds retrieved identifiers only)
@@ -339,11 +349,12 @@ def citation_mismatches(text: str, state: dict) -> list[tuple[str, str]]:
         surname = (p["authors"][0].split(" ")[0].lower() if p.get("authors") else "")
         years = re.findall(r"(?:19|20)\d\d", label)
         has_author = "et al" in label
-        wrong_year = bool(years) and p.get("year") not in years
+        wrong_year = bool(years) and str(p.get("year")) not in years
         wrong_author = has_author and bool(surname) and surname[:5] not in label
         words = [w for w in re.findall(r"[a-z]{4,}", (p.get("journal") or "").lower()) if w not in {"journal", "international"}]
         acronym = "".join(w[0] for w in re.findall(r"[a-z]+", (p.get("journal") or "").lower()) if w not in {"the", "of", "and", "for", "in"})
-        wrong_journal = (not has_author) and bool(words) and bool(re.search(r"[a-z]{3,}", label)) and not any(w in label for w in words) and acronym not in label
+        words_only = re.sub(r"\b(?:" + "|".join(MONTHS) + r")[a-z]*\b|[\d.,;:()/\-]+", " ", label)      # a date label ('Feb 2024', 'Dec 5 2024') names no journal: it is not a wrong journal
+        wrong_journal = (not has_author) and bool(words) and bool(re.search(r"[a-z]{3,}", words_only)) and not any(w in label for w in words) and acronym not in label
         if wrong_year or wrong_author or wrong_journal:
             bad.append((m.group(1), label.strip()[:60]))
     return bad
@@ -564,9 +575,9 @@ def find_issues(text: str, state: dict) -> list[dict]:
                     issues.append(_issue("false_absence_claim", "high", f"claims that no {section} evidence was found, but the {section} search was {info['state'].replace('_', ' ')} (an absence cannot be claimed)", sentence[:80], "remove_sentence", line=line, sentence=sentence))
 
     # 6. mandatory sections and disclosure
-    if "drug landscape" not in text.lower():
+    if "drug landscape" not in text.lower() and not state.get("focused") and not state.get("landscape_hidden"):      # a focused follow-up answers one part only: its answer has no drug landscape unless the drug tables were asked for
         issues.append(_issue("missing_drug_landscape", "high", "the Treatment Drug Landscape section is missing", "", "none"))
-    if state.get("drug_intelligence_status") in ("partial", "failed") and not re.search(r"drug landscape is incomplete|incomplete because", text, re.I):
+    if state.get("drug_intelligence_status") in ("partial", "failed") and ("drug landscape" in text.lower() or not state.get("focused")) and not re.search(r"drug landscape is incomplete|incomplete because", text, re.I):
         issues.append(_issue("drug_incomplete_not_disclosed", "high", "the drug landscape is incomplete but the answer does not say so", "", "add_drug_disclosure"))
     if "evidence searched on" not in text.lower():
         issues.append(_issue("missing_search_date", "medium", "the 'Evidence searched on' date is missing", "", "none"))
@@ -624,6 +635,8 @@ def _set_cell(text: str, needle: str, value: str) -> str:
     for ln in text.splitlines():
         if _is_row(ln) and needle in ln:
             cells = ln.strip().strip("|").split("|")
+            if value == "Not retrieved" and len(cells) == 4 and needle in cells[2] and re.match(r"^\s*[\[(]?\s*(?:PMID\s*)?\d", cells[3]):
+                continue      # an evidence-table row whose result cannot be confirmed says nothing: the row is left out, not printed with 'Not retrieved'
             cells = [(" " + value + " ") if needle in c else c for c in cells]
             out.append("|" + "|".join(cells) + "|")
         else:
@@ -760,7 +773,7 @@ def apply_repairs(text: str, issues: list[dict], state: dict) -> tuple[str, list
             actions.append("reworded dose-response language as an exploratory finding")
         elif a == "soften_word":
             line = it["line"]
-            new = OVERCLAIM.sub(lambda m: SOFTER.get(m.group(0).lower(), m.group(0)), line)
+            new = soften_overclaims(line)
             text = text.replace(line, new, 1)
             actions.append(f"softened '{needle}' (a single study cannot 'confirm' or 'prove')")
         elif a == "scope_sentence":
@@ -789,7 +802,7 @@ def apply_repairs(text: str, issues: list[dict], state: dict) -> tuple[str, list
                 new = pattern.sub(replacement, new)
             actions.append("reworded dose-response language as an exploratory finding")
         if "soften_word" in kinds:
-            new = OVERCLAIM.sub(lambda m: SOFTER.get(m.group(0).lower(), m.group(0)), new)
+            new = soften_overclaims(new)
             actions.append("softened 'confirmed/proven/validated' (a single study cannot 'confirm' or 'prove')")
         if "relabel_established" in kinds:
             new = re.sub(r"\|\s*Established\s*\|", "| Evidence-supported but limited |", new)      # a table cell

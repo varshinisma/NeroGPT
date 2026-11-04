@@ -196,9 +196,9 @@ class RoutingWithTheCoverageCheck(unittest.TestCase):
         self.assertEqual(ask.calls.count("drug-intelligence"), 1)
 
     def test_an_unrelated_question_is_not_given_discovery_searches(self):
-        ask = FakeModel({"latest-evidence": [{"queries": [{"need_id": "m1", "need": "mechanism", "serves": "mechanism", "target": "pubmed", "priority": "supporting", "query": "metformin mechanism lowering blood glucose pathway"}]}]})
+        ask = FakeModel({"drug-intelligence": [{"queries": []}], "latest-evidence": [{"queries": [{"need_id": "m1", "need": "mechanism", "serves": "mechanism", "target": "pubmed", "priority": "supporting", "query": "metformin mechanism lowering blood glucose pathway"}]}]})
         routed = qa_stream.route_deep("How does metformin lower blood glucose?", plan(info=["mechanism"], skills=["latest-evidence"]), ask=ask)
-        self.assertEqual(ask.calls, ["latest-evidence"])
+        self.assertEqual(sorted(ask.calls), ["clinical-trials", "drug-intelligence", "latest-evidence"])
         self.assertEqual(routed["trace"]["coverage"]["outcome"], "no_gaps")
         self.assertFalse([o for o in routed["ops"] if o.target == "web"])
 

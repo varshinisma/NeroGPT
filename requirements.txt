@@ -23,3 +23,5 @@ en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_
 langsmith
 streamlit
 fastembed
+fastapi>=0.115
+uvicorn>=0.30

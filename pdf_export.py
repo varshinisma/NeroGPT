@@ -9,6 +9,7 @@ import os
 import re
 from xml.sax.saxutils import escape
 
+from presentation import hide_unneeded_sections
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.pagesizes import letter
@@ -39,8 +40,8 @@ REPLACEMENTS = {"\u2011": "-", "\u202f": " ", "\u00a0": " ", "✅": "Yes", "✔"
 
 
 def clean(text: str) -> str:
-    text = re.sub("[✅✔]\s*(Yes)", r"\1", text)  # emoji + the word it duplicates -> just the word
-    text = re.sub("[❌✖]\s*(No)", r"\1", text)
+    text = re.sub(r"[✅✔]\s*(Yes)", r"\1", text)  # emoji + the word it duplicates -> just the word
+    text = re.sub(r"[❌✖]\s*(No)", r"\1", text)
     for old, new in REPLACEMENTS.items():
         text = text.replace(old, new)
     text = re.sub(r"【[^】]*】", "", text)
@@ -48,6 +49,7 @@ def clean(text: str) -> str:
 
 
 def markdown_to_pdf(markdown: str, dst: str, title: str, figures: list | None = None) -> str:
+    markdown = hide_unneeded_sections(markdown)
     body, bold, italic = _fonts()
     base = ParagraphStyle("base", fontName=body, fontSize=9.5, leading=13.5, textColor=INK, alignment=TA_LEFT, spaceAfter=5)
     styles = {
@@ -174,7 +176,8 @@ def markdown_to_pdf(markdown: str, dst: str, title: str, figures: list | None = 
                 block.append(lines[i])
                 i += 1
             rows = [[c.strip() for c in r.strip().strip("|").split("|")] for r in block if not re.match(r"^\|[\s:\-|]+\|?$", r)]
-            story += [table(rows, width), Spacer(1, 8)]
+            if rows:      # a block of only separator lines (an empty table) has nothing to draw
+                story += [table(rows, width), Spacer(1, 8)]
         elif line.startswith(">"):       # warning banner: a shaded, bordered paragraph at the position it has in the report
             quote = []
             while i < len(lines) and lines[i].startswith(">"):
@@ -182,7 +185,8 @@ def markdown_to_pdf(markdown: str, dst: str, title: str, figures: list | None = 
                 i += 1
             story += [Paragraph(inline(" ".join(q for q in quote if q)), ParagraphStyle("quote", parent=base, backColor=colors.HexColor("#fffbeb"), borderColor=colors.HexColor("#b45309"),
                                                                                          borderWidth=0.8, borderPadding=6, leftIndent=8, rightIndent=8, spaceBefore=4, spaceAfter=10)), Spacer(1, 4)]
-        elif re.match(r"^#{1,6} ", line):
+        elif re.match(r"^\s{0,3}#{1,6}\s+\S", line):
+            line = line.lstrip()
             level = len(line) - len(line.lstrip("#"))
             text_h = line.lstrip("#").strip()
             if level <= 2:

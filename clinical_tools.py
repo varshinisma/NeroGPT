@@ -320,6 +320,35 @@ def search_europepmc_quick(query: str, max_results: int = 6, years_back: int = 3
     return json.dumps({"results": results, "searched_at": _now()}, ensure_ascii=False)
 
 
+@traced("similar_articles", "tool")
+def similar_articles(pmids: list, per_seed: int = 4, max_results: int = 10, years_back: int = 5) -> str:
+    """PubMed's 'similar articles' for some papers: the papers NCBI's own word-weighting finds closest to each of them (their titles, abstracts and MeSH headings), including papers that do not share
+    the question's words. Returns the same JSON as search_pubmed_quick; the seed papers themselves are not returned."""
+    seeds = [str(p) for p in dict.fromkeys(pmids) if p]
+    if not seeds:
+        return json.dumps({"results": [], "note": "no seed papers", "searched_at": _now()})
+    try:
+        linked = json.loads(_get(f"{EUTILS}/elink.fcgi", {"dbfrom": "pubmed", "db": "pubmed", "cmd": "neighbor_score", "retmode": "json", "id": seeds}))
+        best: dict[str, float] = {}
+        for linkset in linked.get("linksets", []):
+            links = next((db.get("links", []) for db in linkset.get("linksetdbs", []) if db.get("linkname") == "pubmed_pubmed"), [])
+            taken = 0
+            for link in links:
+                pmid = str(link.get("id"))
+                if pmid in seeds:
+                    continue
+                best[pmid] = max(best.get(pmid, 0), float(link.get("score", 0)))
+                taken += 1
+                if taken >= per_seed:
+                    break
+    except (urllib.error.URLError, TimeoutError, ValueError, KeyError, TypeError) as error:
+        return json.dumps({"error": f"PubMed similar-articles search failed: {error}"})
+    ids = sorted(best, key=best.get, reverse=True)[:max(1, min(int(max_results), 15))]
+    if not ids:
+        return json.dumps({"results": [], "note": "no similar articles", "searched_at": _now()})
+    return search_pubmed_quick(" OR ".join(f"{i}[uid]" for i in ids), max_results=len(ids), years_back=years_back, sort="relevance")
+
+
 # ------------------------------------------------------------------ regulatory source: FDA drug labels (openFDA)
 FDA_LABEL_API = "https://api.fda.gov/drug/label.json"
 _CONDITION_FILLER = {"disorder", "disease", "syndrome", "spectrum", "condition", "chronic", "acute", "symptom", "symptoms", "children", "child",
@@ -429,6 +458,71 @@ def _fda_records(generic: str, stems: list[str], limit: int = 1) -> list[dict]:
     return out
 
 
+LABEL_SECTIONS = {"contraindications": ("contraindications",), "adverse_effects": ("adverse_reactions",), "interactions": ("drug_interactions",),
+                  "precautions": ("warnings_and_cautions", "warnings", "precautions"), "pediatric_use": ("pediatric_use",)}
+LABEL_DOSE_PARTS = {"max_dose": re.compile(r"\b(?:maximum|max\.?|not exceed|should not exceed|up to)\b[^.]*\b\d", re.I),
+                    "duration": re.compile(r"\b(?:duration|reassess\w*|re-evaluat\w*|for (?:at least |up to )?\d+\s*(?:weeks?|months?|days?))\b", re.I),
+                    "monitoring": re.compile(r"\b(?:monitor\w*|baseline|periodic\w*|laboratory|blood (?:count|pressure|glucose)|weigh\w*)\b", re.I)}
+
+
+def label_sentences(text: str, pattern=None, limit: int = 420, count: int = 2) -> str | None:
+    """Up to `count` complete sentences of a label section, copied unchanged (a sentence must be whole: it ends at a full stop). With a pattern, only sentences that match it."""
+    t = re.sub(r"\s+", " ", re.sub(r"\[see [^\]]*\]", " ", text or "")).strip()
+    found = []
+    for s in re.split(r"(?<=[.!?])\s+(?=[A-Z0-9])", t):
+        s = s.strip()
+        if 25 <= len(s) <= limit and s[-1] in ".!?" and (pattern is None or pattern.search(s)):
+            found.append(s)
+        if len(found) >= count:
+            break
+    return " ".join(found) or None
+
+
+def label_extras(label: dict) -> dict:
+    """What the official label itself says about safety and use, as verbatim sentences: contraindications, adverse reactions, interactions, precautions, paediatric use, and (from the dosing text)
+    a maximum dose, a duration and monitoring. Nothing is written by a model; a field the label does not give is None."""
+    def section(keys):
+        return " ".join(" ".join(label.get(k) or []) for k in keys)
+    extras = {name: label_sentences(section(keys)) for name, keys in LABEL_SECTIONS.items()}
+    dosing = section(("dosage_and_administration",))
+    for name, pattern in LABEL_DOSE_PARTS.items():
+        extras[name] = label_sentences(dosing + " " + (section(LABEL_SECTIONS["precautions"]) if name == "monitoring" else ""), pattern, count=1)
+    return extras
+
+
+SAFETY_KEY = re.compile(r"(?i)most common|commonly (?:reported|observed)|incidence|reported in|occurred in|[≥>]\s?\d|\d+(?:\.\d+)?\s?%")
+
+
+def safety_text(label: dict) -> dict:
+    """The label's own words for each safety part, longer than label_extras (which keeps two sentences): the boxed warning, the adverse reactions (sentences that give frequencies first), the warnings,
+    the contraindications and the drug interactions. Nothing is written by a model; a part the label does not give is None."""
+    def section(keys):
+        return re.sub(r"\s+", " ", re.sub(r"\[see [^\]]*\]", " ", " ".join(" ".join(label.get(k) or []) for k in keys))).strip()
+
+    def cut(text, limit):
+        return (text[:limit].rsplit(" ", 1)[0] + "…") if len(text) > limit else (text or None)
+    adverse = section(("adverse_reactions",))
+    sentences = re.split(r"(?<=[.!?])\s+(?=[A-Z0-9])", adverse)
+    picked = " ".join([s for s in sentences if SAFETY_KEY.search(s)][:6]) or adverse
+    return {"boxed": cut(section(("boxed_warning",)), 700), "adverse": cut(picked, 1400), "warnings": cut(section(("warnings_and_cautions", "warnings", "precautions")), 900),
+            "contraindications": cut(section(("contraindications",)), 500), "interactions": cut(section(("drug_interactions",)), 600)}
+
+
+LABEL_PARTS = {"indications": ("indications_and_usage",), "dosage": ("dosage_and_administration",), "contraindications": ("contraindications",), "warnings": ("warnings_and_cautions", "warnings", "precautions"),
+                  "adverse_reactions": ("adverse_reactions",), "interactions": ("drug_interactions",), "special_populations": ("use_in_specific_populations", "pregnancy", "pediatric_use", "geriatric_use", "nursing_mothers"),
+                  "overdosage": ("overdosage",), "mechanism": ("mechanism_of_action", "clinical_pharmacology")}      # the label's own parts (openFDA field names): any follow-up about a drug can be answered from the part it asks about
+
+
+def label_parts(label: dict, limit: int = 900) -> dict:
+    """The label's own words for each part, cut to `limit` characters (nothing is written by a model); a part the label does not give is left out."""
+    out = {}
+    for name, keys in LABEL_PARTS.items():
+        text = re.sub(r"\s+", " ", re.sub(r"\[see [^\]]*\]", " ", " ".join(" ".join(label.get(k) or []) for k in keys))).strip()
+        if text:
+            out[name] = (text[:limit].rsplit(" ", 1)[0] + "…") if len(text) > limit else text
+    return out
+
+
 def _record_from_label(label: dict, generic: str, stems: list[str]) -> dict:
     text = re.sub(r"\s+", " ", " ".join(label.get("indications_and_usage") or [])).strip()
     low, hit = text.lower(), -1
@@ -448,7 +542,7 @@ def _record_from_label(label: dict, generic: str, stems: list[str]) -> dict:
             "indication_statement": indication_statement(text, stems, generic) if hit >= 0 else None,
             "dose_statement": dosage_statement(" ".join(label.get("dosage_and_administration") or []), stems) if hit >= 0 else None,
             "dose_general": general_dosing(" ".join(label.get("dosage_and_administration") or [])) if hit >= 0 else None,
-            "route": ", ".join(r.title() for r in (label.get("openfda", {}).get("route") or []))[:80] or None,
+            "route": ", ".join(r.title() for r in (label.get("openfda", {}).get("route") or []))[:80] or None, "label_extras": label_extras(label), "safety_text": safety_text(label), "label_sections": label_parts(label),
             "label_date": f"{when[:4]}-{when[4:6]}-{when[6:8]}" if len(when) == 8 else None, "set_id": set_id,
             "url": f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={set_id}" if set_id else None, "source_id": f"fda:{set_id}"}
 

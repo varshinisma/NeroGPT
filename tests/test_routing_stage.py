@@ -52,14 +52,14 @@ class RouteDeep(unittest.TestCase):
     def test_skills_write_queries_for_several_targets_in_parallel(self):
         ask = FakeModel({"latest-evidence": [LATEST], "drug-intelligence": [DRUGS]})
         routed = qa_stream.route_deep(QUESTION, plan(), ask=ask)
-        self.assertEqual(sorted(ask.calls), ["drug-intelligence", "latest-evidence"])
+        self.assertEqual(sorted(ask.calls), ["clinical-trials", "drug-intelligence", "latest-evidence"])      # the trials skill is mandatory too
         self.assertEqual({o.target for o in routed["ops"] if o.origin == "generated"}, {"pubmed", "guideline_sites", "fda_label", "regulator"})
         self.assertEqual({o.id for o in routed["ops"] if o.origin == "baseline"}, {"baseline:0", "baseline:1"})      # literature is relevant: the original question is searched too
 
     def test_a_skill_that_is_not_chosen_is_never_asked(self):
-        ask = FakeModel({"latest-evidence": [{"queries": [pubmed_query("mechanism of action", "metformin mechanism lowering blood glucose hepatic gluconeogenesis")]}]})
+        ask = FakeModel({"latest-evidence": [{"queries": [pubmed_query("mechanism of action", "metformin mechanism lowering blood glucose hepatic gluconeogenesis")]}], "drug-intelligence": [{"queries": []}]})
         routed = qa_stream.route_deep("How does metformin lower blood glucose?", plan(skills=["latest-evidence"], info=["mechanism"], drugs=["metformin"]), ask=ask)
-        self.assertEqual(ask.calls, ["latest-evidence"])
+        self.assertEqual(sorted(ask.calls), ["clinical-trials", "drug-intelligence", "latest-evidence"])      # the drug and trials skills are asked for every question (mandatory medication assessment and trial search)
         self.assertEqual({o.target for o in routed["ops"]}, {"pubmed"})
 
     def test_a_skill_that_declines_adds_nothing_and_is_not_retried_or_replaced_by_a_baseline(self):
@@ -92,20 +92,27 @@ class RouteDeep(unittest.TestCase):
         routed = qa_stream.route_deep(QUESTION, plan(), ask=FakeModel({"latest-evidence": [same], "drug-intelligence": [other]}))
         generated = [o for o in routed["ops"] if o.origin == "generated"]
         self.assertEqual(len(generated), 1)
-        self.assertEqual(generated[0].needs(), ["aaa", "bbb"])
+        self.assertEqual(sorted(generated[0].needs()), ["aaa", "bbb"])      # the skills answer in parallel: which need is listed first depends on who finished first
         self.assertEqual(routed["trace"]["duplicates_removed"], 1)
+
+    def test_an_empty_first_reply_from_the_literature_skill_is_asked_again_once(self):
+        good = {"queries": [pubmed_query("efficacy", "sertraline adolescent depression efficacy trial", need_id="aaa")]}
+        ask = FakeModel({"latest-evidence": [{"queries": []}, good]})
+        routed = qa_stream.route_deep(QUESTION, plan(skills=["latest-evidence"], info=["efficacy"]), ask=ask)
+        self.assertEqual(routed["trace"]["skills"]["latest-evidence"]["outcome"], "wrote")
+        self.assertEqual(ask.calls.count("latest-evidence"), 2)
 
     def test_an_unusable_plan_runs_the_safe_wide_strategy_with_the_literature_baseline(self):
         ask = FakeModel({})
         routed = qa_stream.route_deep(QUESTION, {"intent": "x", "condition": "depression", "skills": [], "understanding": {"info_needed": []}}, ask=ask)
-        self.assertEqual(sorted(ask.calls), ["clinical-trials", "drug-intelligence", "latest-evidence"])
+        self.assertEqual(sorted(ask.calls), ["clinical-trials", "drug-intelligence", "latest-evidence", "latest-evidence"])      # the literature skill is asked a second time when its first reply is empty; the others are not
         self.assertEqual(routed["trace"]["select_skills"]["fallback"], "plan_unusable")
         self.assertTrue([o for o in routed["ops"] if o.origin == "baseline" and o.target == "pubmed"])
 
     def test_the_baseline_is_not_added_when_literature_is_not_relevant(self):
         ask = FakeModel({"drug-intelligence": [DRUGS]})
         routed = qa_stream.route_deep("What is the label dose of sertraline?", plan(skills=["drug-intelligence"], info=["dosing"], drugs=["sertraline"]), ask=ask)
-        self.assertEqual(ask.calls, ["drug-intelligence"])
+        self.assertEqual(sorted(ask.calls), ["clinical-trials", "drug-intelligence"])
         self.assertFalse([o for o in routed["ops"] if o.target == "pubmed"])
 
 

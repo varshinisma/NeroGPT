@@ -5,13 +5,46 @@ citations into numbers. The mapping number -> PMID is kept in the saved state, s
 """
 from __future__ import annotations
 
+import os
 import re
 
 DISCLAIMER = "Research support, not a substitute for clinical judgement."
+
+
+EMPTY_SECTION = re.compile(r"^\*?\s*(not listed|not applicable)\b", re.I)
+EMPTY_SUMMARY_LINE = re.compile(r"^\s*(?:[-\u2022]\s*)?\**\s*(top treatment drugs|clinical trials?)\s*:?\s*\**\s*:?\s*(not listed|not applicable)", re.I)
+
+
+def hide_unneeded_sections(markdown: str) -> str:
+    """For display and export only: drop a `## ` section whose whole body is just "Not listed ..." / "Not applicable ...", and the matching "Top treatment drugs: not listed" line of the summary.
+    The saved state and the verification are unchanged; this is only so a report does not print empty sections."""
+    if os.getenv("HIDE_EMPTY_SECTIONS", "0") != "1":
+        return markdown      # every section is always printed (set HIDE_EMPTY_SECTIONS=1 to hide empty ones)
+    nlc = "\r\n" if "\r\n" in markdown else "\n"
+    lines = markdown.replace("\r\n", "\n").split("\n")
+    out, i = [], 0
+    while i < len(lines):
+        line = lines[i]
+        if line.startswith("## "):
+            j = i + 1
+            while j < len(lines) and not lines[j].startswith("## "):
+                j += 1
+            body = [x.strip() for x in lines[i + 1:j] if x.strip()]
+            if len(body) == 1 and EMPTY_SECTION.match(body[0]):
+                i = j
+                continue
+            out.extend(x for x in lines[i:j] if not EMPTY_SUMMARY_LINE.match(x))
+            i = j
+            continue
+        if not EMPTY_SUMMARY_LINE.match(line):
+            out.append(line)
+        i += 1
+    cleaned = re.sub(r"[ \t]*(?:\[\s*\]|\(\s*\))", "", nlc.join(out))      # a citation that lost its number leaves an empty [] or ()
+    return cleaned
 PMID = r"\d{6,9}"
 GROUP = re.compile(r"\(([^()]*?\[PMID\s*" + PMID + r"\][^()]*?)\)")           # (Wang et al., Journal, 2026 [PMID 123]; Lee et al., 2025 [PMID 456])
 BRACKET = re.compile(r"\[PMID\s*(" + PMID + r")\]")
-PAREN = re.compile(r"\(\s*PMID\s*(" + PMID + r")(?:\s*[;,]\s*PMID\s*(" + PMID + r"))*\s*\)")
+PAREN = re.compile(r"\(\s*PMID\s*(" + PMID + r")(?:\s*[;,]\s*(?:PMID\s*)?(" + PMID + r"))*\s*\)")      # (PMID 1, PMID 2) and (PMID 1, 2) are both one citation group
 BARE = re.compile(r"PMID\s*(" + PMID + r")(?:\s*\([^()]*\))?")
 
 

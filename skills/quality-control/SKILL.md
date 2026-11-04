@@ -32,7 +32,7 @@ A missing year or citation on a clinical claim is **high** severity.
 
 ## Step 4: Check drugs
 
-- Is a **Treatment Drug Landscape present for this query**, even a non-treatment one? Missing is always high severity.
+- Is the **Treatment Drug Landscape section** there? Medicines are retrieved for every clinical question. When any medicine was retrieved the section must list them, and a missing section is then high severity. When none was retrieved the section is left out (no empty table); a diagnostic or mechanism answer is never failed for lacking a drug table.
 - Are established, latest and emerging drugs all covered and separated?
 - Were latest approvals searched and dated?
 - Is every dose sourced, with route and frequency, and are standard and trial doses clearly separated?
@@ -54,7 +54,7 @@ A missing year or citation on a clinical claim is **high** severity.
 
 ## Step 7: Decide the status
 
-- **High severity** (blocks FINAL): unsupported clinical claim; wrong or unsourced dose; investigational drug shown as approved; wrong trial ID or status; missing Treatment Drug Landscape; fabricated citation; missing year or citation on a claim; conflicting doses.
+- **High severity** (blocks FINAL): unsupported clinical claim; wrong or unsourced dose; investigational drug shown as approved; wrong trial ID or status; missing Treatment Drug Landscape section (or, when medicines bear on the question, an empty one); fabricated citation; missing year or citation on a claim; conflicting doses.
 - **Medium:** missing approval date; outdated source when newer exists; missing contradiction; unlabelled preliminary study; section inconsistency.
 - **Low:** formatting or wording.
 
@@ -73,7 +73,7 @@ Allow at most 1 repair cycle. If new evidence is needed, route it through the or
 ## Quality check
 
 - [ ] All checks in Steps 1-6 evaluated
-- [ ] Treatment Drug Landscape confirmed present and categorized
+- [ ] Treatment Drug Landscape section present: categorized when medicines bear on the question, a one-line "does not apply" otherwise
 - [ ] No unresolved or unqualified high-severity issue at FINAL
 - [ ] Repair targets are minimal and specific
 - [ ] Repair budget respected

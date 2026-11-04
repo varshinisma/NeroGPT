@@ -74,10 +74,12 @@ def cosine(a: list[float], b: list[float]) -> float:
 @traced("embed", "chain")
 def embed(texts: list[str], timeout: float | None = None) -> list[list[float]] | None:
     """One embedding vector per text (the embedding model, one request for all texts not seen before); None when the key is missing or the call fails."""
-    key = os.getenv("MISTRAL_API_KEY")
+    use_openai = os.getenv("EMBED_PROVIDER", "").strip().lower() == "openai"      # EMBED_PROVIDER=openai: OpenAI embeddings (same request/response format as Mistral's)
+    key = os.getenv("OPENAI_API_KEY" if use_openai else "MISTRAL_API_KEY")
     if not key or not texts:
         return None
-    model = os.getenv("EMBED_MODEL", "").strip() or DEFAULT_EMBED_MODEL
+    url = "https://api.openai.com/v1/embeddings" if use_openai else EMBED_URL
+    model = os.getenv("EMBED_MODEL", "").strip() or ("text-embedding-3-small" if use_openai else DEFAULT_EMBED_MODEL)
     wait = timeout if timeout is not None else float(os.getenv("EMBED_TIMEOUT_S", "6"))
     keys = [hashlib.sha1((model + "|" + t).encode("utf-8")).hexdigest() for t in texts]
     with _lock:
@@ -89,7 +91,7 @@ def embed(texts: list[str], timeout: float | None = None) -> list[list[float]] |
         def one(batch):
             for attempt in (1, 2):      # one retry after a rate limit, a server error or a timeout
                 try:
-                    response = httpx.post(EMBED_URL, headers={"Authorization": f"Bearer {key}"}, json={"model": model, "input": [t for _, t in batch]}, timeout=wait)
+                    response = httpx.post(url, headers={"Authorization": f"Bearer {key}"}, json={"model": model, "input": [t for _, t in batch]}, timeout=wait)
                     if response.status_code in (429, 500, 502, 503) and attempt == 1:
                         time.sleep(1.0)
                         continue

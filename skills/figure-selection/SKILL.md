@@ -15,7 +15,7 @@ Each offered figure has its paper's title and design, its ORIGINAL caption, whet
 
 1. **helps_answer** - it directly helps answer the question. A figure with `relation` "indirect" comes from a study of a closely related condition or population: say true only if it clearly informs this question.
 2. **clinically_meaningful** - it shows treatment outcomes, comparisons, effect sizes or a relevant clinical pathway. A figure about adherence, compliance, a biomarker used only to monitor the treatment, baseline characteristics or study methods is NOT clinically meaningful.
-3. **adds_beyond_report** - it adds information the written report does not already explain.
+3. **adds_beyond_report** - it adds information the written report does not already explain. (Asked, but a figure that fails only this test is still kept: a picture of a result the report states in words is useful to the doctor. Set FIGURE_STRICT=on to require it.)
 4. **not_decorative** - it is not a photograph, a scan of one patient, a recruitment or selection flowchart, a study-timeline schematic or a figure about another outcome.
 5. **answers_what_is_asked** - read what the question asks for and require the figure to show THAT kind of information. When the question asks how to treat or manage, the figure must show a treatment, a comparison of treatments or an outcome of treatment. A figure that only describes how common, how severe or how it develops is false unless the question asks about that.
 

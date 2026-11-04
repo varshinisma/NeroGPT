@@ -68,7 +68,7 @@ class FastPathIsUnchanged(unittest.TestCase):
 
     def test_the_six_fast_jobs_and_their_timeouts(self):
         self.assertEqual(sorted(qa_stream._fast_jobs("condition X in children")), sorted(["pubmed_fast", "pubmed_fast_q", "trials_fast", "trials_drugs_fast", "fda_fast", "web_fast"]))
-        self.assertEqual(qa_stream.FAST_TIMEOUT_S, 4.5)
+        self.assertEqual(qa_stream.FAST_TIMEOUT_S, float(os.getenv("FAST_TIMEOUT_S", "4.5")))      # 4.5 s unless .env sets the fast-path limit
         source = inspect.getsource(qa_stream.stream_answer)
         self.assertIn('essential=["pubmed_fast", "trials_fast", "fda_fast"], extra_until=2.5', source)
 

@@ -14,7 +14,7 @@ Search the web and literature sources for the newest, most relevant evidence for
 
 Use the entities from the orchestrator. FAST mode (run by the program): 1-2 queries. DEEP mode: follow "Query transformation by intent" below, which writes as many searches as the question has distinct needs, and none if published evidence does not bear on the question. The guidance here is what a good search contains:
 - Core: disease + intervention or drug (use generic and brand names, synonyms)
-- Recency: add the year or date range (default last 24 months; "latest/new" means last 12 months)
+- Recency: the program already searches the newest records first, so do not put a year or date range in a query (a year you guess is often out of date); say "recent" only when the question asks what is new
 - DEEP only: add `systematic review`, `meta-analysis`, `randomized`, `guideline`, `phase 3`, `newly approved`, `emerging therapy`
 - DEEP only, contradiction probe: add `no benefit`, `failed`, `negative results`, `safety signal`
 
@@ -31,15 +31,18 @@ You are given the doctor's question, its intent, and what was understood from it
    - how something works: the mechanism, the evidence in humans, where it is still unclear;
    - a case study: whatever that case asks for, such as its work-up, the causes to consider, its management and its follow-up;
    - a safety or dosing question: the harms, the risk groups, what labels and guidelines say.
-   A simple question has one or two needs. Use as many as the question really has, at most 6. Never add a need the question does not call for.
-   **Case-study rule.** When the question describes a patient, `case_facts` holds the case's own findings. The answer must cover the WHOLE case, not one of its findings:
-   - Keep the case's own words. Copy each finding from `case_facts` word for word into the searches. Any condition name in a search must be one the question itself names: never rename a finding into a diagnosis the question did not state (a finding described as "tendencies" or "features" stays that finding; do not write it as a named disorder).
-   - Work-up and cause: write searches on the broadest problem that frames the case together with its other findings, asking for the causes to consider, the differential diagnosis, the recommended tests (laboratory, genetic, imaging, neurophysiological, sensory) and what guideline organisations recommend for the evaluation (`guideline_sites`).
-   - Each associated finding: one search on how it is assessed or screened in this age group, and one on the services or interventions recommended for it.
-   - Management and follow-up: one search on the overall management of the whole case (medical, therapy and education services, monitoring and referral), and one on prognosis or follow-up when the question asks for it.
-   - Do not let one associated finding take over: at most half of the searches may be about that single finding; the rest are about the broader problem's evaluation and the management of the whole case.
+   A simple question has one or two needs. Use as many as the question really has, at most 6 (up to 8 for a case question under the case-study rule). Never add a need the question does not call for.
+   **Case-study rule.** When the question describes a patient, `case_facts` holds the case's own findings. The answer must cover the WHOLE case, not one of its findings, and a work-up is not one topic: it is several separate questions, each needing its own search. A single long search that repeats every finding returns only papers about all of them at once and misses the separate parts of the work-up, so split the case into parts:
+   - Each search names the broad problem with only ONE or TWO of the case's key finding words (never all of them), plus the one part it is about. Do not copy every finding into every search. Never rename a finding into a diagnosis the question did not state (a finding described as "tendencies" or "features" stays that finding; do not write it as a named disorder).
+   - Leave the patient's age words ("three year old", "7-year-old") out of the search text; use a population word such as `child`, `preschool` or `infant` instead.
+   - Causes and differential: one need on the causes to consider and the differential diagnosis of the broad problem.
+   - Investigations: one SEPARATE need for each kind of test a clinician would consider, each with its own search and each phrased around that test: sensory assessment (hearing, vision), neurophysiological testing, genetic testing, metabolic and laboratory testing, neuroimaging, and standardized developmental and behavioural assessment tools. Add one need on what guideline organisations recommend for the overall evaluation (`guideline_sites`).
+   - Each associated finding: one search on how it is assessed or screened at this age, and one on the services or interventions recommended for it.
+   - Management and follow-up: one need on the overall management of the whole case (medical, therapy and education services, monitoring and referral), one on frequent co-occurring problems to look for and treat (such as sleep, feeding, seizures or behaviour), and one on prognosis or follow-up when the question asks for it.
+   - Always include: for a child with developmental delay, regression or autistic features, the hearing and vision assessment need and the basic laboratory screen need (such as thyroid, lead, iron and vitamin B12) are never left out; drop a lower-value need instead.
+   - Balance: no single finding or single test may take more than a quarter of the searches. For a case question you may use up to 8 needs, each essential for the work-up and management, and one or two searches per need.
 2. For each need write one search query as a natural-language phrase of 6 to 20 words, in standard clinical terms, with one synonym where a second wording is common.
-3. When the question asks whether something works or is safe, include one need for evidence that contradicts it (`study_types: ["negative_results"]`).
+3. When the question asks whether an intervention works or is safe (its effect or its harms), include one need for evidence that contradicts it (`study_types: ["negative_results"]`). A question about HOW something works (a mechanism) or about a work-up does not get one.
 4. Added concepts are only search terms. They are never statements of fact about the patient.
 5. Do not repeat a query, and do not copy the question word for word.
 
@@ -64,7 +67,7 @@ Reply with ONE JSON object and nothing else:
 - `need_id` groups queries that serve the same need. `priority` is `essential` for a need that directly answers what was asked and `supporting` for context. Only essential needs are retried elsewhere.
 - `serves` names which listed information need (from `info_needed` in the understanding) the search answers; leave it out if none fits. Use it to check, need by need, that each listed information need has a search on a source that can answer it.
 - Add an `alternate` (`{"target": ..., "query": ..., "args": {}}`) only for an essential need where a DIFFERENT source would give DIFFERENT evidence (for example the guideline sites beside the literature); most needs need none. Keep the reply short.
-- Keep the condition and the patient details from the question in every query. Never name a drug the question does not name or clearly imply.
+- Keep the question's condition recognisable in each search (for a case question, the case-study rule decides how much of the case each search names). Never name a drug the question does not name or clearly imply.
 - **If your source is not needed for this question, reply `{"queries": []}`.** Writing no queries is the correct answer for a skill that has nothing to add. Never write searches only to be thorough.
 
 ## Step 2: Run the searches and de-duplicate

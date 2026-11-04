@@ -85,7 +85,8 @@ def search_log(raw: dict, routing_keys: set[str]) -> dict:
     for key, ids in found.items():
         other = by_mode["legacy" if mode_of[key] == "routing" else "routing"]
         source = re.sub(r"[_\d]+$", "", key)
-        rows.append({"search": key, "mode": mode_of[key], "source": source, "returned": len(ids), "new_vs_other_mode": len(ids - other), "error": bool(isinstance(_safe(raw[key]), dict) and _safe(raw[key]).get("error"))})
+        method = "MeSH expansion" if "mesh" in key else "similar articles" if key == "pubmed_similar" else "related topics" if "_topic_" in key else "keywords"      # how the search found its records (routed searches add MeSH alternatives to their required words inside the query)
+        rows.append({"search": key, "mode": mode_of[key], "method": method, "source": source, "returned": len(ids), "new_vs_other_mode": len(ids - other), "error": bool(isinstance(_safe(raw[key]), dict) and _safe(raw[key]).get("error"))})
     both = by_mode["legacy"] & by_mode["routing"]
     summary = {"legacy": len(by_mode["legacy"]), "legacy_only": len(by_mode["legacy"] - both), "routing": len(by_mode["routing"]), "routing_only": len(by_mode["routing"] - both), "overlap": len(both)}
     line = (f"legacy: {summary['legacy']} records ({summary['legacy_only']} only legacy), routing: {summary['routing']} records ({summary['routing_only']} only routing), overlap: {summary['overlap']}")

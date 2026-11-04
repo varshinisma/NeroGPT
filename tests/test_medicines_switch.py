@@ -20,26 +20,28 @@ def state(**extra):
 
 
 class MedicinesSwitch(unittest.TestCase):
-    def test_a_question_that_does_not_ask_about_medicines_lists_none(self):
-        s = state(medicines_needed=False)
-        self.assertIn("not listed", landscape.top_drugs_markdown(s).lower())
-        self.assertNotIn("Drugx", landscape.top_drugs_markdown(s))
+    def test_a_question_that_does_not_ask_about_medicines_still_lists_the_drugs_of_the_condition(self):
+        s = state(medicines_needed=False)      # the medication assessment is mandatory: the drugs related to the condition are listed for every question
+        self.assertIn("Drugx", landscape.top_drugs_markdown(s))
         md = landscape.landscape_markdown(s, [], [])
         self.assertTrue(md.startswith("## Treatment Drug Landscape"))
-        self.assertNotIn("Drugx", md)
+        self.assertIn("Drugx", md)
 
     def test_an_unknown_answer_keeps_the_earlier_behaviour(self):
         for value in (None, True):
             s = state(medicines_needed=value)
             self.assertIn("Drugx", landscape.top_drugs_markdown(s))
 
-    def test_the_understanding_carries_only_a_real_yes_or_no(self):
+    def test_medicines_are_retrieved_for_every_question_and_the_flag_only_weights_the_report(self):
         plan = {"intent": "diagnosis", "condition": "x", "info_needed": ["diagnosis"], "medicines_needed": False}
-        self.assertIs(qa_stream.verified_understanding(plan, "question x")["medicines_needed"], False)
+        understanding = qa_stream.verified_understanding(plan, "question x")
+        self.assertIs(understanding["medicines_needed"], True)      # the medicines of the condition are retrieved whatever the question asks
+        self.assertIs(understanding["medicines_about"], False)      # the agent's own yes or no: only the weight of the report
         plan["medicines_needed"] = "yes"
-        self.assertIsNone(qa_stream.verified_understanding(plan, "question x")["medicines_needed"])
+        self.assertIsNone(qa_stream.verified_understanding(plan, "question x")["medicines_about"])
         del plan["medicines_needed"]
-        self.assertIsNone(qa_stream.verified_understanding(plan, "question x")["medicines_needed"])
+        self.assertIsNone(qa_stream.verified_understanding(plan, "question x")["medicines_about"])
+        self.assertIs(qa_stream.verified_understanding(plan, "question x")["medicines_needed"], True)
 
 
 class LabelAge(unittest.TestCase):

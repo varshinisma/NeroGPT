@@ -87,7 +87,7 @@ def rows_from_results(items: list, config: dict | None = None, stems: list[str] 
         excerpt = _excerpt(item.get("snippet") or "")
         title = re.sub(r"\s+", " ", item.get("title") or "").strip()
         blob = f"{title} {item.get('snippet') or ''}".lower()
-        if org and excerpt and title and url not in seen and (not stems or any(s in blob for s in stems)):
+        if org and excerpt and title and url not in seen and (not stems or sum(1 for s in stems if s in blob) >= min(2, len(stems))):
             seen.add(url)
             rows.append({"topic": topic, "label": label, "title": title, "organisation": org, "year": _year(title, item.get("snippet"), url), "url": url, "excerpt": excerpt,
                          "text": re.sub(r"\s+", " ", item.get("snippet") or "")[:1500]})
@@ -120,7 +120,7 @@ def find_guidelines(question: str, condition_words: list[str], searcher, config:
             excerpt = _excerpt(item.get("snippet") or "")
             title = re.sub(r"\s+", " ", item.get("title") or "").strip()
             blob = f"{title} {item.get('snippet') or ''}".lower()
-            if org and excerpt and title and (not stems or any(s in blob for s in stems)):
+            if org and excerpt and title and (not stems or sum(1 for s in stems if s in blob) >= min(2, len(stems))):
                 return {"topic": topic["id"], "label": topic["label"], "title": title, "organisation": org, "year": _year(title, item.get("snippet"), url),
                         "url": url, "excerpt": excerpt, "text": re.sub(r"\s+", " ", item.get("snippet") or "")[:1500]}
         return {"topic": topic["id"], "label": topic["label"], "none": True}

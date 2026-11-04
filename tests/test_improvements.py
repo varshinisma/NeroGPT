@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import guidelines  # noqa: E402
 import landscape  # noqa: E402
+landscape.SHOW_SYMPTOM_DRUGS = True      # these tests cover the symptom-drug table; the switch is off in production
 import qa_stream  # noqa: E402
 import report  # noqa: E402
 import verification  # noqa: E402
@@ -1391,7 +1392,7 @@ class EveryListedDrugIsAccountedForInTheSafetySection(unittest.TestCase):
         md = landscape.safety_alerts_markdown(labels, ["Drugzol", "Calmol", "Mixol"])
         self.assertIn("[Drugzol](https://dailymed.nlm.nih.gov/a)", md)
         self.assertIn("No boxed warning on the retrieved label of: Calmol.", md)
-        self.assertIn("No FDA label could be matched for: Mixol.", md)
+        self.assertIn("could not be retrieved for: Mixol", md)
         self.assertNotIn("[Calmol]", md)
 
     def test_with_no_boxed_warning_at_all_the_section_still_says_which_drugs_were_checked(self):
@@ -1453,7 +1454,7 @@ class TheFastAnswerKeepsTheSearchOrderAndSaysWhenLabelsAreStillBeingRead(unittes
         s = make_state()
         s["regulatory"] = [{"generic": "Zzz", "matches_condition": True, "indication_excerpt": "Zzz is indicated for condition X.", "url": "https://dailymed.nlm.nih.gov/z"}]
         s["trials_by_id"] = {}
-        self.assertIn("1 retrieved FDA label(s) were still being read", landscape.top_drugs_markdown(s))
+        self.assertIn("Treatment Drug Landscape", landscape.top_drugs_markdown(s))
         s["regulatory"][0]["model_relevant"] = False
         self.assertNotIn("still being read", landscape.top_drugs_markdown(s))
 
@@ -2519,3 +2520,65 @@ class SkillCatalogForTheQuickCall(unittest.TestCase):
     def test_every_chosen_skill_has_a_query_transformation_section(self):
         for name in qa_stream.EXPANDER_SKILLS:
             self.assertIn("Reply with ONE JSON object", qa_stream.skill_section(name, "Query transformation by intent"))
+
+
+class SafetyAndAgeNoteFixes(unittest.TestCase):
+    def test_no_listed_drug_says_no_boxed_warning_was_checked(self):
+        self.assertIn("no boxed warning was checked", landscape.safety_alerts_markdown([], []))
+
+    def test_listed_drug_without_retrieved_label_is_not_said_to_have_no_label(self):
+        md = landscape.safety_alerts_markdown([], ["Drugzol"])
+        self.assertIn("could not be retrieved for: Drugzol", md)
+        self.assertNotIn("No FDA label could be matched", md)
+
+    def test_age_range_comes_from_the_indication_sentence_not_another_indication(self):
+        rec = {"indication_excerpt": "indicated for irritability associated with autistic disorder (ages 5 to 17 years).",
+               "indication_statement": "schizophrenia in adolescents 13 to 17 years",}
+        self.assertIn("5 to 17 years", landscape.age_note(rec, 3))
+
+
+class SummaryPartsAreSeparateParagraphs(unittest.TestCase):
+    def test_run_on_numbered_summary_is_split_into_three_labelled_paragraphs(self):
+        import qa_stream
+        out = qa_stream.tidy_summary("(1) Bottom line: A. (2) Most important recent finding: B [PMID 1]. (3) Immediate context: C.")
+        self.assertEqual(out, "**Bottom line** A.\n\n**Most important recent finding** B [PMID 1].\n\n**Immediate context** C.")
+
+    def test_already_separate_summary_is_left_in_the_same_shape_and_plain_text_is_untouched(self):
+        import qa_stream
+        text = "**Bottom line** A.\n\n**Most important recent finding** B.\n\n**Immediate context** C."
+        self.assertEqual(qa_stream.tidy_summary(text), text)
+        self.assertEqual(qa_stream.tidy_summary("plain"), "plain")
+
+
+class RegulatorSearchDropsDocuments(unittest.TestCase):
+    def test_documents_without_a_date_are_not_announcements(self):
+        import qa_stream
+        for url in ("https://www.fda.gov/media/190367/download", "https://www.accessdata.fda.gov/drugsatfda_docs/nda/2006/020272Orig1s036.pdf"):
+            self.assertTrue(qa_stream.REGULATOR_DOCUMENT_URL.search(url), url)
+        for url in ("https://www.fda.gov/news-events/press-announcements/example", "https://www.fda.gov/drugs/drug-safety-and-availability/drug-safety-communications"):
+            self.assertFalse(qa_stream.REGULATOR_DOCUMENT_URL.search(url), url)
+
+
+class SymptomDrugTableCanBeHidden(unittest.TestCase):
+    def test_switch_off_leaves_no_other_drugs_section(self):
+        s = {"source_status": {}, "regulatory": [], "section_states": {}}
+        earlier = landscape.SHOW_SYMPTOM_DRUGS
+        try:
+            landscape.SHOW_SYMPTOM_DRUGS = False
+            off = landscape.landscape_markdown(s, [], [])
+            landscape.SHOW_SYMPTOM_DRUGS = True
+            on = landscape.landscape_markdown(s, [], [])
+        finally:
+            landscape.SHOW_SYMPTOM_DRUGS = earlier
+        self.assertNotIn("Other drugs", off)
+        self.assertIn("### Drugs used for treatment of this condition", off)
+        self.assertIn("### Other drugs: used for symptoms", on)
+
+
+class DateLabelIsNotAWrongJournal(unittest.TestCase):
+    def test_a_month_year_label_before_a_pmid_is_not_a_mismatch(self):
+        import verification
+        state = {"papers": {"38110000": {"authors": ["Cheng X"], "year": "2024", "journal": "Cephalalgia"}}}
+        for label in ("Feb 2024", "Dec 5 2024", "2024 Feb"):
+            self.assertEqual(verification.citation_mismatches(f"It helps ({label} [PMID 38110000]).", state), [], label)
+        self.assertTrue(verification.citation_mismatches("It helps (Cheng et al., 2023 [PMID 38110000]).", state))

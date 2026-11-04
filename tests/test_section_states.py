@@ -7,6 +7,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import landscape  # noqa: E402
+landscape.SHOW_SYMPTOM_DRUGS = True      # these tests cover the symptom-drug table; the switch is off in production
 import qa_stream  # noqa: E402
 import retrieval_routing as rr  # noqa: E402
 import verification  # noqa: E402
@@ -58,10 +59,13 @@ class Renderers(unittest.TestCase):
         self.assertIn("Risperidone", md)      # a verified FDA record is shown: the state only explains an EMPTY section
 
     def test_the_trials_section_states(self):
-        for sec in ("not_applicable", "not_retrieved", "failed", "timed_out", "no_relevant_evidence"):
+        for sec in ("not_retrieved", "failed", "timed_out", "no_relevant_evidence"):
             md = landscape.trials_markdown(empty_state(trials=sec))
             self.assertTrue(md.startswith("## Clinical trials"))
             self.assertIn(landscape.STATE_LINES[sec], md)
+        md = landscape.trials_markdown(empty_state(trials="not_applicable"))      # the trial search is mandatory: the section never says "not applicable", it says what the search found
+        self.assertNotIn("Not applicable", md)
+        self.assertTrue(md.startswith("## Clinical trials"))
         self.assertIn("trial status is unknown", landscape.trials_markdown(qa_stream.new_state("q")).lower())      # no completed registry result is not a negative finding
 
 

@@ -159,14 +159,26 @@ def build_model(max_tokens: int | None = None, temperature: float | None = None,
         if not os.getenv("GROQ_API_KEY"):
             raise RuntimeError("Set GROQ_API_KEY in .env before starting the server.")
         from agno.models.groq import Groq
-        return Groq(id=model_id or os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"), max_tokens=max_tokens, timeout=float(os.getenv("MODEL_TIMEOUT_S", "30")), max_retries=0, **({} if temperature is None else {"temperature": temperature}))
+        return Groq(id=model_id or os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"), max_tokens=max_tokens, timeout=float(os.getenv("MODEL_TIMEOUT_S", "60")), max_retries=0, **({} if temperature is None else {"temperature": temperature}))
     if provider == "mistral":
         if not os.getenv("MISTRAL_API_KEY"):
             raise RuntimeError("Set MISTRAL_API_KEY in .env before starting the server.")
         from agno.models.mistral import MistralChat
-        return MistralChat(id=model_id or os.getenv("MISTRAL_MODEL", "mistral-small-latest"), max_tokens=max_tokens, client_params={"timeout_ms": int(os.getenv("MODEL_TIMEOUT_S", "30")) * 1000},      # a stalled call fails after 30 s instead of hanging the answer
+        return MistralChat(id=model_id or os.getenv("MISTRAL_MODEL", "mistral-small-latest"), max_tokens=max_tokens, client_params={"timeout_ms": int(os.getenv("MODEL_TIMEOUT_S", "60")) * 1000},      # a stalled call fails after 30 s instead of hanging the answer
                            **({} if temperature is None else {"temperature": temperature}))
-    raise RuntimeError("MODEL_PROVIDER must be groq or mistral.")
+    if provider == "openai":
+        if not os.getenv("OPENAI_API_KEY"):
+            raise RuntimeError("Set OPENAI_API_KEY in .env before starting the server.")
+        from agno.models.openai import OpenAIChat
+        chosen = model_id or os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+        if chosen.lower().startswith("gpt-5"):      # the GPT-5 family: the output limit is `max_completion_tokens`, the model may think before it answers (reasoning_effort; 'none' = no hidden thinking, the fast setting),
+            extra = {"max_completion_tokens": max_tokens, "reasoning_effort": os.getenv("OPENAI_REASONING_EFFORT", "none").strip().lower() or "none"}      # and `temperature` is refused unless the thinking is off, so it is sent only on request
+            if temperature is not None and os.getenv("OPENAI_GPT5_TEMPERATURE", "off").strip().lower() == "on":
+                extra["temperature"] = temperature
+            return OpenAIChat(id=chosen, timeout=float(os.getenv("MODEL_TIMEOUT_S", "60")), max_retries=0, **extra)
+        return OpenAIChat(id=chosen, max_tokens=max_tokens, timeout=float(os.getenv("MODEL_TIMEOUT_S", "60")), max_retries=0,
+                          **({} if temperature is None else {"temperature": temperature}))
+    raise RuntimeError("MODEL_PROVIDER must be groq, mistral or openai.")
 
 
 def build_agent():

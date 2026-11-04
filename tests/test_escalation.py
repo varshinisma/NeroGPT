@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -95,6 +96,10 @@ class TriageOfNewRecordsOnly(unittest.TestCase):
 
 class Phase(unittest.TestCase):
     def setUp(self):
+        import landscape
+        symptoms = mock.patch.object(landscape, "SHOW_SYMPTOM_DRUGS", False)      # the symptom-drug search is a setting of the machine's .env: these tests are about the model's own searches
+        symptoms.start()
+        self.addCleanup(symptoms.stop)
         self.original_ask, self.original_triage = qa_stream.ask_json, qa_stream.triage_evidence
         self.triage_calls = []
         self.relevance = {}      # pmid -> relevance given by the fake reading (default direct)

@@ -258,15 +258,12 @@ def readable_on_the_page(image_bytes: bytes) -> bool:
     return height is None or height >= MIN_TEXT_POINTS
 
 
-def download(figure: dict, folder: Path, get=None) -> dict | None:
-    """The ORIGINAL image bytes saved unchanged (name from the figure id, extension from the server's content type) with their SHA-256. A copy for the PDF library is made only when the original
-    format is one it cannot read (lossless PNG, same pixels). None when the image cannot be fetched, is not an image, or is too large."""
+def save_download(figure: dict, content: bytes, folder: Path) -> dict | None:
+    """The part of `download` that works on the fetched bytes (no network): the original saved unchanged, a lossless PNG copy when the PDF library cannot read the format, the SHA-256. Shared with
+    the async twin (async_figures.adownload). None when the bytes are not an accepted image."""
     try:
-        response = (get or _http.get)(figure["image"])
-        if response.status_code != 200 or len(response.content) > MAX_BYTES:
-            return None
         from PIL import Image
-        image = Image.open(io.BytesIO(response.content))      # the type comes from the file itself (the bucket labels every file binary/octet-stream)
+        image = Image.open(io.BytesIO(content))      # the type comes from the file itself (the bucket labels every file binary/octet-stream)
         content_type = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp", "GIF": "image/gif"}.get(image.format or "")
         if content_type not in EXTENSIONS:
             return None
@@ -274,13 +271,25 @@ def download(figure: dict, folder: Path, get=None) -> dict | None:
         folder.mkdir(parents=True, exist_ok=True)
         stem = re.sub(r"[^A-Za-z0-9]+", "_", figure["id"])
         original = folder / (stem + EXTENSIONS[content_type])
-        original.write_bytes(response.content)
+        original.write_bytes(content)
         pdf_copy = original
         if EXTENSIONS[content_type] not in (".jpg", ".png"):
             pdf_copy = folder / (stem + "_pdf.png")
             image.convert("RGBA" if image.mode in ("RGBA", "LA", "P") else "RGB").save(pdf_copy, "PNG")
-        return {**figure, "path": str(original), "pdf_path": str(pdf_copy), "sha256": hashlib.sha256(response.content).hexdigest(), "content_type": content_type,
-                "width": width, "height": height, "readable": readable_on_the_page(response.content)}
+        return {**figure, "path": str(original), "pdf_path": str(pdf_copy), "sha256": hashlib.sha256(content).hexdigest(), "content_type": content_type,
+                "width": width, "height": height, "readable": readable_on_the_page(content)}
+    except Exception:
+        return None
+
+
+def download(figure: dict, folder: Path, get=None) -> dict | None:
+    """The ORIGINAL image bytes saved unchanged (name from the figure id, extension from the server's content type) with their SHA-256. A copy for the PDF library is made only when the original
+    format is one it cannot read (lossless PNG, same pixels). None when the image cannot be fetched, is not an image, or is too large."""
+    try:
+        response = (get or _http.get)(figure["image"])
+        if response.status_code != 200 or len(response.content) > MAX_BYTES:
+            return None
+        return save_download(figure, response.content, folder)
     except Exception:
         return None
 

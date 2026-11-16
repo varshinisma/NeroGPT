@@ -17,6 +17,7 @@ Events (dicts) are yielded as the work happens. Run from the command line:  pyth
 from __future__ import annotations
 
 import json
+import candidate_drugs
 import logging
 import observability
 from functools import lru_cache
@@ -62,7 +63,22 @@ from report import DISCLAIMER, clean_model_key_studies, design_of, source_proble
 from verification import date_after, is_indirect, known_sources, verify_and_repair
 
 FAST_TIMEOUT_S = float(os.getenv("FAST_TIMEOUT_S", "4.5"))          # per retrieval skill, FAST path (the FDA table is part of the first answer, so the FDA search is waited for)
-DEEP_TIMEOUT_S = 25.0         # per retrieval skill, DEEP path
+SECTION_ORDER = os.getenv("SECTION_ORDER", "ready").strip().lower()      # "ready": on the page each section appears as soon as it is finished (Latest findings first, then whichever of the clinical approach, the current evidence and the drug landscape + trials is done first); "fixed": the old order. The saved report and the PDF keep the standard section order either way
+HEARTBEAT_S = float(os.getenv("HEARTBEAT_S", "1.5"))      # NEW questions: while a long stage runs, the page gets a live status line this often (a follow-up streams exactly as before)
+NEW_EXPANSION_TOTAL_S = float(os.getenv("NEW_ROUTING_DEADLINE_S", "14"))      # the shorter time limits of a NEW question (a follow-up keeps the ordinary ROUTING_DEADLINE_S, DEEP_BUDGET_S ... above: its label and paper lookups need the longer time)
+NEW_ROUTING_BUDGET_S = float(os.getenv("NEW_ROUTING_BUDGET_S", "8"))
+NEW_DEEP_BUDGET_S = float(os.getenv("NEW_DEEP_BUDGET_S", "24"))
+NEW_DEEP_TIMEOUT_S = float(os.getenv("NEW_DEEP_TIMEOUT_S", "12"))
+NEW_EVIDENCE_GRACE_S = float(os.getenv("NEW_EVIDENCE_GRACE_S", "8"))
+NEW_ESCALATION_DEADLINE_S = float(os.getenv("NEW_ESCALATION_DEADLINE_S", "4"))
+NEW_LANDSCAPE_WAIT_S = float(os.getenv("NEW_LANDSCAPE_WAIT_S", "12"))
+CURRENT_SPLIT = os.getenv("CURRENT_SPLIT", "1").strip() not in {"0", "false", "no"}      # new questions only: the Current evidence table is written by two model calls side by side (rows 1-4 and rows 5-8), so it takes half as long
+FAST_EXTRA_S = float(os.getenv("FAST_EXTRA_S", "1.0"))      # NEW questions: once PubMed/Europe PMC and the registry are in, the other fast sources get no more than until this many seconds from the start (was: until FAST_FIRST_S)
+FAST_FIRST_S = float(os.getenv("FAST_FIRST_S", "2.2"))      # NEW questions: the fast answer starts when PubMed/Europe PMC and the registry are in, or after this long; slower sources (FDA labels...) no longer hold the first answer back
+FAST_GRACE_S = float(os.getenv("FAST_GRACE_S", "1.2"))      # NEW questions: how long the Europe PMC search is waited for before the PubMed search answers alone (was a fixed 3.0 s, which is why the fast search always took 3.0 s)
+FAST_LATE_FDA_S = float(os.getenv("FAST_LATE_FDA_S", "4.0"))      # NEW questions: how long the first answer's drug table waits for the FDA label search that was not back when the text started
+CROSS_TOP_NEW = int(os.getenv("CROSS_TOP_NEW", "8"))      # NEW questions: how many papers the cross-encoder reads (a follow-up keeps TRIAGE_PAPERS)
+DEEP_TIMEOUT_S = float(os.getenv("DEEP_TIMEOUT_S", "25"))         # per retrieval skill, DEEP path
 EVIDENCE_GRACE_S = float(os.getenv("EVIDENCE_GRACE_S", "20"))      # after the two essential PubMed searches finish, the searches the planner wrote get this long (counted from the start) before they are cut off; 8 s cut off the best ones on a slow PubMed day
 CLAUDE_MODE = os.getenv("NEUROGPT_LLM") == "claude_files"   # the text-writing steps are answered by Claude through files, not by an API model
 SHOW_MEDICATION_ASSESSMENT = os.getenv("SHOW_MEDICATION_ASSESSMENT", "0").strip().lower() in {"1", "true", "yes", "on"}      # the Medication assessment section only restated the drug landscape: off by default (no section, and no model call for it)
@@ -85,7 +101,8 @@ STAGES = ["INITIAL", "EVIDENCE_ENRICHING", "DRUGS_ENRICHING", "TRIALS_ENRICHING"
 STOP = set("""a an the of in on for to and or with without about from by at as is are was were be been do does did can could should would
 how what which who whom why when where tell me give show explain describe please latest recent new newest current best top any some
 treat treating treated treatment treatments therapy therapies manage managing management drug drugs medication medications medicine
-cure option options approach approaches evidence research study studies update updates know patient my his her their mrs mr ms has have had""".split())
+cure option options approach approaches evidence research study studies update updates know patient my his her their mrs mr ms has have had
+you your yours we our us it its this that these those there they them if then than so not no yes""".split())
 TREATMENT_WORDS = {"treat", "treating", "treated", "treatment", "treatments", "therapy", "therapies", "manage", "managing", "management",
                    "drug", "drugs", "medication", "medications", "medicine", "cure", "option", "options"}
 RECENT_WORDS = {"latest", "recent", "new", "newest", "current", "update", "updates", "2025", "2026"}
@@ -361,8 +378,17 @@ def keywords(question: str) -> tuple[list[str], bool, bool]:
     return keep[:5], any(w in TREATMENT_WORDS for w in words), any(w in RECENT_WORDS for w in words)
 
 
+# A word of the question that is also an ordinary word (an animal, a tool) is searched as the medical term it stands for, so the fast search does not return papers about the animal. Add more here.
+AMBIGUOUS_TERMS = {
+    "pandas": '("pediatric autoimmune neuropsychiatric" OR "PANS/PANDAS" OR "PANDAS syndrome")',
+    "panda": '("pediatric autoimmune neuropsychiatric" OR "PANS/PANDAS" OR "PANDAS syndrome")',
+    "diagnose": "(diagnos* OR criteria)", "diagnosing": "(diagnos* OR criteria)", "diagnosed": "(diagnos* OR criteria)",      # papers say "diagnosis" and "diagnostic criteria", never "diagnose"
+}
+
+
 def pubmed_query_from_question(question: str) -> tuple[str, int]:
     kw, treatment, recent = keywords(question)
+    kw = [AMBIGUOUS_TERMS.get(w, w) for w in kw]
     base = " AND ".join(kw) if kw else question
     if treatment:
         base += " AND (treatment OR therapy OR management OR intervention)"
@@ -720,8 +746,9 @@ def model_id_for(purpose: str = "writer") -> str | None:
 
 def model_for(max_tokens: int, temperature: float | None = None, purpose: str = "writer"):
     """Reuse connections per model, stage, output size and temperature."""
-    model_id = model_id_for(purpose)
-    provider = (planner_choice()[0] if purpose == "planning" else (query_choice()[0] or triage_choice()[0]) if purpose == "queries"
+    small = os.getenv("WRITER_SMALL_MODEL", "").strip() if purpose == "writer_small" else ""
+    model_id = small or model_id_for("writer" if purpose == "writer_small" else purpose)      # 'writer_small': a lighter, faster model for the less critical report parts (WRITER_SMALL_MODEL); the usual writer when none is set
+    provider = ((os.getenv("WRITER_SMALL_PROVIDER", "").strip().lower() or None) if small else planner_choice()[0] if purpose == "planning" else (query_choice()[0] or triage_choice()[0]) if purpose == "queries"
                 else triage_choice()[0] if purpose == "triage" else None)
     key = (provider, model_id, max_tokens, temperature, purpose)
     if key not in _models:
@@ -2129,6 +2156,32 @@ def run_jobs(jobs: dict, timeout: float, essential: list[str] | None = None, ext
     return raw, secs
 
 
+def run_jobs_late(jobs: dict, timeout: float, essential: list[str], extra_until: float = 0.6) -> tuple[dict, dict, dict]:
+    """Like run_jobs, but a job that is not back in time is NOT cancelled: it keeps running and its future is returned in `late`, so the caller can collect the result later."""
+    pool = ThreadPoolExecutor(max_workers=len(jobs))
+    started = time.time()
+
+    def timed(fn):
+        t0 = time.time()
+        try:
+            return fn(), time.time() - t0
+        except Exception as error:
+            return json.dumps({"error": str(error)}), time.time() - t0
+
+    futures = {name: pool.submit(timed, fn) for name, fn in jobs.items()}
+    wait([futures[n] for n in essential if n in futures], timeout=timeout)
+    wait(list(futures.values()), timeout=max(0.0, min(extra_until, timeout) - (time.time() - started)))
+    raw, secs, late = {}, {}, {}
+    for name, future in futures.items():
+        if future.done():
+            raw[name], secs[name] = future.result()[0], round(future.result()[1], 1)
+        else:
+            raw[name], secs[name] = json.dumps({"error": f"timed out after {timeout:.0f}s (partial)"}), timeout
+            late[name] = future
+    pool.shutdown(wait=False)
+    return raw, secs, late
+
+
 def with_retry(fn, retries: int = 2, pause: float = 0.4):
     """Bounded retries (max 2) for the drug, regulatory and trial sources: a result that is an error is retried, then returned as it is."""
     def run():
@@ -2169,17 +2222,17 @@ def primary_with_fallback(primary, fallback, grace: float = 3.0):
         pool.shutdown(wait=False, cancel_futures=True)
 
 
-def fast_jobs(question: str) -> dict:
-    return {name: with_retry(fn, retries=1, pause=0.4) for name, fn in _fast_jobs(question).items()}     # one retry with backoff for EVERY source in the fast pass
+def fast_jobs(question: str, grace: float = 3.0) -> dict:
+    return {name: with_retry(fn, retries=1, pause=0.4) for name, fn in _fast_jobs(question, grace).items()}     # one retry with backoff for EVERY source in the fast pass
 
 
-def _fast_jobs(question: str) -> dict:
+def _fast_jobs(question: str, grace: float = 3.0) -> dict:
     query, years = pubmed_query_from_question(question)
     kw, _, _ = keywords(question)
     cond = " ".join(kw) or question
     return {
         "pubmed_fast": lambda: cached("pm", f"{query}|{years}", 900, lambda: primary_with_fallback(
-            lambda: search_europepmc_quick(query, max_results=6, years_back=years, sort="relevance"), lambda: search_pubmed_quick(query, 4, years, "relevance"))),
+            lambda: search_europepmc_quick(query, max_results=6, years_back=years, sort="relevance"), lambda: search_pubmed_quick(query, 4, years, "relevance"), grace=grace)),
         "pubmed_fast_q": lambda: cached("pm", f"{query}|{years}|q", 900, lambda: search_europepmc_quick(
             f"({query}) AND (PUB_TYPE:\"Systematic Review\" OR PUB_TYPE:\"Meta-Analysis\" OR PUB_TYPE:\"Randomized Controlled Trial\" OR PUB_TYPE:\"Practice Guideline\")",
             max_results=4, years_back=years + 1, sort="relevance")),
@@ -2217,9 +2270,26 @@ def associated_terms(question: str, fda_terms: list[str], limit: int = 3) -> lis
     return out[:limit]
 
 
-def search_fda_labels_wide(fda_terms: list[str], drugs: list[str], question: str) -> str:
+COMORBID_TERMS = [      # conditions that travel with the one asked about: labels for them are searched too, and shown in the weaker-relation tier when they are not labelled for the condition itself
+    (re.compile(r"autis|asperger|developmental|delay|regress|milestone|neurodevelopment", re.I), ["autistic", "irritability", "attention deficit", "hyperactivity", "insomnia", "seizures", "epilepsy", "anxiety"]),
+    (re.compile(r"epilep|seizure", re.I), ["seizures", "epilepsy", "spasms"]),
+    (re.compile(r"\badhd\b|attention.deficit", re.I), ["attention deficit", "hyperactivity", "insomnia"]),
+]
+
+
+def comorbid_terms(question: str) -> list[str]:
+    out: list[str] = []
+    for pattern, terms in COMORBID_TERMS:
+        if pattern.search(question or ""):
+            out += [t for t in terms if t not in out]
+    return out
+
+
+def search_fda_labels_wide(fda_terms: list[str], drugs: list[str], question: str, broad: bool = True) -> str:
     """The FDA label search for the main condition words, plus one search for each associated finding in the question; the label lists are merged (a failed extra search never hides the main result)."""
-    main = search_fda_labels(fda_terms, drugs)
+    if broad:      # a new question only: the seed drugs for this kind of case are looked up by name, and more labels are kept. A follow-up (broad=False) searches exactly as before
+        drugs = list(dict.fromkeys(list(drugs or []) + candidate_drugs.label_names(question)))
+    main = search_fda_labels(fda_terms, drugs, 16 if broad else 8)
     try:
         merged = json.loads(main)
     except ValueError:
@@ -2230,13 +2300,13 @@ def search_fda_labels_wide(fda_terms: list[str], drugs: list[str], question: str
         merged_fail = None
     seen = {(r.get("generic") or "").lower() for r in merged.get("results", [])}
     searched = set(merged.get("searched_terms") or [])
-    singles = [t for t in dict.fromkeys(list(associated_terms(question, fda_terms)) + [str(x) for x in reversed(fda_terms)]) if t and t not in searched and len(t) >= 4][:4]      # one search per word: the AND of five stems finds nothing, and the main search stops at the first word that matches any label
+    singles = [t for t in dict.fromkeys((list(comorbid_terms(question)) if broad else []) + list(associated_terms(question, fda_terms, 6 if broad else 3)) + [str(x) for x in reversed(fda_terms)]) if t and t not in searched and len(t) >= 4][:10 if broad else 4]      # one search per word: the AND of five stems finds nothing, and the main search stops at the first word that matches any label
     def one_term(term: str):
         try:
             return term, json.loads(search_fda_labels([term], None, 3))
         except Exception:
             return term, None
-    with ThreadPoolExecutor(max_workers=max(1, len(singles))) as pool:      # the single-word searches run side by side: openFDA is slow, and four in a row would take four times as long
+    with ThreadPoolExecutor(max_workers=max(1, min(6, len(singles)) if broad else len(singles))) as pool:      # the single-word searches run side by side: openFDA is slow, and four in a row would take four times as long
         found_singles = list(pool.map(one_term, singles))
     for term, extra in found_singles:
         if not extra:
@@ -2277,8 +2347,8 @@ def deep_jobs(plan: dict, question: str) -> dict:
         "trials_drugs": with_retry(lambda: cached("ct", f"{plan['trial_condition']}|drug-only", 300, lambda: search_clinical_trials(plan["trial_condition"], "", "", 12, drug_only=True))),
         "trials_deep": with_retry(lambda: cached("ct", f"{plan['trial_condition']}|{plan['trial_intervention']}", 300,
                                                  lambda: search_clinical_trials(plan["trial_condition"], plan["trial_intervention"], "", 10))),
-        "fda_deep": with_retry(lambda: cached("fda", f"{' '.join(fda_terms)}|{','.join(plan.get('drugs') or [])}|wide", 3600,
-                                              lambda: search_fda_labels_wide(fda_terms, plan.get("drugs") or [], question))),
+        "fda_deep": with_retry(lambda: cached("fda", f"{' '.join(fda_terms)}|{','.join(plan.get('drugs') or [])}|wide{'' if not plan.get('focus') else '|f'}", 3600,
+                                              lambda: search_fda_labels_wide(fda_terms, plan.get("drugs") or [], question, broad=not plan.get("focus")))),
         "web_approvals": with_retry(lambda: cached("web", f"{cond}|a", 300, lambda: web_search(f"{cond} newly approved drug FDA EMA approval {year - 1} {year}"))),
         "web_medications": with_retry(lambda: cached("web", f"{cond}|m", 300, lambda: web_search(f"medications commonly prescribed for {cond}: which drugs are used for its symptoms and related conditions", snippet_chars=1500))),
         "web_named_drugs": with_retry(lambda: cached("web", f"{cond}|nd", 300, lambda: web_search(f"{cond} treatment: the specific drugs by generic name, including anti-infective, immune-directed, anti-inflammatory and symptom-directed medications", snippet_chars=1500))),
@@ -2286,6 +2356,8 @@ def deep_jobs(plan: dict, question: str) -> dict:
         "pubmed_drugs_symptoms": lambda: cached("pm", f"{pq}|dsy", 900, lambda: search_pubmed(
             f"({pq}) AND (comorbid*[tiab] OR symptom*[tiab] OR \"co-occurring\"[tiab]) AND (pharmacotherapy[tiab] OR medication*[tiab] OR drug*[tiab])", max_results=5, years_back=5, sort="relevance")),
         "web_regulatory": with_retry(lambda: cached("web", f"{cond}|reg", 300, lambda: regulator_search_many([f"FDA press announcement action treatment {cond}", f"{cond} drug approval label expansion safety communication FDA"]))),
+        "web_seed_supportive": with_retry(lambda: cached("web", f"{cond}|seed", 300, lambda: web_search(
+            f"{cond}: use of {', '.join(candidate_drugs.other_names(question + ' ' + cond)[:6])} in children, with indication, dose and evidence", snippet_chars=1500))) if (candidate_drugs.other_names(question + " " + cond) and not plan.get("focus")) else (lambda: "[]"),
         "web_standard": with_retry(lambda: cached("web", f"{cond}|s", 300, lambda: web_search(f"{cond} treatment guideline first-line drugs dosage"))),
     }
     gl_words = [w for w in keywords(question)[0] if w not in GENERIC] or keywords(question)[0]
@@ -2462,7 +2534,7 @@ def seed_pmids(raw: dict, limit: int = 5) -> list[str]:
     return sorted(votes, key=lambda pmid: (-votes[pmid], order.get(pmid, 99)))[:limit]
 
 
-LEGACY_BY_NEED ={"drugs": {"pubmed_drugs", "pubmed_drugs_review", "pubmed_drugs_symptoms", "fda_deep", "web_approvals", "web_medications", "web_named_drugs", "web_symptom_drugs", "web_regulatory"},
+LEGACY_BY_NEED ={"drugs": {"pubmed_drugs", "pubmed_drugs_review", "pubmed_drugs_symptoms", "fda_deep", "web_approvals", "web_medications", "web_named_drugs", "web_symptom_drugs", "web_seed_supportive", "web_regulatory"},
                   "trials": {"trials_drugs", "trials_deep"}}      # the legacy jobs that belong to one kind of need; the literature, web standard-care and guideline jobs always run
 
 
@@ -2971,6 +3043,12 @@ def stream_answer(question: str, plan: dict | None = None):
     if discovery:
         focus_sections = list(dict.fromkeys("drugs" if x == "drug_discovery" else x for x in focus_sections))      # the drug tables are built and shown like any focused drug follow-up
     light_focus = bool(focus_sections) and not ({"evidence", "trials"} & set(focus_sections))      # a follow-up about the earlier drugs only (dosage, side effects): no relevance reading, cross-encoder or full-text reading of papers
+    from types import SimpleNamespace
+    T = SimpleNamespace(      # this run's time limits: a NEW question gets the short ones, a follow-up exactly the ordinary ones
+        expansion=EXPANSION_TOTAL_S if bool(focus_sections) else NEW_EXPANSION_TOTAL_S, routing_budget=ROUTING_BUDGET_S if bool(focus_sections) else NEW_ROUTING_BUDGET_S,
+        deep_budget=DEEP_BUDGET_S if (bool(focus_sections) or CLAUDE_MODE) else min(DEEP_BUDGET_S, NEW_DEEP_BUDGET_S), deep_timeout=DEEP_TIMEOUT_S if bool(focus_sections) else NEW_DEEP_TIMEOUT_S,
+        grace=EVIDENCE_GRACE_S if bool(focus_sections) else NEW_EVIDENCE_GRACE_S, escalation=ESCALATION_DEADLINE_S if bool(focus_sections) else NEW_ESCALATION_DEADLINE_S,
+        landscape=LANDSCAPE_WAIT_S if bool(focus_sections) else NEW_LANDSCAPE_WAIT_S)
     focused = bool(focus_sections)      # a follow-up that asks for one part (the drug tables, the trials, the evidence): only that is researched and written, not the whole report
     focus_lead = ""
     state["focused"] = focused      # saved with the run: whether it was answered in the focused way
@@ -2987,6 +3065,14 @@ def stream_answer(question: str, plan: dict | None = None):
     plan_box: dict = {}
     plan_ready, deep_done = threading.Event(), threading.Event()
     evidence_ready = threading.Event()      # set when the escalation phase is over: the drug landscape reads its evidence only then
+
+    plan_started: list = []
+
+    def start_plan() -> None:
+        """Start the orchestrator's plan once. A NEW question starts it before the fast search (it needs only the question), so the deep searches are not held back until the fast answer's first word."""
+        if not plan_started:
+            plan_started.append(True)
+            threading.Thread(target=plan_worker, daemon=True).start()
 
     def plan_worker():
         try:
@@ -3033,11 +3119,11 @@ def stream_answer(question: str, plan: dict | None = None):
                     if not by_group[g]:
                         plan_box["raw_" + g] = {}
                     elif g == "evidence":      # show evidence as soon as the two main PubMed searches are in; the others get a short grace period
-                        plan_box["raw_" + g], _ = run_jobs(by_group[g], DEEP_TIMEOUT_S, essential=[n for n in ("pubmed_recent", "pubmed_quality") if n in by_group[g]], extra_until=EVIDENCE_GRACE_S)
+                        plan_box["raw_" + g], _ = run_jobs(by_group[g], T.deep_timeout, essential=[n for n in ("pubmed_recent", "pubmed_quality") if n in by_group[g]], extra_until=T.grace)
                     elif g == "drugs" and "fda_deep" in by_group[g]:      # the FDA labels are essential; the web searches get a grace period (their results are used if they arrive)
-                        plan_box["raw_" + g], _ = run_jobs(by_group[g], DEEP_TIMEOUT_S, essential=["fda_deep"], extra_until=12.0)
+                        plan_box["raw_" + g], _ = run_jobs(by_group[g], T.deep_timeout, essential=["fda_deep"], extra_until=12.0)
                     else:
-                        plan_box["raw_" + g], _ = run_jobs(by_group[g], DEEP_TIMEOUT_S)
+                        plan_box["raw_" + g], _ = run_jobs(by_group[g], T.deep_timeout)
                 except Exception as error:
                     plan_box["error_" + g] = f"{g} retrieval crashed: {type(error).__name__}: {str(error)[:150]}"
                 finally:
@@ -3069,11 +3155,11 @@ def stream_answer(question: str, plan: dict | None = None):
             try:
                 if not routing_enabled():
                     routing_box["trace"] = {"skipped": "deep routing is off"}
-                elif not (plan_ready.wait(timeout=EXPANSION_TOTAL_S) and plan_box.get("plan")):
+                elif not (plan_ready.wait(timeout=T.expansion) and plan_box.get("plan")):
                     routing_box["trace"] = {"skipped": "the plan was not ready in time"}
                 else:
                     routing_box["t_plan_ready"] = round(time.time() - started, 1)
-                    routing_box.update(run_routing_stage(question, plan_box["plan"], box=routing_box))
+                    routing_box.update(run_routing_stage(question, plan_box["plan"], budget_s=T.routing_budget, box=routing_box))
                     routing_box["t_executed"] = round(time.time() - started, 1)
             except Exception as error:
                 routing_box["trace"] = {"error": f"{type(error).__name__}: {str(error)[:80]}"}
@@ -3083,10 +3169,10 @@ def stream_answer(question: str, plan: dict | None = None):
         def run():
             try:
                 jobs_now = early
-                if legacy_deep_enabled() and plan_ready.wait(timeout=max(0.0, EXPANSION_TOTAL_S - (time.time() - started))) and plan_box.get("plan", {}).get("plan_status") in ("ok", "retried"):
+                if legacy_deep_enabled() and plan_ready.wait(timeout=max(0.0, T.expansion - (time.time() - started))) and plan_box.get("plan", {}).get("plan_status") in ("ok", "retried"):
                     kept, _ = legacy_jobs_for_intent(plan_box["plan"], deep_jobs(plan_box["plan"], question))      # a usable plan: the evidence searches are built from the plan (its condition and one search per information need), not from the question's raw words
                     jobs_now = {n: fn for n, fn in kept.items() if n in EARLY_EVIDENCE_JOBS or n.startswith("pubmed_plan_")}
-                plan_box["raw_evidence"] = run_jobs(jobs_now, DEEP_TIMEOUT_S, essential=[n for n in ("pubmed_recent", "pubmed_quality") if n in jobs_now], extra_until=EVIDENCE_GRACE_S)[0] if jobs_now else {}
+                plan_box["raw_evidence"] = run_jobs(jobs_now, T.deep_timeout, essential=[n for n in ("pubmed_recent", "pubmed_quality") if n in jobs_now], extra_until=T.grace)[0] if jobs_now else {}
                 similar_box: dict = {}
 
                 def run_similar(raw: dict) -> None:
@@ -3100,7 +3186,7 @@ def stream_answer(question: str, plan: dict | None = None):
                 similar_thread = threading.Thread(target=run_similar, args=(dict(plan_box["raw_evidence"]),), daemon=True)
                 if mesh_expand.similar_enabled() and plan_box["raw_evidence"]:      # runs beside the routed searches, which take longer
                     similar_thread.start()
-                routing_thread.join(timeout=max(0.0, EXPANSION_TOTAL_S - (time.time() - started)))      # the routed searches are waited for a bounded time
+                routing_thread.join(timeout=max(0.0, T.expansion - (time.time() - started)))      # the routed searches are waited for a bounded time
                 if routing_thread.is_alive() and routing_box.get("execution") is not None:      # the deadline ended while the stage was still going: the searches already started are used (their finished results), the rest is recorded as unfinished
                     execution = routing_box["execution"]
                     execution.budget_s = 0.0
@@ -3159,16 +3245,16 @@ def stream_answer(question: str, plan: dict | None = None):
 
     def absorb(group: str) -> None:
         """Wait (within the 100 s budget) for one retrieval group, then merge its results into the ResearchState."""
-        finished = group_done[group].wait(timeout=max(3.0, DEEP_BUDGET_S - clock.now()))
+        finished = group_done[group].wait(timeout=max(3.0, T.deep_budget - clock.now()))
         if group != "evidence" and not deep_done.is_set():      # the evidence group does not depend on the plan
-            deep_done.wait(timeout=max(1.0, DEEP_BUDGET_S - clock.now()))
+            deep_done.wait(timeout=max(1.0, T.deep_budget - clock.now()))
         plan = plan_box_view.get("plan")
         if group != "evidence" and plan_box_view.get("error") and not state["source_status"].get("deep_retrieval"):
             state["retrieval_errors"]["deep_retrieval"] = plan_box_view["error"]
             state["source_status"]["deep_retrieval"] = {"retrieval_status": "failed", "evidence_status": "unavailable", "error": plan_box_view["error"]}
         if not finished:
             state["source_status"][f"deep_{group}"] = {"retrieval_status": "failed", "evidence_status": "unavailable",
-                                                       "error": f"{group} retrieval did not finish within the {DEEP_BUDGET_S:.0f} s budget"}
+                                                       "error": f"{group} retrieval did not finish within the {T.deep_budget:.0f} s budget"}
             return
         merge_group(state, question, group, plan_box_view, skipped)
         checkpoint(group)
@@ -3416,7 +3502,7 @@ def stream_answer(question: str, plan: dict | None = None):
 
     def run_prepare():
         try:
-            (papers_ranked if DRUG_STAGE_EARLY else evidence_ready).wait(timeout=ESCALATION_DEADLINE_S + 10)      # early: starts as soon as the retrieved papers are merged and ranked (the papers no longer change order); the old gate waited for the relevance reading and the escalation searches as well, about 25 s more
+            (papers_ranked if DRUG_STAGE_EARLY else evidence_ready).wait(timeout=T.escalation + 10)      # early: starts as soon as the retrieved papers are merged and ranked (the papers no longer change order); the old gate waited for the relevance reading and the escalation searches as well, about 25 s more
             landscape_box["md"] = prepare_landscape()
         except Exception as error:
             landscape_box["error"] = f"{type(error).__name__}: {str(error)[:120]}"
@@ -3519,10 +3605,24 @@ def stream_answer(question: str, plan: dict | None = None):
         except Exception as error:
             trace["error"] = f"{type(error).__name__}: {str(error)[:80]}"
     figures_thread = threading.Thread(target=run_figures, daemon=True)
+    late_box: dict = {}      # a NEW question's fast FDA search that was not back when the first answer started: collected later, before the drug table is decided
+
     def stage_fast_search():
         nonlocal halted, stems
         threading.Thread(target=deep_worker, daemon=True).start()
-        raw_fast, _ = run_jobs(observability.wrap_tools(fast_jobs(question)), FAST_TIMEOUT_S, essential=["pubmed_fast", "trials_fast", "fda_fast"], extra_until=2.5)
+        if not focused:
+            start_plan()
+        if focused:      # a follow-up searches exactly as before
+            raw_fast, _ = run_jobs(observability.wrap_tools(fast_jobs(question)), FAST_TIMEOUT_S, essential=["pubmed_fast", "trials_fast", "fda_fast"], extra_until=2.5)
+        else:
+            raw_fast, _, late = run_jobs_late(observability.wrap_tools(fast_jobs(question, FAST_GRACE_S)), FAST_FIRST_S, essential=["pubmed_fast", "trials_fast"], extra_until=FAST_EXTRA_S)
+            if "pubmed_fast" in late:      # the papers are the first answer: give them the old time before writing without them
+                wait([late["pubmed_fast"]], timeout=max(0.0, FAST_TIMEOUT_S - FAST_FIRST_S))
+                if late["pubmed_fast"].done():
+                    raw_fast["pubmed_fast"] = late.pop("pubmed_fast").result()[0]
+            for name in [n for n in late if n.startswith("fda")]:
+                late_box[name] = late[name]
+                raw_fast.pop(name, None)      # not recorded as failed yet: it is collected in decide_after_late_labels
         state.setdefault("_search_raw", {}).update(raw_fast)
         state["retrieval_errors"].update(ingest(papers, trials, web, raw_fast))
         ingest_regulatory(state, raw_fast)
@@ -3549,7 +3649,7 @@ def stream_answer(question: str, plan: dict | None = None):
             summary_head, opening = "", ""
             focus_lead = ""      # nothing but the table: no lead text
             clock.mark("first_token_s")
-            threading.Thread(target=plan_worker, daemon=True).start()
+            start_plan()
             yield event("token", stage="INITIAL", text=header + focus_lead)
             clock.mark("first_useful_s")
             state["timestamps"]["first_response"] = clock.now()
@@ -3565,14 +3665,23 @@ def stream_answer(question: str, plan: dict | None = None):
         # --- INITIAL: the fast answer, streamed (clinical-answer-writer sees only its own view)
         fast_prompt = (f"TASK: {FAST_TASK}\n\nQUESTION: {question}\nRETRIEVED DATA (JSON):\n"
                        f"{json.dumps(build_fast_context(state, question), ensure_ascii=False, separators=(',', ':'))}")
-        decisions = threading.Thread(target=fast_drug_decisions, args=(state, question), daemon=True)      # runs while the fast answer is written
+        def decide_after_late_labels():
+            if late_box:      # the FDA label search that was still running when the text started: collected now, then the labels are decided
+                wait(list(late_box.values()), timeout=FAST_LATE_FDA_S)
+                raw_late = {n: (f.result()[0] if f.done() else json.dumps({"error": f"timed out after {FAST_LATE_FDA_S:.0f}s (partial)"})) for n, f in late_box.items()}
+                state.setdefault("_search_raw", {}).update(raw_late)
+                state["retrieval_errors"].update(ingest(papers, trials, web, raw_late))
+                ingest_regulatory(state, raw_late)
+                record_source_status(state, raw_late)
+            fast_drug_decisions(state, question)
+        decisions = threading.Thread(target=decide_after_late_labels, daemon=True)      # runs while the fast answer is written
         decisions.start()
         fast_text = header  # the date line is part of the saved answer, not only of the stream
         try:
             for chunk in stream_llm(load_skill_text("clinical-answer-writer"), fast_prompt, FAST_TOKENS, purpose="writer"):
                 if "first_token_s" not in clock.marks:
                     clock.mark("first_token_s")
-                    threading.Thread(target=plan_worker, daemon=True).start()
+                    start_plan()
                 fast_text += chunk
                 yield event("token", stage="INITIAL", text=chunk)
         except Exception as error:
@@ -3604,10 +3713,10 @@ def stream_answer(question: str, plan: dict | None = None):
     def stage_rank():
         try:
             began = clock.now()
-            hybrid_rerank(question, papers, state.setdefault("hybrid_trace", {}), queries=intent_queries(state, plan_box.get("plan") or {}))      # hybrid search on EVERY retrieved paper: semantic + lexical + the sources' own order, fused (hybrid_search.py); the triage reads the best TRIAGE_PAPERS first
+            hybrid_rerank(question, papers, state.setdefault("hybrid_trace", {}), queries=intent_queries(state, plan_box.get("plan") or {})[:(11 if focused else 6)])      # hybrid search on EVERY retrieved paper: semantic + lexical + the sources' own order, fused (hybrid_search.py); the triage reads the best TRIAGE_PAPERS first
             state["hybrid_trace"]["embedding_s"] = round(clock.now() - began, 1)      # where the ranking time goes: the embedding call, then the cross-encoder
             if not light_focus:
-                cross_rerank(question, papers, state["hybrid_trace"], top=TRIAGE_PAPERS)      # second stage: a cross-encoder reads the question and each of the first papers together
+                cross_rerank(question, papers, state["hybrid_trace"], top=(TRIAGE_PAPERS if focused else min(TRIAGE_PAPERS, CROSS_TOP_NEW)))      # second stage: a cross-encoder reads the question and each of the first papers together
             state["hybrid_trace"]["cross_encoder_s"] = round(clock.now() - began - state["hybrid_trace"]["embedding_s"], 1)
         except Exception as error:
             state["hybrid_trace"] = {"error": f"{type(error).__name__}: {str(error)[:80]}"}
@@ -3655,7 +3764,7 @@ def stream_answer(question: str, plan: dict | None = None):
 
             def start_latest_when_judged():
                 try:
-                    triage_thread.join(timeout=ESCALATION_DEADLINE_S + 5)
+                    triage_thread.join(timeout=T.escalation + 5)
                     if not triage_thread.is_alive():      # a relevance reading that did not finish leaves the start to write_start, as before
                         launch_writer("latest")
                         state["early_latest_started_s"] = round(clock.now(), 1)
@@ -3677,12 +3786,12 @@ def stream_answer(question: str, plan: dict | None = None):
             evidence_ready.set()
             return
             yield
-        try:      # option (a): the relevance reading and the escalation finish BEFORE the evidence is written, under one hard deadline (ESCALATION_DEADLINE_S); unfinished work is reported in the limitations
+        try:      # option (a): the relevance reading and the escalation finish BEFORE the evidence is written, under one hard deadline (T.escalation); unfinished work is reported in the limitations
             box: dict = {}
 
             def escalate_in_background():
                 try:
-                    box["result"] = run_escalation_phase(state, question, plan_box.get("plan") or {}, plan_box.get("routing") or {}, triage_thread, skipped)
+                    box["result"] = run_escalation_phase(state, question, plan_box.get("plan") or {}, plan_box.get("routing") or {}, triage_thread, skipped, deadline_s=T.escalation)
                 except BaseException as error:
                     box["error"] = error
             escalation_thread = threading.Thread(target=escalate_in_background, daemon=True)
@@ -3767,7 +3876,7 @@ def stream_answer(question: str, plan: dict | None = None):
                     writing[name]["produced"].append(text)
                     writing[name]["queue"].put(text)
 
-            def run(task_prompt: str, temperature: float | None) -> bool:
+            def run(task_prompt: str, temperature: float | None, out: list | None = None) -> bool:
                 """Stream one attempt, squeezing runs of spaces (table padding is only whitespace). Returns False when the model fell into endless padding and the attempt was abandoned."""
                 blanks, last = 0, "\n"
                 for chunk in stream_llm(load_skill_text("evidence-synthesis"), task_prompt, DEEP_TOKENS, temperature=temperature, purpose="writer"):
@@ -3780,10 +3889,38 @@ def stream_answer(question: str, plan: dict | None = None):
                         return False
                     if squeezed:
                         last = squeezed[-1]
-                        emit(squeezed)
+                        (out.append if out is not None else emit)(squeezed)
                 return True
+            def run_split() -> bool:
+                """The two halves of the Current evidence rows, written at the same time; the lines are joined, a repeated approach is kept once."""
+                first_note = "\n\nYou are one of two writers working at the same time. Write the heading and AT MOST 4 lines: the 4 approaches with the strongest evidence."
+                second_note = "\n\nYou are one of two writers working at the same time. Another writer covers the 4 approaches with the strongest evidence. Write NO heading and AT MOST 4 lines, for the NEXT strongest approaches (5th to 8th). If fewer than 5 approaches have a matching paper, write nothing."
+                parts, results = [[], []], [False, False]
+
+                def half(i: int, note: str) -> None:
+                    try:
+                        results[i] = run(prompt + note, None, parts[i])
+                    except Exception:
+                        results[i] = False
+                threads = [threading.Thread(target=half, args=(i, n), daemon=True) for i, n in enumerate((first_note, second_note))]
+                for t in threads:
+                    t.start()
+                for t in threads:
+                    t.join()
+                seen, lines = set(), []
+                for line in "".join("".join(p) + chr(10) for p in parts).split(chr(10)):
+                    if "||" in line:
+                        key = re.sub(r"\W+", " ", line.split("||")[0]).strip().lower()
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                    if line.strip():
+                        lines.append(line)
+                held.append(chr(10).join(lines))
+                return results[0] and (results[1] or not "".join(parts[1]).strip())
             try:
-                finished = run(prompt, None)
+                split_current = name == "current" and CURRENT_SPLIT and not focused
+                finished = run_split() if split_current else run(prompt, None)
                 if name == "current":
                     held[:] = [rows_to_table("".join(held), state["papers"])]      # final table order and relevance labels come from the same screened records as all other evidence sections
                     if not finished or not re.search(r"(?m)^\|\s*-{3}", held[0]):
@@ -3815,7 +3952,7 @@ def stream_answer(question: str, plan: dict | None = None):
             return
             yield
         make_writing()
-        if needs_workup and not guidelines_ready.wait(timeout=max(0.0, DEEP_BUDGET_S - clock.now())):
+        if needs_workup and not guidelines_ready.wait(timeout=max(0.0, T.deep_budget - clock.now())):
             skipped.append("guideline retrieval did not finish before the report deadline; the clinical approach may be incomplete")
         for name in ("latest", "approach", "current", "tail"):
             launch_writer(name)      # the Latest findings may already be running (EARLY_LATEST): it is not started twice
@@ -3828,6 +3965,32 @@ def stream_answer(question: str, plan: dict | None = None):
         yield
 
     def stage_write_stream():
+        if SECTION_ORDER == "ready" and not focused:      # each section is shown as soon as it is finished; the standard order is kept in the saved report and the PDF
+            yield from drain("latest")      # Latest findings first, live
+            yield event("token", stage="EVIDENCE_ENRICHING", text="\n\n")
+            rest = (["approach"] if needs_workup else []) + ["current"]
+            drugs_pending = bool(landscape_started)
+            while rest or drugs_pending:
+                if drugs_pending and not landscape_thread.is_alive():      # the drug landscape and the trials are ready: shown now, whatever the writers are still doing
+                    yield from emit_landscape_and_trials()
+                    drugs_pending = False
+                    continue
+                done_part = next((n for n in rest if writing[n]["done"].is_set()), None)
+                if done_part:      # a finished part appears at once
+                    rest.remove(done_part)
+                    yield from drain(done_part)
+                    yield event("token", stage="EVIDENCE_ENRICHING", text="\n\n")
+                    continue
+                if rest:      # nothing is finished yet: the next part in the report's order is shown live as it is written
+                    part_name = rest.pop(0)
+                    yield from drain(part_name)
+                    yield event("token", stage="EVIDENCE_ENRICHING", text="\n\n")
+                    continue
+                landscape_thread.join(timeout=0.3)      # only the drug stage is left: wait for it (the assemble stage forces it after its own limit)
+                if clock.now() > T.deep_budget + T.landscape:
+                    break
+            clock.mark("evidence_done_s")
+            return
         yield from drain("latest")      # Latest findings first, live; the other two parts are already being written
         yield event("token", stage="EVIDENCE_ENRICHING", text="\n\n")
         if needs_workup:
@@ -3840,10 +4003,10 @@ def stream_answer(question: str, plan: dict | None = None):
         nonlocal grounded_opening
         if focused:      # only the parts that were asked for
             if "drugs" in focus_sections:
-                landscape_thread.join(timeout=max(LANDSCAPE_WAIT_S, DEEP_BUDGET_S - clock.now()))
+                landscape_thread.join(timeout=max(T.landscape, T.deep_budget - clock.now()))
                 yield from emit_landscape_and_trials(force=True)
             else:
-                merge_thread.join(timeout=max(LANDSCAPE_WAIT_S, DEEP_BUDGET_S - clock.now()))
+                merge_thread.join(timeout=max(T.landscape, T.deep_budget - clock.now()))
             if "safety" in focus_sections:      # the side-effects table: each drug's label text and the papers and pages found for its side effects
                 yield event("stage", stage="DRUGS_ENRICHING")
                 import safety_answer
@@ -3873,7 +4036,7 @@ def stream_answer(question: str, plan: dict | None = None):
                 return
         else:
             # the drug landscape and the trials follow Current evidence as soon as they are ready; Key studies ... What remains come after them
-            landscape_thread.join(timeout=max(LANDSCAPE_WAIT_S, DEEP_BUDGET_S - clock.now()))      # nothing else may read or change the papers while the thread works
+            landscape_thread.join(timeout=max(T.landscape, T.deep_budget - clock.now()))      # nothing else may read or change the papers while the thread works
             yield from emit_landscape_and_trials(force=True)
         latest_text, latest_cut = trim_part(writing["latest"]["text"])
         if latest_cut:
@@ -3986,10 +4149,47 @@ def stream_answer(question: str, plan: dict | None = None):
 
     stage_seconds: dict = state.setdefault("stage_seconds", {})      # how long each stage took (the wall time the loop spent in it), so a slow step is named instead of guessed
 
+    def with_heartbeat(stage_name: str):
+        """The stage's own events, unchanged and in the same order, plus a 'heartbeat' event every HEARTBEAT_S while the stage is busy and sends nothing (the page shows what is happening and how much has been found)."""
+        box: queue.Queue = queue.Queue()
+        stop, done = threading.Event(), object()
+
+        def pump():
+            stream = stage_functions[stage_name]()
+            try:
+                for ev in stream:
+                    if stop.is_set():
+                        break
+                    box.put(ev)
+                box.put(done)
+            except BaseException as error:
+                box.put(error)
+            finally:
+                try:
+                    stream.close()
+                except Exception:
+                    pass
+
+        threading.Thread(target=pump, daemon=True).start()
+        try:
+            while True:
+                try:
+                    item = box.get(timeout=HEARTBEAT_S)
+                except queue.Empty:
+                    yield event("heartbeat", stage_name=stage_name, papers=len(papers), trials=len(trials), drugs=len(state.get("regulatory") or []))
+                    continue
+                if item is done:
+                    return
+                if isinstance(item, BaseException):
+                    raise item
+                yield item
+        finally:
+            stop.set()      # the page was closed (or the stage ended): the stage stops at its next event
+
     def run_stage(stage_name: str):
         ran.append(stage_name)
         began, began_abs = clock.now(), observability.now()
-        yield from stage_functions[stage_name]()
+        yield from (stage_functions[stage_name]() if focused else with_heartbeat(stage_name))
         observability.record("stage", stage_name, began_abs, observability.now())
         stage_seconds[stage_name] = round(clock.now() - began, 1)
         if not halted and "finalize" not in ran:      # the final event stays the last event of the run (no progress event once the run has finalized)
@@ -4040,7 +4240,7 @@ def main() -> None:
             print(f"\n[{ev['t']:6.2f}s] --- {ev['stage']} ---", flush=True)
         elif ev["type"] == "token":
             print(ev["text"], end="", flush=True)
-        elif ev["type"] in ("milestone", "verification", "error", "warning", "progress"):
+        elif ev["type"] in ("milestone", "verification", "error", "warning", "progress", "heartbeat"):
             print(f"\n[{ev['t']:6.2f}s] {ev['type'].upper()}: { {k: v for k, v in ev.items() if k not in ('type', 't')} }", flush=True)
         elif ev["type"] == "final":
             final = ev

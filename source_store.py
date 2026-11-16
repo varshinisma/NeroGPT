@@ -27,6 +27,22 @@ def load(conversation_id: str) -> dict:
         return {}
 
 
+def load_turns(conversation_id: str, turn_keys: list) -> dict:
+    """The stored sources of the answers a follow-up refers to (their keys), merged: papers, trial records and web pages of THOSE topics only. When the store has no per-answer sources for them
+    (a conversation stored before this existed), the whole store is returned, as before."""
+    data = load(conversation_id)
+    by_turn = data.get("by_turn") if isinstance(data.get("by_turn"), dict) else {}
+    keys = [str(k) for k in turn_keys or [] if k]
+    found = [by_turn[k] for k in keys if k in by_turn]
+    if not found:
+        return {k: v for k, v in data.items() if k in KINDS}
+    merged: dict = {}
+    for kind in KINDS:
+        for part in found:
+            merged[kind] = _merge(merged.get(kind), part.get(kind) or ({} if kind != "web" else []), LIMITS[kind])
+    return merged
+
+
 def _merge(old, new, limit: int):
     if isinstance(new, dict):
         merged = dict(old if isinstance(old, dict) else {})
@@ -43,13 +59,19 @@ def _merge(old, new, limit: int):
     return out[-limit:]
 
 
-def save(conversation_id: str, state: dict) -> None:
-    """Add the sources of one finished run to the conversation's store."""
+def save(conversation_id: str, state: dict, turn_key: str | None = None) -> None:
+    """Add the sources of one finished run to the conversation's store. With `turn_key`, the same sources are also kept under that answer, so a follow-up can start from the sources of the answer it
+    refers to and not from every topic of the conversation."""
     if not re.sub(r"[^a-zA-Z0-9_-]", "", str(conversation_id or "")) or not isinstance(state, dict):
         return
     stored = load(conversation_id)
     for kind in KINDS:
         stored[kind] = _merge(stored.get(kind), state.get(kind) or {}, LIMITS[kind])
+    if turn_key:
+        by_turn = stored.setdefault("by_turn", {})
+        by_turn[str(turn_key)] = {kind: (state.get(kind) or ({} if kind != "web" else [])) for kind in KINDS}
+        for old in list(by_turn)[:-12]:      # the last twelve answers keep their own sources
+            by_turn.pop(old, None)
     STORE_DIR.mkdir(parents=True, exist_ok=True)
     _path(conversation_id).write_text(json.dumps(stored, ensure_ascii=False, default=str), encoding="utf-8")
 

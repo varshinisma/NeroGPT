@@ -91,6 +91,80 @@ def _abstracts(pmids: list[str]) -> dict[str, str]:
     return found
 
 
+def _parse_pubmed_xml(root) -> dict:
+    """The PubMed efetch XML -> {pmid: record} (shared by the threaded and the async search)."""
+    by_id = {}
+    for art in root.findall(".//PubmedArticle"):
+        pmid = _text(art.find(".//MedlineCitation/PMID"))
+        pub = art.find(".//Journal/JournalIssue/PubDate")
+        date_text = " ".join(x for x in (_text(pub.find("Year")) if pub is not None else "", _text(pub.find("Month")) if pub is not None else "",
+                                         _text(pub.find("Day")) if pub is not None else "") if x) or (_text(pub.find("MedlineDate")) if pub is not None else "")
+        year = re.search(r"(19|20)\d{2}", date_text)
+        parts = []
+        for node in art.findall(".//Abstract/AbstractText"):
+            label = node.get("Label")
+            parts.append(f"{label}: {_text(node)}" if label else _text(node))
+        authors = [f"{_text(a.find('LastName'))} {_text(a.find('Initials'))}".strip() for a in art.findall(".//AuthorList/Author") if a.find("LastName") is not None][:6]
+        doi = next((_text(a) for a in art.findall(".//PubmedData/ArticleIdList/ArticleId") if a.get("IdType") == "doi"), None)
+        pmcid = next((_text(a) for a in art.findall(".//PubmedData/ArticleIdList/ArticleId") if a.get("IdType") == "pmc"), None)
+        by_id[pmid] = {"pmcid": pmcid,
+            "title": _text(art.find(".//ArticleTitle")), "authors": authors, "journal": _text(art.find(".//Journal/Title")),
+            "publication_date": date_text, "year": year.group(0) if year else None,
+            "study_type": [_text(t) for t in art.findall(".//PublicationTypeList/PublicationType")], "pmid": pmid, "doi": doi,
+            "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/", "abstract_excerpt": (" ".join(parts)[:4000]) or None}
+    return by_id
+
+
+def _parse_trials(studies: list) -> list:
+    """ClinicalTrials.gov studies -> result records (shared by the threaded and the async search)."""
+    results = []
+    for study in studies:
+        proto = study.get("protocolSection", {})
+        ident, status_mod = proto.get("identificationModule", {}), proto.get("statusModule", {})
+        design, arms = proto.get("designModule", {}), proto.get("armsInterventionsModule", {})
+        nct = ident.get("nctId")
+        primary = proto.get("outcomesModule", {}).get("primaryOutcomes", [])
+        results.append({
+            "nct_id": nct,
+            "title": ident.get("briefTitle"),
+            "phase": design.get("phases"),
+            "ages": ", ".join(x for x in (
+                (proto.get("eligibilityModule", {}).get("minimumAge") and "from " + proto["eligibilityModule"]["minimumAge"]),
+                (proto.get("eligibilityModule", {}).get("maximumAge") and "up to " + proto["eligibilityModule"]["maximumAge"]),
+                ("/".join(proto.get("eligibilityModule", {}).get("stdAges") or []).lower() or None)) if x) or None,      # the ages the trial enrols, as registered
+            "conditions": (proto.get("conditionsModule", {}).get("conditions") or [])[:6],      # what the trial registered as its condition
+            "design": design.get("studyType"),
+            "interventions": [i.get("name") for i in arms.get("interventions", [])][:6],
+            "drug_interventions": [i.get("name") for i in arms.get("interventions", []) if i.get("type") in ("DRUG", "BIOLOGICAL")][:6],      # registered type, not guessed
+            "recruitment_status": status_mod.get("overallStatus"),
+            "why_stopped": status_mod.get("whyStopped"),
+            "start_date": status_mod.get("startDateStruct", {}).get("date"),
+            "estimated_completion": status_mod.get("primaryCompletionDateStruct", {}).get("date"),
+            "last_update": status_mod.get("lastUpdatePostDateStruct", {}).get("date"),
+            "primary_endpoint": primary[0].get("measure") if primary else None,
+            "sponsor": proto.get("sponsorCollaboratorsModule", {}).get("leadSponsor", {}).get("name"),
+            "results_posted": study.get("hasResults", False),
+            "url": f"https://clinicaltrials.gov/study/{nct}",
+        })
+    return results
+
+
+def _parse_europepmc(data: list) -> list:
+    """Europe PMC result list -> result records (shared by the threaded and the async search)."""
+    results = []
+    for r in data:
+        if not r.get("pmid"):
+            continue
+        abstract = re.sub(r"<[^>]+>", " ", r.get("abstractText") or "")
+        results.append({
+            "title": re.sub(r"<[^>]+>", "", r.get("title") or "").strip(), "authors": [a.strip() for a in (r.get("authorString") or "").rstrip(".").split(",")][:6],
+            "journal": ((r.get("journalInfo") or {}).get("journal") or {}).get("title") or r.get("journalTitle"),
+            "publication_date": r.get("firstPublicationDate") or r.get("pubYear"), "year": r.get("pubYear"),
+            "study_type": ((r.get("pubTypeList") or {}).get("pubType")) or [], "pmid": r["pmid"], "doi": r.get("doi"), "pmcid": r.get("pmcid"),
+            "url": f"https://pubmed.ncbi.nlm.nih.gov/{r['pmid']}/", "abstract_excerpt": re.sub(r"\s+", " ", abstract).strip()[:4000] or None})
+    return results
+
+
 @traced("search_pubmed", "tool")
 def search_pubmed(query: str, max_results: int = 8, years_back: int = 2, sort: str = "date") -> str:
     """Search PubMed for peer-reviewed medical literature. Returns JSON with title, authors, journal,
@@ -220,35 +294,7 @@ def search_clinical_trials(condition: str | list | dict, intervention: str = "",
     if not studies:
         return json.dumps({"results": [], "note": "No studies matched this completed query.", "query_trace": [{**query_trace, "status": "no_match"}], "searched_at": _now()})
 
-    results = []
-    for study in studies:
-        proto = study.get("protocolSection", {})
-        ident, status_mod = proto.get("identificationModule", {}), proto.get("statusModule", {})
-        design, arms = proto.get("designModule", {}), proto.get("armsInterventionsModule", {})
-        nct = ident.get("nctId")
-        primary = proto.get("outcomesModule", {}).get("primaryOutcomes", [])
-        results.append({
-            "nct_id": nct,
-            "title": ident.get("briefTitle"),
-            "phase": design.get("phases"),
-            "ages": ", ".join(x for x in (
-                (proto.get("eligibilityModule", {}).get("minimumAge") and "from " + proto["eligibilityModule"]["minimumAge"]),
-                (proto.get("eligibilityModule", {}).get("maximumAge") and "up to " + proto["eligibilityModule"]["maximumAge"]),
-                ("/".join(proto.get("eligibilityModule", {}).get("stdAges") or []).lower() or None)) if x) or None,      # the ages the trial enrols, as registered
-            "conditions": (proto.get("conditionsModule", {}).get("conditions") or [])[:6],      # what the trial registered as its condition
-            "design": design.get("studyType"),
-            "interventions": [i.get("name") for i in arms.get("interventions", [])][:6],
-            "drug_interventions": [i.get("name") for i in arms.get("interventions", []) if i.get("type") in ("DRUG", "BIOLOGICAL")][:6],      # registered type, not guessed
-            "recruitment_status": status_mod.get("overallStatus"),
-            "why_stopped": status_mod.get("whyStopped"),
-            "start_date": status_mod.get("startDateStruct", {}).get("date"),
-            "estimated_completion": status_mod.get("primaryCompletionDateStruct", {}).get("date"),
-            "last_update": status_mod.get("lastUpdatePostDateStruct", {}).get("date"),
-            "primary_endpoint": primary[0].get("measure") if primary else None,
-            "sponsor": proto.get("sponsorCollaboratorsModule", {}).get("leadSponsor", {}).get("name"),
-            "results_posted": study.get("hasResults", False),
-            "url": f"https://clinicaltrials.gov/study/{nct}",
-        })
+    results = _parse_trials(studies)
     return json.dumps({"results": results, "query_trace": [{**query_trace, "status": "found"}], "searched_at": _now(),
                        "note": "Status is as of last_update. Ongoing does not mean effective."}, ensure_ascii=False)
 
@@ -267,25 +313,7 @@ def search_pubmed_quick(query: str, max_results: int = 6, years_back: int = 3, s
         root = ET.fromstring(_get(f"{EUTILS}/efetch.fcgi", {"db": "pubmed", "id": ",".join(ids), "retmode": "xml"}))
     except (urllib.error.URLError, TimeoutError, ValueError, KeyError, ET.ParseError) as error:
         return json.dumps({"error": f"PubMed search failed: {error}"})
-    by_id = {}
-    for art in root.findall(".//PubmedArticle"):
-        pmid = _text(art.find(".//MedlineCitation/PMID"))
-        pub = art.find(".//Journal/JournalIssue/PubDate")
-        date_text = " ".join(x for x in (_text(pub.find("Year")) if pub is not None else "", _text(pub.find("Month")) if pub is not None else "",
-                                         _text(pub.find("Day")) if pub is not None else "") if x) or (_text(pub.find("MedlineDate")) if pub is not None else "")
-        year = re.search(r"(19|20)\d{2}", date_text)
-        parts = []
-        for node in art.findall(".//Abstract/AbstractText"):
-            label = node.get("Label")
-            parts.append(f"{label}: {_text(node)}" if label else _text(node))
-        authors = [f"{_text(a.find('LastName'))} {_text(a.find('Initials'))}".strip() for a in art.findall(".//AuthorList/Author") if a.find("LastName") is not None][:6]
-        doi = next((_text(a) for a in art.findall(".//PubmedData/ArticleIdList/ArticleId") if a.get("IdType") == "doi"), None)
-        pmcid = next((_text(a) for a in art.findall(".//PubmedData/ArticleIdList/ArticleId") if a.get("IdType") == "pmc"), None)
-        by_id[pmid] = {"pmcid": pmcid,
-            "title": _text(art.find(".//ArticleTitle")), "authors": authors, "journal": _text(art.find(".//Journal/Title")),
-            "publication_date": date_text, "year": year.group(0) if year else None,
-            "study_type": [_text(t) for t in art.findall(".//PublicationTypeList/PublicationType")], "pmid": pmid, "doi": doi,
-            "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/", "abstract_excerpt": (" ".join(parts)[:4000]) or None}
+    by_id = _parse_pubmed_xml(root)
     return json.dumps({"results": [by_id[i] for i in ids if i in by_id], "searched_at": _now()}, ensure_ascii=False)
 
 
@@ -306,17 +334,7 @@ def search_europepmc_quick(query: str, max_results: int = 6, years_back: int = 3
         if fulltext:      # PubMed cannot search full texts: the failure is reported, not answered with a different kind of search
             return json.dumps({"error": "Europe PMC full-text search failed"})
         return search_pubmed_quick(query, max_results, years_back, sort)
-    results = []
-    for r in data:
-        if not r.get("pmid"):
-            continue
-        abstract = re.sub(r"<[^>]+>", " ", r.get("abstractText") or "")
-        results.append({
-            "title": re.sub(r"<[^>]+>", "", r.get("title") or "").strip(), "authors": [a.strip() for a in (r.get("authorString") or "").rstrip(".").split(",")][:6],
-            "journal": ((r.get("journalInfo") or {}).get("journal") or {}).get("title") or r.get("journalTitle"),
-            "publication_date": r.get("firstPublicationDate") or r.get("pubYear"), "year": r.get("pubYear"),
-            "study_type": ((r.get("pubTypeList") or {}).get("pubType")) or [], "pmid": r["pmid"], "doi": r.get("doi"), "pmcid": r.get("pmcid"),
-            "url": f"https://pubmed.ncbi.nlm.nih.gov/{r['pmid']}/", "abstract_excerpt": re.sub(r"\s+", " ", abstract).strip()[:4000] or None})
+    results = _parse_europepmc(data)
     return json.dumps({"results": results, "searched_at": _now()}, ensure_ascii=False)
 
 

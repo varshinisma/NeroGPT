@@ -111,18 +111,18 @@ def make_tools(record: dict, with_conversation: bool = True) -> list:
         stop = lambda f: f
 
     @stop
-    def answer_from_conversation(turns: str = "all", ask: str = "") -> str:
-        """Answer from the earlier answers of this conversation, with no new search. turns: the numbers of the earlier questions it refers to, such as '1,2', or 'all'. ask: what the person wants, in their own words and without naming any drug or condition (used only if the earlier answers turn out not to contain it)."""
+    def answer_from_conversation(turns: str = "", ask: str = "") -> str:
+        """Answer from the earlier answers of this conversation, with no new search. turns: the numbers of the earlier questions it refers to, such as '2' or '1,2'. A message that points back without naming a subject (the drugs above, these, the dosage) refers to the LATEST earlier question: write its number. Write 'all' ONLY when the message clearly asks about every earlier answer together. ask: what the person wants, in their own words and without naming any drug or condition (used only if the earlier answers turn out not to contain it)."""
         record.update(tool="answer_from_conversation", turns=turns, ask=ask)
         return "chosen"
 
     @stop
-    def research(kind: str = "new", ask: str = "", turns: str = "all", needs_drugs: bool = False, own_condition: str = "", scope: str = "",
+    def research(kind: str = "new", ask: str = "", turns: str = "", needs_drugs: bool = False, own_condition: str = "", scope: str = "",
                  is_clinical: bool = True, attributes: list[str] | None = None, relation: str = "", intent: str = "", secondary_intents: list[str] | None = None, condition: str = "", conditions: list[dict] | None = None,
                  drugs: list[str] | None = None, pubmed_query: str = "", main_problem: str = "", associated_findings: list[str] | None = None, related_topics: list[str] | None = None,
                  trial_condition: str = "", trial_intervention: str = "", asked: str = "", purpose: str = "", info_needed: list[str] | None = None, medicines_needed: bool | None = None,
                  answer_format: str = "", case_facts: list[str] | None = None, semantic_variants: list[str] | None = None, skills: list[str] | None = None, skip_stages: list[str] | None = None, stages: list[str] | None = None) -> str:
-        """Research the message and give the plan. kind: 'new' (understood alone) or 'follow_up' (depends on the earlier answers). For a follow-up: ask = what the person asks for, in their own words, WITHOUT naming a drug the earlier answers listed (e.g. 'Give the dosage information'); turns = the numbers of the earlier questions it refers to, or 'all'; needs_drugs = true ONLY when the message is about the drugs the earlier answers listed (it asks something about them); false when it asks which drugs or for the drugs of an earlier question's condition (then set medicines_needed=true and leave drugs empty: the program discovers the condition's medicines afresh); own_condition = a condition the message itself names that differs from the earlier answers (as written), else empty; scope = 'focused' (only what the follow-up asks), 'full' (the whole report) or empty (the program decides from info_needed). relation = ONE short sentence of your own saying how the message relates to the earlier answers (for example the same patient, the same drugs, the same condition from a new angle, a different subject); attributes = for a follow-up about the earlier drugs, the specific facts it wants about each drug, in the person's own words (for example contraindications, use in pregnancy, monitoring, mechanism, cost, how it is given); leave empty when it does not ask for facts about the drugs. Never default to dosage or side effects: name only what the message asks. The plan follows the skill: is_clinical; intent (disease_research|latest_findings|drug_treatment|clinical_trial|comparison|mechanism|diagnosis|safety|case_evaluation|comprehensive_research); secondary_intents; condition; conditions (ONLY when the message asks about two or more separate conditions: objects {name, aliases}, each written in the message; else empty); drugs (medicines the message names); pubmed_query; main_problem; associated_findings (copied word for word); related_topics (3 to 5 phrases, only for a diagnosis, work-up, case or management question); trial_condition; trial_intervention; asked; purpose; info_needed (treatment_options|efficacy|safety|dosing|diagnosis|prognosis|mechanism|guideline_recommendation|trial_status|regulatory_status|drug_interaction); medicines_needed; answer_format (options_comparison|stepwise_plan|summary|table|yes_no_with_evidence); case_facts (word for word); semantic_variants (3 to 5 phrases); skills (exact names from the SKILL CATALOG); stages (the order in which the run's stages are done, written as the skill's Steps 5 to 8 describe, from the STAGES list in your instructions; code checks it, so a stage never runs before the stages it reads; leave it empty for the order the skill describes); skip_stages (normally empty; 'full_text' only when the question plainly has no use for the free full text of papers)."""
+        """Research the message and give the plan. kind: 'new' (understood alone) or 'follow_up' (depends on the earlier answers). For a follow-up: ask = what the person asks for, in their own words, WITHOUT naming a drug the earlier answers listed (e.g. 'Give the dosage information'); turns = the numbers of the earlier questions it refers to, such as '2' or '1,2'. A message that points back without naming a subject (the drugs above, these, the dosage) refers to the LATEST earlier question: write its number. Write 'all' ONLY when the message clearly asks about every earlier answer together.; needs_drugs = true ONLY when the message is about the drugs the earlier answers listed (it asks something about them); false when it asks which drugs or for the drugs of an earlier question's condition (then set medicines_needed=true and leave drugs empty: the program discovers the condition's medicines afresh); own_condition = a condition the message itself names that differs from the earlier answers (as written), else empty; scope = 'focused' (only what the follow-up asks), 'full' (the whole report) or empty (the program decides from info_needed). relation = ONE short sentence of your own saying how the message relates to the earlier answers (for example the same patient, the same drugs, the same condition from a new angle, a different subject); attributes = for a follow-up about the earlier drugs, the specific facts it wants about each drug, in the person's own words (for example contraindications, use in pregnancy, monitoring, mechanism, cost, how it is given); leave empty when it does not ask for facts about the drugs. Never default to dosage or side effects: name only what the message asks. The plan follows the skill: is_clinical; intent (disease_research|latest_findings|drug_treatment|clinical_trial|comparison|mechanism|diagnosis|safety|case_evaluation|comprehensive_research); secondary_intents; condition; conditions (ONLY when the message asks about two or more separate conditions: objects {name, aliases}, each written in the message; else empty); drugs (medicines the message names); pubmed_query; main_problem; associated_findings (copied word for word); related_topics (3 to 5 phrases, only for a diagnosis, work-up, case or management question); trial_condition; trial_intervention; asked; purpose; info_needed (treatment_options|efficacy|safety|dosing|diagnosis|prognosis|mechanism|guideline_recommendation|trial_status|regulatory_status|drug_interaction); medicines_needed; answer_format (options_comparison|stepwise_plan|summary|table|yes_no_with_evidence); case_facts (word for word); semantic_variants (3 to 5 phrases); skills (exact names from the SKILL CATALOG); stages (the order in which the run's stages are done, written as the skill's Steps 5 to 8 describe, from the STAGES list in your instructions; code checks it, so a stage never runs before the stages it reads; leave it empty for the order the skill describes); skip_stages (normally empty; 'full_text' only when the question plainly has no use for the free full text of papers)."""
         given = dict(intent=intent, secondary_intents=secondary_intents, condition=condition, conditions=conditions, drugs=drugs, pubmed_query=pubmed_query, main_problem=main_problem,
                      associated_findings=associated_findings, related_topics=related_topics, trial_condition=trial_condition, trial_intervention=trial_intervention, asked=asked, purpose=purpose,
                      info_needed=info_needed, medicines_needed=medicines_needed, answer_format=answer_format, case_facts=case_facts, semantic_variants=semantic_variants, skills=skills, skip_stages=skip_stages, stages=stages, is_clinical=is_clinical)
@@ -139,11 +139,28 @@ def make_tools(record: dict, with_conversation: bool = True) -> list:
     return [answer_from_conversation, research, ask_for_clarification] if with_conversation else [research]
 
 
+_routing_model = None
+
+
+def routing_model():
+    """The model of the routing decision. By default the plan model of the other calls. ORCHESTRATOR_MODEL (and ORCHESTRATOR_PROVIDER: openai, groq or mistral) give this one call its own, faster model, for example
+    OPENAI_MODEL's smaller sibling; the plan model of a NEW question (written beside the fast answer) is not affected."""
+    global _routing_model
+    from qa_stream import model_for
+    name, provider = os.getenv("ORCHESTRATOR_MODEL", "").strip(), os.getenv("ORCHESTRATOR_PROVIDER", "").strip().lower()
+    if not name and not provider:
+        return model_for(PLAN_TOKENS, 0.0, "planning")
+    if _routing_model is None:
+        import server
+        _routing_model = server.build_model(max_tokens=PLAN_TOKENS, temperature=0.0, model_id=name or None, provider=provider or None)
+    return _routing_model
+
+
 def default_run_agent(system: str, prompt: str, tools: list, limit: int = 1) -> None:
     """One Agno agent run with the tools above (a fresh agent, one tool call, bounded in time)."""
     from agno.agent import Agent
     from qa_stream import model_for
-    agent = Agent(model=model_for(PLAN_TOKENS, 0.0, "planning"), instructions=[system], tools=tools, tool_call_limit=limit, markdown=False)
+    agent = Agent(model=routing_model(), instructions=[system], tools=tools, tool_call_limit=limit, markdown=False)
     pool = ThreadPoolExecutor(max_workers=1)
     try:
         with observability.span("model", "orchestrator_decision", in_chars=len(system) + len(prompt)):
@@ -153,10 +170,13 @@ def default_run_agent(system: str, prompt: str, tools: list, limit: int = 1) -> 
 
 
 def _turns(value, count: int):
-    if isinstance(value, str) and value.strip().lower() != "all":
+    """The earlier answers the agent says the message refers to: their numbers, or 'all' only when the agent wrote 'all'. Anything else (empty, 'latest') is left for compose to resolve to the latest answer."""
+    if isinstance(value, str):
         found = [int(n) for n in re.findall(r"\d+", value)]
-        return found or "all"
-    return "all"
+        if found:
+            return found
+        return "all" if value.strip().lower() == "all" else "latest"
+    return "latest"
 
 
 def to_reply(record: dict) -> dict | None:

@@ -66,7 +66,7 @@ def fetch_bytes(url: str, params: tuple = ()) -> bytes | None:
         return None
 
 
-STAGE_TEXT = {"INITIAL": "Finding the first evidence", "ENRICHING": "Reading the evidence", "EVIDENCE_ENRICHING": "Reading the evidence", "FINAL": "Final verified answer"}
+STAGE_TEXT = {"UNDERSTANDING": "Reading your question against the conversation", "INITIAL": "Finding the first evidence", "ENRICHING": "Reading the evidence", "EVIDENCE_ENRICHING": "Reading the evidence", "FINAL": "Final verified answer"}
 FIGURE_NOTE = "Each figure shows one study's result; it does not by itself establish that a treatment works or justify a recommendation."
 STYLE = """
 <style>
@@ -229,6 +229,7 @@ def render_report(markdown: str, figures: list[dict]) -> None:
 
 
 def pdf_button(name: str | None, key: str) -> None:
+    return      # the PDF download button is removed (the backend still writes the file)
     data = fetch_bytes(f"{API_URL}/pdf/{name}") if name else None
     if data:
         st.download_button("Download the report as PDF", data=data, file_name=name, mime="application/pdf", key=key)
@@ -287,6 +288,9 @@ def scroll_script(box, template: str, *args) -> None:
 STEP_TEXT = {"fast_search": "Searched PubMed, trials and FDA labels", "fast_answer": "Fast answer written", "deep_search": "Deep search finished", "rank": "Papers ranked", "read_evidence": "Evidence read",
              "drugs": "Drug landscape started", "escalate": "Gaps checked", "write_start": "Writing the report", "figures": "Looking for figures", "write_stream": "Report written",
              "assemble": "Report assembled", "limitations": "Limitations written", "verify": "Verified", "finalize": "Finished"}
+LIVE_TEXT = {"deep_search": "Searching PubMed, Europe PMC, trials, guidelines and FDA labels", "rank": "Ranking papers by relevance", "read_evidence": "Reading the evidence", "drugs": "Building the drug landscape",
+             "escalate": "Checking for gaps in the evidence", "write_start": "Starting the report", "figures": "Looking for figures", "write_stream": "Writing the sections", "assemble": "Assembling the report",
+             "limitations": "Writing the limitations", "verify": "Verifying citations and trials"}
 STREAM_EVERY_S = 0.15      # the report text is redrawn at most this often: one redraw per token made the page flicker and shift
 
 
@@ -352,6 +356,10 @@ def run_question(question: str, index: int) -> dict:
                 done = STEP_TEXT.get(event.get("stage_name"), "")
                 if done:
                     status.update(label=f"{done} · {event.get('papers', 0)} papers, {event.get('trials', 0)} trials so far · {event.get('t')} s")
+            elif kind == "heartbeat":
+                live = LIVE_TEXT.get(event.get("stage_name"), "")
+                if live:      # a long step is still running: say what it is doing and how much has been found so far
+                    status.update(label=f"{live} · {event.get('papers', 0)} papers, {event.get('trials', 0)} trials, {event.get('drugs', 0)} drug labels so far…")
             elif kind == "token":
                 text += event["text"]
                 show_text()

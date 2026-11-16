@@ -1,0 +1,21 @@
+{
+  "_note": "Search SEEDS, not facts. Each group lists medicines clinicians commonly consider for the associated problems, treatable causes and complications of a condition. A seed only tells the pipeline WHAT TO LOOK UP (FDA label by name, literature, web). A drug reaches the report only when a retrieved source supports it, and every dose comes from a label or source. 'when' is the condition under which it applies and is shown as a conditional statement.",
+  "groups": [
+    {
+      "id": "neurodevelopmental",
+      "trigger": "autis|asperger|developmental delay|developmental regression|global developmental|\\bgdd\\b|neurodevelopment|milestone|neuroregression|intellectual disability",
+      "items": [
+        {"drug": "melatonin", "class": "sleep-regulating hormone", "when": "persistent sleep-onset difficulty or sleep disturbance", "fda_label": false},
+        {"drug": "risperidone", "class": "atypical antipsychotic", "when": "severe irritability, aggression, self-injury or severe tantrums", "fda_label": true},
+        {"drug": "aripiprazole", "class": "atypical antipsychotic", "when": "severe irritability, aggression or self-injury", "fda_label": true},
+        {"drug": "levetiracetam", "class": "antiepileptic", "when": "seizures, if epilepsy is diagnosed", "fda_label": true},
+        {"drug": "valproate", "class": "antiepileptic", "when": "certain seizure types, depending on the epilepsy diagnosis", "fda_label": true},
+        {"drug": "clobazam", "class": "benzodiazepine anticonvulsant", "when": "selected or difficult-to-control seizure disorders", "fda_label": true},
+        {"drug": "iron", "class": "nutritional supplement", "when": "confirmed iron deficiency", "fda_label": false},
+        {"drug": "vitamin B12", "class": "vitamin supplement", "when": "confirmed vitamin B12 deficiency", "fda_label": false},
+        {"drug": "vitamin D3 cholecalciferol", "class": "vitamin supplement", "when": "confirmed vitamin D deficiency", "fda_label": false},
+        {"drug": "polyethylene glycol 3350", "class": "osmotic laxative", "when": "constipation", "fda_label": false}
+      ]
+    }
+  ]
+}

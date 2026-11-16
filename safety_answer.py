@@ -70,6 +70,8 @@ def _text_of(item: dict) -> str:
 
 
 def _clean(cell) -> str:
+    if isinstance(cell, (list, tuple)):      # the model answers a cell as a short list of phrases: they are joined into plain text (a list was shown as ['...'] in the table)
+        cell = "; ".join(str(x).strip() for x in cell if str(x or "").strip())
     text = " ".join(str(cell or "").replace("|", "/").split())
     return text[:420]
 

@@ -58,6 +58,11 @@ def warm() -> None:
         import server  # noqa: F401
         hybrid_search.load_cross_encoder()
         qa_stream.warm_up()
+        if os.getenv("ASYNC_PIPELINE", "0").strip().lower() in {"1", "true", "yes", "on"}:      # the async pipeline has its own HTTP and model connections: opened here too
+            import asyncio
+            from async_runner import get_loop
+            from async_warm import awarm
+            asyncio.run_coroutine_threadsafe(awarm(), get_loop()).result(timeout=40)
     except Exception:
         pass
     finally:
@@ -138,10 +143,14 @@ def ask_events(body: AskBody, get_pipeline=None, ask_model=None, chat_stream=Non
     yield line({"type": "scrubbed", "text": clean})
     observability.begin_run(clean)      # the routing decision belongs to the run
     memory = conversation_memory.load(body.conversation_id) or conversation_memory.turns_from_history(body.history)      # what this conversation has already answered
+    if memory:      # a follow-up waits for the routing decision before any search starts: the page is told at once what is happening
+        yield line({"type": "stage", "stage": "UNDERSTANDING"})
     if run_agent is None and ask_model is not None:      # a caller that supplies its own JSON reader (tests): no agent
         resolved = conversation_memory.resolve(clean, memory, ask_model)
     elif orchestrator.AGENT_ENABLED:      # the orchestrator agent chooses the path; its fallback is the JSON router
+        import time as _t; _t0 = _t.time()
         resolved = orchestrator.decide(clean, memory, run_agent, ask_model or default_ask_model)
+        print(f"[latency] follow-up decision {_t.time() - _t0:.1f}s (mode={resolved.get('mode')}, turns={resolved.get('turns')})", flush=True)
     else:
         resolved = conversation_memory.resolve(clean, memory, ask_model or default_ask_model)
     asked = resolved["question"]
@@ -196,21 +205,31 @@ def ask_events(body: AskBody, get_pipeline=None, ask_model=None, chat_stream=Non
         if plan and resolved.get("follow_up"):
             try:      # a follow-up starts from what the earlier questions retrieved and searches only for the gap
                 import source_store
-                stored = source_store.load(body.conversation_id)
+                keys = [memory[i - 1].get("key") for i in (resolved.get("turns") or []) if isinstance(i, int) and 1 <= i <= len(memory)]
+                stored = source_store.load_turns(body.conversation_id, keys)      # the sources of the answers this follow-up refers to, not of every topic in the conversation
                 plan = {**plan, "prior_sources": stored} if stored else plan
             except Exception:
                 pass
-        for event in (stream_answer(asked, plan=plan) if plan else stream_answer(asked)):      # the plan the agent wrote in its decision goes with the question
+        runner = stream_answer
+        if get_pipeline is None and os.getenv("ASYNC_PIPELINE", "0").strip().lower() in {"1", "true", "yes", "on"}:
+            try:      # new questions and follow-ups run on the asyncio pipeline; the threaded one answers only if it fails to start
+                from async_runner import stream_answer_auto
+                runner = stream_answer_auto
+            except Exception:
+                runner = stream_answer
+        for event in (runner(asked, plan=plan) if plan else runner(asked)):      # the plan the agent wrote in its decision goes with the question
             if event.get("type") == "final":
                 final = event
             yield line(public(event))
         if final:
             try:
                 remembered = conversation_memory.turn_from_final(clean, asked, final, follow_up=bool(resolved.get("follow_up")))
+                import uuid
+                remembered["key"] = uuid.uuid4().hex[:12]      # names this answer, so its sources can be found again for a follow-up that refers to it
                 remembered["markdown"] = (preface + remembered["markdown"])[:conversation_memory.MAX_REPORT_CHARS]      # the quick answer is part of what was said
                 conversation_memory.save(body.conversation_id, memory + [remembered])
                 import source_store
-                source_store.save(body.conversation_id, final.get("state") or {})      # what this run retrieved stays for the conversation's follow-ups
+                source_store.save(body.conversation_id, final.get("state") or {}, remembered["key"])      # what this run retrieved stays for the conversation's follow-ups
             except Exception:
                 pass      # remembering is a convenience: a failure never stops the report
             for event in deliver_outputs(asked, final):

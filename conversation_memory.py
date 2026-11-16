@@ -127,6 +127,12 @@ def profile_line(profile: dict) -> str:
     return ("CASE FACTS: " + facts if facts else "") + (f" AGE: {profile['age_years']:g}" if profile.get("age_years") is not None else "") + (f" POPULATION: {profile['population']}" if profile.get("population") else "")
 
 
+def period_of(text: str) -> str:
+    """The evidence period a question states ('2024', 'last 12 months', 'past 5 years'); '' when it states none. Read from the question's own words, never from a topic."""
+    found = re.search(r"(?i)\b(?:19|20)\d\d\b|\b(?:last|past|previous)\s+\d+\s+(?:years?|months?)\b", str(text or ""))
+    return found.group(0) if found else ""
+
+
 def turn_from_final(question: str, asked_as: str, final: dict, follow_up: bool = False) -> dict:
     """One remembered turn, built from the finished report's research state."""
     state = final.get("state") or {}
@@ -135,7 +141,7 @@ def turn_from_final(question: str, asked_as: str, final: dict, follow_up: bool =
     summary = re.search(r"(?s)## Clinical summary\s*(.*?)(?:\n## |\Z)", final.get("markdown") or "")
     return {"question": question, "asked_as": asked_as, "condition": " ".join(str(plan.get("condition") or "").split()), "conditions": [g.get("name") for g in plan.get("conditions") or [] if isinstance(g, dict)],
             "drugs": drugs, "intent": plan.get("intent"), "summary": " ".join((summary.group(1) if summary else "").split())[:500], "markdown": (final.get("markdown") or "")[:MAX_REPORT_CHARS],
-            "asked_drugs": asked_drugs_of(question, state), "case": case_of(state), "conclusions": conclusions_of(final.get("markdown") or ""), "follow_up": bool(follow_up), "kind": "report", "at": datetime.now().isoformat(timespec="seconds")}
+            "asked_drugs": asked_drugs_of(question, state), "case": case_of(state), "conclusions": conclusions_of(final.get("markdown") or ""), "follow_up": bool(follow_up), "period": period_of(asked_as or question), "kind": "report", "at": datetime.now().isoformat(timespec="seconds")}
 
 
 def chat_turn(question: str, answer: str) -> dict:
@@ -176,7 +182,7 @@ RESOLVE_INSTRUCTIONS = ("You decide how a clinical chat assistant should answer 
                         "{\"mode\": \"conversation\" when the answer is already in the earlier answers and only needs explaining, summarising, comparing, ranking, simplifying, reformatting or a thank-you "
                         "(for example 'explain that simply', 'which of those is safest', 'summarise the above'); \"research\" when it depends on the earlier answers but needs NEW evidence "
                         "(for example the dosage of the above drugs, their side effects, a trial for one of them); \"new\" when it can be understood alone and is a new question, "
-                        "\"turns\": the numbers of the earlier questions it refers to, or \"all\", \"ask\": what the person asks for, in the person's own words, WITHOUT naming a drug that the earlier answers listed "
+                        "\"turns\": the numbers of the earlier questions it refers to (a message that points back without naming a subject refers to the LATEST earlier question); \"all\" only when it clearly asks about every earlier answer together, \"ask\": what the person asks for, in the person's own words, WITHOUT naming a drug that the earlier answers listed "
                         "(for example 'Give the dosage information', 'Are they also used to treat <the condition the person names>'), \"needs_drugs\": true when the answer needs the drugs the earlier answers listed, "
                         "\"own_condition\": that condition or topic written as the person wrote it (empty when there is none), "
                         "\"names_own_condition\": true when the new message itself names a condition or topic different from the earlier answers' (for example the earlier answers were about one disease and the person asks if the same drugs treat another)}. "
@@ -219,7 +225,10 @@ def compose(question: str, memory: list[dict], reply: dict) -> dict:
         return unchanged
     wanted = reply.get("turns")
     chosen = [i for i in (wanted if isinstance(wanted, list) else []) if isinstance(i, int) and 1 <= i <= len(memory)]
-    chosen = chosen or list(range(1, len(memory) + 1))
+    if not chosen and wanted != "all":      # the agent named no earlier question and did not say 'all': the message refers to the answer just before it (the latest research answer)
+        research = [i for i in range(1, len(memory) + 1) if memory[i - 1].get("kind") != "chat"]
+        chosen = research[-1:] or [len(memory)]
+    chosen = chosen or list(range(1, len(memory) + 1))      # an explicit 'all': every earlier answer
     if mode == "conversation":
         return {"follow_up": False, "mode": "conversation", "question": question, "turns": chosen, "research_question": _research_question(ask, memory, chosen, reply, question)}
     return {"follow_up": True, "mode": "research", "question": _research_question(ask, memory, chosen, reply, question), "turns": chosen,
@@ -237,6 +246,9 @@ def _research_question(ask: str, memory: list[dict], chosen: list[int], reply: d
         return ask + (f" (the drugs: {', '.join(drugs)})" if drugs else "") + "?"
 
     text = ask.rstrip(" ?.")
+    period = next((t.get("period") for t in reversed(used) if t.get("period")), "")      # the evidence period of the answer it refers to stays with the follow-up unless the message names its own
+    if period and not period_of(text):
+        text += f" (evidence period: {period})"
     facts = [f["text"] for f in case_profile(memory, chosen)["facts"] if f["text"].lower() not in text.lower()][:5]      # the case of the earlier answers goes with the question: 'her' becomes the patient the answers were about
     if facts:
         text += f" (the case: {'; '.join(facts)})"

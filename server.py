@@ -172,7 +172,10 @@ def build_model(max_tokens: int | None = None, temperature: float | None = None,
         from agno.models.openai import OpenAIChat
         chosen = model_id or os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
         if chosen.lower().startswith("gpt-5"):      # the GPT-5 family: the output limit is `max_completion_tokens`, the model may think before it answers (reasoning_effort; 'none' = no hidden thinking, the fast setting),
-            extra = {"max_completion_tokens": max_tokens, "reasoning_effort": os.getenv("OPENAI_REASONING_EFFORT", "none").strip().lower() or "none"}      # and `temperature` is refused unless the thinking is off, so it is sent only on request
+            effort = os.getenv("OPENAI_REASONING_EFFORT", "none").strip().lower() or "none"
+            if effort == "none" and re.match(r"gpt-5(?!\.)", chosen.lower()):      # gpt-5, gpt-5-mini and gpt-5-nano refuse 'none' (their lowest is 'minimal'); gpt-5.1 and later accept it
+                effort = "minimal"
+            extra = {"max_completion_tokens": max_tokens, "reasoning_effort": effort}      # and `temperature` is refused unless the thinking is off, so it is sent only on request
             if temperature is not None and os.getenv("OPENAI_GPT5_TEMPERATURE", "off").strip().lower() == "on":
                 extra["temperature"] = temperature
             return OpenAIChat(id=chosen, timeout=float(os.getenv("MODEL_TIMEOUT_S", "60")), max_retries=0, **extra)

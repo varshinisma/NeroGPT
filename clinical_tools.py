@@ -10,6 +10,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor, wait
 import os
 import re
+import drug_reconcile as dr
 import threading
 import time
 import urllib.error
@@ -562,6 +563,8 @@ def _record_from_label(label: dict, generic: str, stems: list[str]) -> dict:
             "dose_general": general_dosing(" ".join(label.get("dosage_and_administration") or [])) if hit >= 0 else None,
             "route": ", ".join(r.title() for r in (label.get("openfda", {}).get("route") or []))[:80] or None, "label_extras": label_extras(label), "safety_text": safety_text(label), "label_sections": label_parts(label),
             "label_date": f"{when[:4]}-{when[4:6]}-{when[6:8]}" if len(when) == 8 else None, "set_id": set_id,
+            "drug_class": "; ".join(re.sub(r"\s*\[(?:EPC|MoA|PE|CS)\]\s*$", "", c) for c in (label.get("openfda", {}).get("pharm_class_epc") or [])[:2]) or None,      # the label's own established class
+            "use_kind": dr.use_kind(text, stems) if hit >= 0 else "not stated",      # preventive / acute / both: read from the label's sentences that name the condition
             "url": f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={set_id}" if set_id else None, "source_id": f"fda:{set_id}"}
 
 
@@ -607,7 +610,7 @@ def fda_label_link(generic: str) -> dict | None:
     return {"generic": name, "generic_name": (label.get("openfda", {}).get("generic_name") or [None])[0] if via_brand else None, "set_id": set_id,
             "url": f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={set_id}",
             "brand": (label.get("openfda", {}).get("brand_name") or [None])[0], "boxed_warning": boxed or None,
-            "label_date": f"{when[:4]}-{when[4:6]}-{when[6:8]}" if len(when) == 8 else None}
+            "label_date": f"{when[:4]}-{when[4:6]}-{when[6:8]}" if len(when) == 8 else None, **dr.label_facts(label)}
 
 
 @traced("search_fda_labels", "tool")

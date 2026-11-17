@@ -15,6 +15,7 @@ import re
 from urllib.parse import quote
 
 import conditions as cond_groups
+import drug_reconcile as dr
 from retrieval_routing import STATE_TEXT
 
 def _json(text):
@@ -166,11 +167,12 @@ def dose_fallback(source: str, limit: int = 420) -> str:
 def product_name(r: dict) -> str:
     """The name of an FDA label's product. openFDA joins the active ingredients of a combination product with commas ('Avobenzone, Homosalate, Octisalate'): that is ONE product, shown as
     'Combination product (avobenzone + homosalate + octisalate)', with its brand name first when the label has one."""
-    ingredients = [x.strip() for x in r["generic"].split(",") if x.strip()]
-    brands = [b for b in r.get("brands", []) if b.lower() != r["generic"].lower()]
+    generic = re.sub(r"\s+", " ", str(r["generic"])).strip()      # one line: the name goes into a table row, where a line break or a | would split the row
+    ingredients = [x.strip() for x in generic.split(",") if x.strip()]
+    brands = [re.sub(r"\s+", " ", b).strip() for b in r.get("brands", []) if b.lower() != generic.lower()]
     if len(ingredients) < 2:
-        return r["generic"] + (f" ({', '.join(brands)})" if brands else "")
-    return f"{brands[0] if brands else 'Combination product'} (one product: {' + '.join(x.lower() for x in ingredients)})"
+        return _cell(generic + (f" ({', '.join(brands)})" if brands else ""), 200)
+    return _cell(f"{brands[0] if brands else 'Combination product'} (one product: {' + '.join(x.lower() for x in ingredients)})", 200)
 
 
 def drug_name(r: dict) -> str:
@@ -221,7 +223,9 @@ def landscape_markdown(state: dict, used_rows: list[dict], trial_rows: list[dict
         return head + "*Not listed: " + MEDICINES_NOT_ASKED + "*"
     status = state.get("source_status", {})
     st = family_status(state, "fda_label")
-    reg = [r for r in state.get("regulatory", []) if fda_relevant(r)]
+    aliases = dr.Aliases.from_records(state.get("regulatory", []))
+    reg = dr.merge_records([r for r in state.get("regulatory", []) if fda_relevant(r)], aliases)      # one record for each drug, whatever name or label it came under
+    intent = dr.asks_intent(state.get("query") or "")      # a question about prevention (or about acute treatment) keeps the other kind out of the main list
     intro = ""
     sec = section_state(state, "drugs")
     if sec in STATE_LINES and not reg and not used_rows:
@@ -235,7 +239,7 @@ def landscape_markdown(state: dict, used_rows: list[dict], trial_rows: list[dict
                  else f"No FDA drug label with an indication matching the condition was found when searched (search terms: {terms}).") + "\n\n"
     stems = [x for x in (state.get("core_stems") or []) if len(x) >= 4]
     groups = state_groups(state)
-    entries: list[tuple] = []      # (tier, other-table row, treatment-table row, the condition's position, the condition label)
+    entries: list[tuple] = []      # (tier, other-table row, treatment-table row, the condition's position, the condition label, in the main list for what the question asks)
     for r in reg:
         brands = ", ".join(b for b in r.get("brands", []) if b.lower() != r["generic"].lower())
         statement = r.get("indication_statement") or r.get("model_evidence") or r["indication_excerpt"]
@@ -243,13 +247,21 @@ def landscape_markdown(state: dict, used_rows: list[dict], trial_rows: list[dict
         associated += age_note(r, state.get("patient_age_years"))
         efficacy = re.search(r"Efficacy was established[^.]*\.", statement or "")
         evidence = (f"FDA label: {efficacy.group(0)} " if efficacy else "FDA label. ") + (f"[DailyMed label]({label_link(r, stems)})" if r.get("url") else "")
-        entries.append((0, "", f"| {product_name(r)} | \"{_cell(statement, 800)}\"{associated} | {_dose_cell(r)} | "
-                           f"{_cell(evidence, 400)} FDA-approved for the use shown; label effective {r.get('label_date') or 'date not retrieved'}. |",
-                        cond_groups.sort_index(statement, groups), cond_groups.tag_label(statement, groups)))
+        more = "".join(f" [{_cell(o.get('name') or 'other label', 40)}]({o['url']})" for o in (r.get("other_labels") or [])[:3])
+        kind = r.get("use_kind") or "not stated"
+        entries.append((0, "", f"| {product_name(r)} | {_cell(r.get('drug_class') or 'not stated', 90)} | {dr.kind_label(kind)}. \"{_cell(statement, 800)}\"{associated} Population: {dr.population_tags(statement)}. | {_dose_cell(r)} | "
+                           f"{_cell(dr.region_status(aliases.of(r['generic']), aliases, r, state.get('regulator_items')), 300)} | {_cell(evidence, 400)}{more} FDA-approved for the use shown; label effective {r.get('label_date') or 'date not retrieved'}. |",
+                        cond_groups.sort_index(statement, groups), cond_groups.tag_label(statement, groups), dr.in_scope(kind, intent)))
     for r in used_rows:
         guideline = r.get("category", "").startswith("Guideline")
-        tier = 1 if r.get("relevance") == "treats_condition" and not r.get("category", "").startswith("Studied") else 2      # a drug that a retrieved source describes for the condition itself (guideline or review); a drug for an associated symptom is not, whoever recommends it
-        said = f"\"{_cell(r['excerpt'], 420)}\" "
+        tier = 1 if r.get("relevance") == "treats_condition" and not r.get("category", "").startswith("Studied") else 2      # a drug that a retrieved source describes for the condition itself (guideline, review or a study that reports a benefit); a drug for an associated symptom, or a study that found no benefit, is not
+        kind = r.get("use_kind") or "not stated"
+        verified = str(r.get("category") or "").startswith("FDA-approved")
+        status = _cell(dr.region_status(aliases.of(r["drug"]), aliases, {"label_date": r.get("label_date")} if verified else None, state.get("regulator_items"),
+                                         fda_note=(r.get("fda_note") if not verified else None)), 300)
+        design = r.get("evidence_kind") or "source design not stated"
+        how = (f"{r.get('category')}; {design}" if verified else f"{r.get('category') or 'Evidence-supported'}; no FDA-labelled indication for this condition in the retrieved labels; {design}")
+        said = (f"FDA label: \"{_cell(r['fda_indication'], 300)}\" " if r.get("fda_indication") else "") + f"\"{_cell(r['excerpt'], 420)}\" "
         pop = "" if r.get("population", "").startswith("not stated") else f" (population: {r['population']})"
         if r.get("relevance") == "treats_associated_symptom_or_comorbidity":
             pop += " [associated symptom or comorbidity, not the condition itself]"
@@ -257,19 +269,20 @@ def landscape_markdown(state: dict, used_rows: list[dict], trial_rows: list[dict
             pop += " [guideline-recommended]"
         dose = (f"\"{_cell(r['dose'], 300)}\" " + (f"[source]({r['dose_url']}) " if r.get("dose_url") else "") + "(from a retrieved page, not an FDA label)") if r.get("dose") else "Not stated in the retrieved source for this use"
         about = " ".join(str(r.get(k) or "") for k in ("purpose", "excerpt", "label", "population"))
-        entries.append((tier, f"| {drug_name(r)} | {_cell(r['purpose'], 200)}{pop} | {dose} | {said}{_cell(r['label'], 500)} |", f"| {drug_name(r)} | {_cell(r['purpose'], 200)}{pop} | "
-                              f"{dose} | {said}{_cell(r['label'], 500)} ({r.get('category') or 'Off-label'}; no FDA-labelled indication for this condition in the retrieved labels) |",
-                        cond_groups.sort_index(about, groups), cond_groups.tag_label(about, groups)))
+        entries.append((tier, f"| {drug_name(r)} | {_cell(r['purpose'], 200)}{pop} | {dose} | {said}{_cell(r['label'], 500)} |", f"| {drug_name(r)} | {_cell(r.get('drug_class') or 'not stated', 90)} | {dr.kind_label(kind)}. {_cell(r['purpose'], 200)}{pop} "
+                              f"Population: {dr.population_tags(r.get('population'), r.get('excerpt'))}. | {dose} | {status} | {said}{_cell(r['label'], 500)} ({how}) |",
+                        cond_groups.sort_index(about, groups), cond_groups.tag_label(about, groups), dr.in_scope(kind, intent)))
     for r in []:      # trial drugs are not listed here: the Clinical trials section is the only place trials appear
         link = f"[{r['nct']}]({r['url']})" if r.get("url") else r["nct"]
         entries.append((3, f"| {drug_name(r)} | Registered conditions: {_cell(r['conditions'], 160)}. Ages: {_cell(r['ages'], 80)} | Investigational, {r['phase']}; not approved. {r['status']}, last update {r['updated']}. {link}. Primary outcome: {_cell(r['primary'], 200)}. A registry entry does not show that the drug works. |", f"| {drug_name(r)} | Emerging: investigational, {r['phase']} | Registered conditions: {_cell(r['conditions'], 160)}. Ages: {_cell(r['ages'], 80)} | "
                            f"Investigational: trial-specific dosing is in the registry record | Not approved. {r['status']}, last update {r['updated']} | "
                            f"{link}. Primary outcome: {_cell(r['primary'], 200)}. A registry entry does not show that the drug works. |"))
     entries.sort(key=(lambda e: (e[3], e[0])) if groups else (lambda e: e[0]))      # several conditions: grouped by condition in the order the question names them, established drugs first within each
-    columns = ["| Drug | Indication | Dose / route (if sourced) | Key evidence |", "|---|---|---|---|"]
+    columns = ["| Drug | Class | Indication (type; population) | Dose / route (if sourced) | Regulatory status | Evidence and source |", "|---|---|---|---|---|---|"]
     short_columns = ["| Drug | Indication | Dose / route (if sourced) | Key evidence |", "|---|---|---|---|"]
-    labels = [e[4] for e in entries if e[0] <= 1]
-    treatment = [e[2] for e in entries if e[0] <= 1]      # Approved, Guideline-recommended: used for the treatment of this condition
+    labels = [e[4] for e in entries if e[0] <= 1 and e[5]]
+    treatment = [e[2] for e in entries if e[0] <= 1 and e[5]]      # Approved, Guideline-recommended, Evidence-supported: used for the treatment of this condition
+    background = [e[2] for e in entries if e[0] <= 1 and not e[5]]      # a drug of the other use kind than the question asks for (an acute drug for a question about prevention): its own section
     other = [e[1] for e in entries if e[0] >= 2]      # three columns only: drug, indication, key evidence          # Off-label (symptom-directed) and Emerging (still in trials): not established treatments of this condition
     if not treatment:
         labels = ["Not specified"]
@@ -279,16 +292,94 @@ def landscape_markdown(state: dict, used_rows: list[dict], trial_rows: list[dict
     dose_note = ("Doses appear only where an FDA label or source gives them for the use shown" + ("; each dose entry is a short summary of the label's dosing section for this condition, "
                  "with every number checked against the label text (full text in the DailyMed link)" if any(r.get("dose_summary") for r in reg) else "") + "; individual dosing is a prescriber's decision.")
     if groups:
-        columns = ["| Condition | Drug | Indication | Dose / route (if sourced) | Key evidence |", "|---|---|---|---|---|"]
+        columns = ["| Condition | Drug | Class | Indication (type; population) | Dose / route (if sourced) | Regulatory status | Evidence and source |", "|---|---|---|---|---|---|---|"]
         treatment = with_condition_column(treatment, labels)
         intro = (f"*This question names {len(groups)} conditions ({'; '.join(cond_groups.names(groups))}). Every drug, announcement and trial below carries the condition it is for; "
                  "a drug labelled for more than one of them shows all of them.*\n\n") + intro
-    first = (("### Drugs used for treatment of these conditions\n\n" if groups else "### Drugs used for treatment of this condition\n\n") +
-             "*Approved: an FDA label names this condition. Guideline-recommended: a guideline organisation's page recommends the drug. Used in practice: a retrieved review or page describes the drug for this condition, with no FDA label or guideline for it (see the category in Key evidence). " + dose_note + "*\n\n" + "\n".join(columns + treatment))
+    label_kind = {"preventive": " (preventive)", "acute": " (acute)"}.get(intent or "", "")
+    first = (("### Drugs used for treatment of these conditions" if groups else "### Drugs used for treatment of this condition") + label_kind + "\n\n" +
+             "*Approved: an FDA label names this condition. Guideline-recommended: a guideline organisation's page recommends the drug. "
+             "Evidence-supported: a retrieved study or review describes the drug for this condition and its label status was not verified. Off-label: an FDA label exists but not for this condition. Investigational: only in a trial, with no label found. "
+             "One row for each drug (generic name, with its brand names in brackets). Each regulator's status is separate: an approval by one is not an approval by another, and a regulator with no retrieved page of its own is marked not verified. " + dose_note + "*\n\n" + "\n".join(columns + treatment))
+    if background:
+        first += (("\n\n### Other use of these drugs: " + ("acute treatment" if intent == "preventive" else "preventive treatment") + " (background; not the use the question asks about)\n\n"
+                   "*These drugs are labelled or described for the other kind of use, so they are not part of the list above.*\n\n") + "\n".join(columns + (with_condition_column(background, [e[4] for e in entries if e[0] <= 1 and not e[5]]) if groups else background)))
     second = "" if not SHOW_SYMPTOM_DRUGS else ("### Other drugs: used for symptoms (not established treatments of this condition)\n\n"
               "*Drugs that a retrieved review, guideline or web page describes as used for the condition, its symptoms or co-occurring conditions, for which no FDA label for this use was retrieved. "
               "Drugs still being tested in trials are listed in the Clinical trials section below.*\n\n" + "\n".join(short_columns + other))
     return (head + intro + first + "\n\n" + (second + "\n\n" if second else "") + regulatory_updates_markdown(state) + "\n\n" + safety_alerts_markdown(state.get("drug_labels", []), state.get("listed_drugs"), label_condition_tags(state)))
+
+
+OFF_LABEL = "Off-label (an FDA label for this drug was retrieved, but its indication does not name this condition)"
+
+
+FDA_APPROVED = "FDA-approved for this indication (verified in the drug's own FDA label)"
+
+
+def reconcile_used_rows(state: dict, used_rows: list[dict], found_labels: list) -> tuple[list[dict], list]:
+    """The rows that sources describe, made consistent with the FDA labels of the same run. Returns (rows kept, their label lookups), the rows in the same order.
+    - a drug that an FDA row of this condition already shows (under any brand or generic name) is not listed again; its source is added to that row's evidence
+    - the same drug cited twice (brand and generic) is one row, the second source kept as `also_cited`
+    - the drug's own FDA label (looked up by name) decides its status: its indications text names the condition -> FDA-approved for this indication (its use type read from that text);
+      a label exists and does not name the condition -> off-label (a guideline's recommendation stays a guideline recommendation); no label found -> unverified, never called off-label
+    - the drug's class comes from its label when one was retrieved."""
+    aliases = dr.Aliases.from_records(state.get("regulatory", []), found_labels)
+    stems = [x for x in (state.get("core_stems") or []) if len(x) >= 4] or [str(x) for x in (state.get("fda_terms") or []) if len(str(x)) >= 4]
+    by_drug: dict[str, list[dict]] = {}
+    for rec in state.get("regulatory", []):
+        by_drug.setdefault(aliases.of(rec["generic"]), []).append(rec)
+    shown = {k for k, recs in by_drug.items() if any(fda_relevant(r) for r in recs)}
+    kept, labels, first = [], [], {}
+    for row, found in zip(used_rows, found_labels):
+        k = aliases.of(row["drug"])
+        if k in shown:
+            for rec in by_drug[k]:
+                if fda_relevant(rec):
+                    rec.setdefault("also_cited", []).append(row["label"])
+                    break
+            continue
+        if k in first:
+            first[k].setdefault("also_cited", []).append(row["label"])
+            brand = dr.brand_of(row["drug"], found)
+            if brand and brand.lower() not in first[k]["drug"].lower():
+                first[k]["drug"] = f"{first[k]['drug']} ({brand})"      # one row, with both names
+            continue
+        recs = by_drug.get(k) or []
+        if recs:
+            row["drug_class"] = next((r.get("drug_class") for r in recs if r.get("drug_class")), None)
+        if found and found.get("indications") is not None:
+            row["drug_class"] = row.get("drug_class") or found.get("drug_class")
+            row["label_date"] = found.get("label_date")
+            sentence = dr.label_names_condition(found.get("indications"), stems)
+            if sentence:
+                row["category"] = FDA_APPROVED
+                row["fda_indication"] = sentence
+                row["use_kind"] = dr.use_kind(found.get("indications"), stems)      # the label's own wording decides preventive / acute
+            else:
+                row["fda_note"] = "a label exists, but its indications do not name this condition"
+                if str(row.get("category") or "").startswith(("Evidence-supported", "Studied")):
+                    row["category"] = OFF_LABEL
+        elif recs and not any(fda_relevant(r) for r in recs) and str(row.get("category") or "").startswith("Evidence-supported"):
+            row["category"] = OFF_LABEL      # an FDA label record of the run exists for the drug and was judged not to name this condition
+        first[k] = row
+        kept.append(row)
+        labels.append(found)
+    return kept, labels
+
+
+def drug_checks(state: dict, report_text: str = "") -> list[str]:
+    """The checks made before the report is written: duplicates, contradictory approval, acute drugs among the preventive ones, drugs the report discusses that the table lacks, a classification with no source."""
+    aliases = dr.Aliases.from_records(state.get("regulatory", []))
+    for r in state.get("used_rows_final", []):
+        aliases.link(r["drug"])      # a row named 'erenumab (Aimovig)' is one drug under both names
+    intent = dr.asks_intent(state.get("query") or "")
+    rows = [{"drug": r["generic"], "category": "FDA-approved", "kind": r.get("use_kind"), "url": r.get("url")} for r in dr.merge_records([r for r in state.get("regulatory", []) if fda_relevant(r)], aliases)]
+    rows += [{"drug": r["drug"], "category": r.get("category"), "kind": r.get("use_kind"), "source": r.get("source") or r.get("label"), "separate": not dr.in_scope(r.get("use_kind"), intent)}
+             for r in state.get("used_rows_final", []) if r.get("relevance") == "treats_condition" and not str(r.get("category") or "").startswith("Studied")]      # the rows the table shows
+    names = [r["generic"] for r in state.get("regulatory", []) if fda_relevant(r)] + [r["drug"] for r in state.get("used_rows_final", [])]
+    names += [str(i.get("drug")) for i in (state.get("used_drugs_trace") or {}).get("model_items", []) if i.get("drug_kind") in ("generic", "brand") and i.get("relevance") == "treats_condition"
+              and i.get("statement_type") in ("used_in_practice", "study_result")]      # the drugs the sources use or study for the condition: not trial compounds, other products or class names
+    return dr.validate(rows, aliases, intent, report_text, names)
 
 
 def is_late_phase(t: dict, min_phase: int = 2) -> bool:
@@ -300,7 +391,8 @@ def is_late_phase(t: dict, min_phase: int = 2) -> bool:
 def notable_latest_drug(state: dict) -> dict | None:
     """'Then the most notable latest drug': the most recently updated late-phase (phase 2 or later) registered drug trial that the model judged to be a treatment trial for the question
     (landscape.verify_trial_triage). Recency and phase are registry facts. Always investigational."""
-    approved = {r["generic"].lower() for r in state.get("regulatory", []) if fda_relevant(r)}
+    aliases = dr.Aliases.from_records(state.get("regulatory", []))
+    approved = {aliases.of(r["generic"]) for r in state.get("regulatory", []) if fda_relevant(r)} | {aliases.of(d) for d in state.get("used_drugs") or []}      # a drug a label approves is not investigational, whatever name its trial uses
     best, best_key = None, None
     for t in state.get("trials_by_id", {}).values():
         rank = max([PHASE_RANK.get(p, 0) for p in (t.get("phase") or [])] or [0])
@@ -310,7 +402,7 @@ def notable_latest_drug(state: dict) -> dict | None:
         for raw in t.get("drug_interventions") or []:
             name = _trial_drug_name(raw)
             key = (t.get("last_update") or "", rank)      # the most recently updated late-phase drug trial; the phase only breaks a tie
-            if name and name.lower() not in approved and (best_key is None or key > best_key):
+            if name and aliases.of(name) not in approved and (best_key is None or key > best_key):
                 best, best_key = {"drug": name, "nct": t["nct_id"], "phase": nice_phase(t.get("phase")), "status": nice_status(t.get("recruitment_status")), "url": t.get("url"),
                                   "conditions": " ".join(t.get("conditions") or []) + " " + str(t.get("title") or "")}, key
     return best
@@ -401,8 +493,11 @@ def top_drugs_markdown(state: dict) -> str:
     status = family_status(state, "fda_label")
     where = "deep pass" if family_has_deep(state, "fda_label") else "fast pass"
     groups = state_groups(state)
-    reg_all = [r for r in state.get("regulatory", []) if fda_relevant(r)]
-    reg = (cond_groups.interleave(reg_all, lambda r: str(r.get("model_evidence") or r.get("indication_excerpt") or ""), groups)[:max(4, 2 * len(groups))] if groups else reg_all[:4])
+    aliases = dr.Aliases.from_records(state.get("regulatory", []))
+    intent = dr.asks_intent(state.get("query") or "")
+    reg_all = [r for r in dr.merge_records([r for r in state.get("regulatory", []) if fda_relevant(r)], aliases) if dr.in_scope(r.get("use_kind"), intent)]      # one row per drug; a question about prevention lists no acute-only drug here
+    cap = max(4, int(os.getenv("TOP_DRUGS_MAX", "8")))      # every FDA-labelled drug of the condition is listed up to this many (it was four: a fifth labelled drug was left out of the list that the evidence section discussed)
+    reg = (cond_groups.interleave(reg_all, lambda r: str(r.get("model_evidence") or r.get("indication_excerpt") or ""), groups)[:max(cap, 2 * len(groups))] if groups else reg_all[:cap])
     latest = notable_latest_drug(state)
     rows = ["| Condition | Drug | Indication named in the FDA label | Source |", "|---|---|---|---|"] if groups else ["| Drug | Indication named in the FDA label | Source |", "|---|---|---|"]
     if groups:
@@ -410,13 +505,14 @@ def top_drugs_markdown(state: dict) -> str:
     for r in reg:
         link = f"[DailyMed]({r['url']})" if r.get("url") else "FDA label"
         cell = f"{cond_groups.tag_label(str(r.get('model_evidence') or r.get('indication_excerpt') or ''), groups)} | " if groups else ""
-        rows.append(f"| {cell}{product_name(r)} | \"{_cell(r.get('model_evidence') or r['indication_excerpt'], 420)}\"{age_note(r, state.get('patient_age_years'))} | {link} |")
+        kind = dr.kind_label(r.get("use_kind") or "not stated") if (r.get("use_kind") or "not stated") != "not stated" else ""
+        rows.append(f"| {cell}{product_name(r)} | {kind + ': ' if kind else ''}\"{_cell(r.get('model_evidence') or r['indication_excerpt'], 420)}\"{age_note(r, state.get('patient_age_years'))} | {link} |")
     if latest and groups:
         link = f"[{latest['nct']}]({latest['url']})" if latest.get("url") else latest["nct"]
-        rows.append(f"| {cond_groups.tag_label(latest.get('conditions') or latest['drug'], groups)} | {latest['drug']} (latest, investigational) | Being tested in a registered {latest['phase']} trial, {latest['status']}; not an approved treatment | {link} |")
+        rows.append(f"| {cond_groups.tag_label(latest.get('conditions') or latest['drug'], groups)} | {latest['drug']} (latest, investigational) | Being tested in a registered {latest['phase']} trial, {latest['status']}; not an approved treatment (no FDA label naming this condition was found among the retrieved labels; other regulators not verified) | {link} |")
     elif latest:
-        rows.append(f"| {latest['drug']} (latest, investigational) | Being tested in a registered {latest['phase']} trial, {latest['status']}; not an approved treatment | "
-                    f"[{latest['nct']}]({latest['url']}) |" if latest.get("url") else f"| {latest['drug']} (latest, investigational) | Being tested in a registered {latest['phase']} trial; not an approved treatment | {latest['nct']} |")
+        rows.append(f"| {latest['drug']} (latest, investigational) | Being tested in a registered {latest['phase']} trial, {latest['status']}; not an approved treatment (no FDA label naming this condition was found among the retrieved labels; other regulators not verified) | "
+                    f"[{latest['nct']}]({latest['url']}) |" if latest.get("url") else f"| {latest['drug']} (latest, investigational) | Being tested in a registered {latest['phase']} trial; not an approved treatment (no FDA label naming this condition was found among the retrieved labels) | {latest['nct']} |")
     waiting = [r for r in state.get("regulatory", []) if r.get("model_relevant") is None and (r.get("indication_statement") or r.get("indication_excerpt"))]
     pending = ""
     if reg or latest:
@@ -618,8 +714,11 @@ def complete_sentence(sentence: str, limit: int = 700) -> str:
 RELEVANT = ("treats_condition", "treats_associated_symptom_or_comorbidity")
 RELATIONS = ("treats_condition", "treats_associated_symptom_or_comorbidity")
 PURPOSES = ("treat_or_manage", "prevent", "diagnose")
-USED_CATEGORIES = {"guideline-recommended": "Guideline-recommended", "off-label": "Off-label (described as used in practice)"}
-STUDIED = "Studied (a retrieved study reports on it; not an established use)"
+USED_CATEGORIES = {"guideline-recommended": "Guideline-recommended", "off-label": "Evidence-supported (described as used in practice; FDA label status not verified)"}      # 'Off-label' is claimed only from a label (drug_reconcile step), never from a source merely describing use
+STUDIED = "Studied (a retrieved study reports on it with no clear benefit; not an established use)"
+EVIDENCE_STUDY = "Evidence-supported (a retrieved study reports a benefit in patients with this condition; FDA label status not verified)"
+POSITIVE_EFFECT = re.compile(r"(?i)\b(?:reduc\w*|improv\w*|decreas\w*|effective|efficacy|superior\w*|better\s+than|benefit\w*|significant(?:ly)?\s+(?:more|greater|higher|lower|fewer)|responder|prevent\w*)\b")      # a study sentence that reports an effect
+NO_BENEFIT = re.compile(r"(?i)\b(?:no\s+(?:significant\s+|statistically\s+significant\s+)?(?:difference|benefit|improvement|effect|reduction)|not\s+(?:significantly\s+)?(?:superior|effective|better|different)|failed\s+to|did\s+not\s+(?:reduce|improve|differ|show|demonstrate)|no\s+better\s+than|inconclusive|insufficient\s+evidence)\b")      # a study sentence that reports no benefit
 REGULATOR_CLASSES = {"approval": "Approval", "label_update": "Label update", "safety_communication": "Safety communication", "other_regulatory_action": "Other regulatory action"}
 REGULATOR_RELATIONS = ("treats_condition", "treats_associated_symptom_or_comorbidity", "risk_or_safety_related", "other_indication", "unclear")
 PAPER_RELEVANCE = ("direct", "indirect", "background", "not_relevant", "uncertain")
@@ -782,7 +881,8 @@ def verify_drug_decisions(items, offered: dict, state: dict, limit: int = 8) -> 
     the category is an allowed one (Guideline-recommended needs an allow-listed guideline organisation's page, otherwise it is Off-label); the indication phrase is words of the quote."""
     from guidelines import load_config, organisation_for
     config = load_config()
-    approved = {r["generic"].lower().split()[0] for r in state.get("regulatory", []) if fda_relevant(r)}
+    aliases = dr.Aliases.from_records(state.get("regulatory", []))
+    approved = {aliases.of(r["generic"]) for r in state.get("regulatory", []) if fda_relevant(r)}
     rows, rejected, seen = [], [], set()
     for item in items if isinstance(items, list) else []:
         if not isinstance(item, dict):
@@ -797,7 +897,7 @@ def verify_drug_decisions(items, offered: dict, state: dict, limit: int = 8) -> 
             why = "not a drug name"
         elif item.get("drug_kind") not in ("generic", "brand"):
             why = f"a {item.get('drug_kind') or 'drug group'} is not one specific drug"
-        elif drug.lower() in seen or drug.lower().split()[0] in approved:
+        elif aliases.of(drug) in seen or aliases.of(drug) in approved:
             why = "duplicate or already an FDA-labelled row"
         elif item.get("relevance") not in RELEVANT:
             why = f"model: {item.get('relevance') or 'no relevance given'}"
@@ -815,13 +915,13 @@ def verify_drug_decisions(items, offered: dict, state: dict, limit: int = 8) -> 
             rejected.append((drug, why))
             continue
         if item.get("statement_type") == "study_result":
-            category = STUDIED      # a sentence reporting a study result shows the drug was studied, not that it is used
+            category = EVIDENCE_STUDY if (POSITIVE_EFFECT.search(span) and not NO_BENEFIT.search(span)) else STUDIED      # a study result that reports a benefit is evidence for the drug; one that reports none, or an unclear one, only shows it was studied
         if category.startswith("Guideline") and not (src["kind"] == "guideline" or (src["url"] and organisation_for(src["url"], config))):
             category = USED_CATEGORIES["off-label"]      # 'guideline-recommended' needs a guideline organisation's page, not a review or a web page
         if not (4 <= len(indication) <= 140 and _grounded(indication, span)):
             indication = "as stated in the quoted source sentence"      # the model's own wording is not in the sentence: it is not shown, the sentence speaks for itself
         population = _norm(str(item.get("population", ""))).strip(" .,;:")
-        seen.add(drug.lower())
+        seen.add(aliases.of(drug))
         dose = None
         dose_n = _number(item.get("dose_sentence"))
         sents = src.get("sentences") or []
@@ -831,7 +931,8 @@ def verify_drug_decisions(items, offered: dict, state: dict, limit: int = 8) -> 
             if has_amount and _in(candidate, drug) and re.search(r"\d|oral|intraven|intramusc|subcutan|topical|intranasal", candidate, re.I):
                 dose = candidate      # the source's own sentence names this drug and states an amount, a route or a frequency
         rows.append({"dose": dose, "drug": drug, "relevance": item.get("relevance"), "source": str(item.get("source_id", item.get("source", ""))).strip(), "label": src["label"], "excerpt": span, "purpose": indication,
-                     "population": population if population and _grounded(population, span) else "not stated in this sentence", "category": category})
+                     "population": population if population and _grounded(population, span) else "not stated in this sentence", "category": category,
+                     "evidence_kind": dr.evidence_kind(src.get("kind"), src.get("study_type")), "use_kind": dr.use_kind(f"{span} {indication}")})
         if len(rows) >= limit:
             break
     return rows, rejected

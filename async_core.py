@@ -11,6 +11,7 @@ from typing import AsyncIterator, Awaitable, Callable
 
 import httpx
 
+import observability
 from ratelimit import per_second, source_of_url
 
 EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
@@ -110,6 +111,7 @@ async def _with_deadline(source: AsyncIterator[str], first: float = FIRST_CHUNK_
         yield item
 
 
+@observability.amodel_call
 async def astream_llm(instructions: str, prompt: str, max_tokens: int, attempts: int = 2, temperature: float | None = None, purpose: str = "writer") -> AsyncIterator[str]:
     """Async twin of qa_stream.stream_llm: text chunks from a FRESH agent, retried only before the first chunk, a provider's rate limit waited out (not counted as an attempt)."""
     import qa_stream      # imported when called: it loads the models and the skills
@@ -141,6 +143,7 @@ async def astream_llm(instructions: str, prompt: str, max_tokens: int, attempts:
             if got:
                 raise
             limit_hit = "429" in str(error) or "rate limit" in str(error).lower()
+            observability.count("rate_limit_retries" if limit_hit else "model_retries")
             if limit_hit and limited < RATE_LIMIT_RETRIES:
                 limited += 1
                 tries -= 1

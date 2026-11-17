@@ -8,17 +8,20 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 import threading
 from typing import AsyncIterator
 
 import async_core
 import async_figures
+import landscape
 import medication_assessment as ma
 import observability
 import plan_audit
 import qa_stream as qs
 from async_stages_evidence import _wait
+from opening_spec import OpeningSpeculation
 from presentation import closing_note, numberize
 
 
@@ -81,6 +84,39 @@ class FinalStages:
         self.full = ""
         self.result: dict = {}
         self.ran: list[str] = []
+        self.opening_spec = OpeningSpeculation()
+        self.opening_spec_tried = False
+
+    # ---- the summary rewrite, started while the drug stage is still running
+    def preview_synthesis(self) -> str:
+        """The evidence text exactly as stage_assemble builds it, without changing anything (no state written, no limitation noted)."""
+        writing = self.writing
+        latest_text, _ = qs.trim_part(writing["latest"]["text"])
+        gen_text = "\n\n".join(x for x in (latest_text.strip(), qs.drop_uncited_steps(writing["approach"]["text"]).strip() if self.needs_workup else "", writing["current"]["text"].strip()) if x)
+        gen_text = gen_text + ("\n\n" + writing["tail"]["text"].strip() if writing["tail"]["text"].strip() else "")
+        text, _ = qs.trim_incomplete(gen_text or "")
+        text = qs.tidy_model_sections(text)
+        return qs.clean_model_key_studies(text, qs.ordered_papers(self.papers, self.stems, include_background=True), self.stems)
+
+    async def start_opening_speculation(self) -> None:
+        """Called while only the drug stage is left: once every evidence part is written, the opening summary is rewritten from them at once (OPENING_SPECULATIVE=off turns it off)."""
+        if self.opening_spec_tried or self.focused or self.writing is None:
+            return
+        if os.getenv("OPENING_SPECULATIVE", "on").strip().lower() in {"off", "0", "false", "no"}:
+            self.opening_spec_tried = True
+            return
+        if not all(part["done"].is_set() for part in self.writing.values()):
+            return      # asked again at the next turn of the wait
+        self.opening_spec_tried = True
+        try:
+            for name in self.writing:
+                async for _ in self.drain(name, live=False):      # parts already read to their end are not read again; the rest is complete, so this does not wait
+                    pass
+            task = self.opening_spec.start(self.preview_synthesis(), lambda text: aground_opening(self.question, text))
+            if task is not None:
+                self._writer_tasks.append(task)      # stopped with the other tasks when the page is gone
+        except Exception:
+            self.opening_spec.cancel()
 
     # ---- figures: BESIDE the writing
     async def _run_figures(self) -> None:
@@ -173,7 +209,11 @@ class FinalStages:
         evidence_head, evidence_tail = (synthesis[:cut.start()].rstrip(), synthesis[cut.start():]) if cut else (synthesis, "")
         parts["head"] = evidence_head
         clock.mark("evidence_done_s")
-        self.grounded_opening = await aground_opening(self.question, synthesis) if synthesis.strip() and not self.focused else ""      # a focused answer has no summary to rewrite
+        if synthesis.strip() and not self.focused:
+            self.grounded_opening = await self.opening_spec.result(synthesis, lambda text: aground_opening(self.question, text))      # the early rewrite when it read exactly this text
+        else:
+            self.opening_spec.cancel()
+            self.grounded_opening = ""      # a focused answer has no summary to rewrite
         if not self.grounded_opening and not self.focused:
             skipped.append("the opening summary could not be rewritten from the finished evidence; the first draft was kept")
         if evidence_tail.strip():      # Key studies, Conflicting evidence, What remains under investigation (held back until the drugs and trials were shown)
@@ -196,6 +236,12 @@ class FinalStages:
             notes.append(f"{len(excluded_after_screen)} screened record(s) were excluded because the relevance reading judged them not to answer the question.")
         if unreviewed_papers:
             notes.append(f"{len(unreviewed_papers)} retrieved record(s) were not screened before the deadline and were not used as evidence.")
+        try:      # the drug tables are checked before the report is written: nothing here changes the report, a problem found is stated
+            problems = landscape.drug_checks(state, "\n\n".join(str(x) for x in self.sections if x))
+            state["drug_checks"] = problems
+            notes += [f"Drug-table check: {x}" for x in problems[:6]]
+        except Exception as error:
+            state["drug_checks"] = [f"the drug-table check did not complete ({type(error).__name__})"]
         lifecycle = qs.evidence_lifecycle(state, "", "pending")
         self.paper_counts = lifecycle["papers"]
         pc = self.paper_counts

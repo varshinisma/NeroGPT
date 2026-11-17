@@ -181,6 +181,8 @@ class WriterStages:
                         yield e
                     yield self.event("token", stage="EVIDENCE_ENRICHING", text="\n\n")
                     continue
+                if hasattr(self, "start_opening_speculation"):
+                    await self.start_opening_speculation()      # every evidence part is written: the opening summary is rewritten beside the drug stage
                 await self.wait_landscape(0.3)      # only the drug stage is left: wait for it (the assemble stage forces it after its own limit)
                 if clock.now() > T.deep_budget + T.landscape:
                     break

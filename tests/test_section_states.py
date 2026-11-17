@@ -36,7 +36,8 @@ class Renderers(unittest.TestCase):
             self.assertTrue(md.startswith("## Treatment Drug Landscape"))
             self.assertIn("### Drugs used for treatment of this condition", md)
             self.assertIn("### Other drugs: used for symptoms", md)
-            self.assertEqual(md.count("| Drug | Indication | Dose / route (if sourced) | Key evidence |"), 2)      # both tables keep their columns
+            self.assertEqual(md.count("| Drug | Indication | Dose / route (if sourced) | Key evidence |"), 1)      # the other-drugs table keeps its four columns
+            self.assertEqual(md.count("| Drug | Class | Indication (type; population) | Dose / route (if sourced) | Regulatory status | Evidence and source |"), 1)      # the treatment table has the added columns
             self.assertIn(landscape.STATE_LINES[sec], md)
             self.assertNotIn("No FDA drug label with an indication matching", md)      # no absence is claimed about a search that did not complete
 

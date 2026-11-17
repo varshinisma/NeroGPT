@@ -21,7 +21,8 @@ async def adefault_run_agent(system: str, prompt: str, tools: list, limit: int =
 async def arun_once(prompt: str, memory: list[dict], run_agent=None) -> dict:
     record: dict = {}
     try:
-        await (run_agent or adefault_run_agent)(orch.instructions(), prompt, orch.make_tools(record, with_conversation=bool(memory)))
+        slim = orch.TRIM and not memory      # a new question: the shorter prompt and the plan-only tool
+        await (run_agent or adefault_run_agent)(orch.instructions(slim), prompt, orch.make_tools(record, with_conversation=bool(memory), slim=slim))
     except Exception:
         record = {}
     return record

@@ -79,8 +79,10 @@ async def adrug_handoff_stage(state: dict, question: str, ask=None, search=None)
         if not read["sources"]:
             return
         answer = await (ask or async_core.aask_json)(question, drug_handoff.TASK, {"sources": read["sources"]}, 700)
+        model_s = round(time.time() - began, 1)
         known = {" ".join(rr._words(r.get("generic") or "")) for r in state.get("regulatory") or []} | {" ".join(rr._words(d)) for d in (state.get("entities") or {}).get("drugs") or []}
         names = drug_handoff.verified(answer.get("drugs"), read["text"], {k for k in known if k})
+        search_began = time.time()
         raw: dict = {}
         if names:
             chunks = [[n["name"] for n in names[i:i + 6]] for i in range(0, len(names), 6)]
@@ -98,7 +100,7 @@ async def adrug_handoff_stage(state: dict, question: str, ask=None, search=None)
         before = len(state.get("regulatory") or [])
         qs.ingest_regulatory(state, raw)
         qs.record_source_status(state, raw)
-        state["drug_handoff"] = {"listed": len(answer.get("drugs") or []), "kept": [n["name"] for n in names], "labels_added": len(state.get("regulatory") or []) - before, "seconds": round(time.time() - began, 1)}
+        state["drug_handoff"] = {"listed": len(answer.get("drugs") or []), "kept": [n["name"] for n in names], "labels_added": len(state.get("regulatory") or []) - before, "seconds": round(time.time() - began, 1), "model_s": model_s, "search_s": round(time.time() - search_began, 1)}
     except Exception as error:
         state["drug_handoff"] = {"error": f"{type(error).__name__}: {str(error)[:80]}"}
 
@@ -176,18 +178,56 @@ class DrugStages:
         papers, trials = self.papers, self.trials
         marks = {"thread_started": round(clock.now(), 1)}
         light = state.get("medicines_needed") is False
-        await self.absorb("guidelines")
-        self.guidelines_ready.set()
-        marks["guidelines_in"] = round(clock.now(), 1)
-        await self.absorb("drugs")
-        marks["drugs_in"] = round(clock.now(), 1)
-        await self.absorb("trials")
-        marks["data_in"] = round(clock.now(), 1)
-        state["trial_status"] = "complete" if qs.family_status(state, "trials").get("retrieval_status") == "success" else "partial"
-        state["trials"] = list(trials.values())
+
+        def time_left():
+            """Seconds left before RUN_DEADLINE_S on the run clock; None when no deadline is set (the default). Only the OPTIONAL work of the drug stage uses it: the extra web sources, the second reading,
+            the class expansion, the dose lookups and the label wait. The first reading of the sources always finishes, so the drugs the sources name are never cut."""
+            try:
+                limit = float(os.getenv("RUN_DEADLINE_S", "0") or 0)
+            except ValueError:
+                limit = 0.0
+            return None if limit <= 0 else limit - clock.now()
+        agent_mode = bool(getattr(self, "drug_agent_active", False)) and not light      # the drug agent's own sources are read first; the main pipeline's sources follow as a top-up
+        agent_box = (getattr(self, "drug_agent_box", None) or {}) if agent_mode else {}
+
+        async def merge_groups() -> None:
+            await self.absorb("guidelines")
+            self.guidelines_ready.set()
+            marks["guidelines_in"] = round(clock.now(), 1)
+            await self.absorb("drugs")
+            marks["drugs_in"] = round(clock.now(), 1)
+            await self.absorb("trials")
+            marks["data_in"] = round(clock.now(), 1)
+            state["trial_status"] = "complete" if qs.family_status(state, "trials").get("retrieval_status") == "success" else "partial"
+            state["trials"] = list(trials.values())
+
+        async def merge_after_ranking() -> None:
+            """Agent mode: the groups are merged into the shared pools only when the main pipeline has finished ranking its papers (its ranking thread rewrites the paper pool); the agent's papers and pages join them then."""
+            try:
+                await asyncio.wait_for(self.papers_ranked.wait(), timeout=self.T.escalation + 10)
+            except asyncio.TimeoutError:
+                pass
+            await merge_groups()
+            for pmid, rec in (agent_box.get("papers") or {}).items():
+                papers.setdefault(pmid, rec)      # the drug table cites them, so they are papers of the report (its references are numbered from this pool)
+            known_urls_now = {x.get("url") for x in state["web"]}
+            for w in agent_box.get("web") or []:
+                if w.get("url") and w["url"] not in known_urls_now:
+                    state["web"].append(w)
+                    known_urls_now.add(w["url"])
+            marks["merged"] = round(clock.now(), 1)
+
+        merge_task = asyncio.ensure_future(merge_after_ranking()) if agent_mode else None
+        if not agent_mode:
+            await merge_groups()
         handoff_task = None
-        if not light:      # the handoff (its model call and the label lookups) now runs BESIDE the reading of the sources; only the FDA-label reading waits for it, because it needs the labels it adds
-            handoff_task = asyncio.ensure_future(adrug_handoff_stage(state, question))
+
+        async def handoff_after_merge():
+            if merge_task is not None:
+                await merge_task
+            return await adrug_handoff_stage(state, question)
+        if not light:      # the handoff (its model call and the label lookups) runs BESIDE the reading of the sources; only the FDA-label reading waits for it, because it needs the labels it adds
+            handoff_task = asyncio.ensure_future(handoff_after_merge())
         fda_recs: list = []
         fda_label_tasks: list = []
         dose_tasks: list = []
@@ -209,27 +249,45 @@ class DrugStages:
         start_fda_work()
 
         offered: dict = {}
-        for p in sorted((p for p in list(papers.values()) if not p.get("retracted")), key=lambda p: not str(p.get("origin", "")).startswith("pubmed_drugs"))[:qs.DRUG_PAPERS]:
-            if not p.get("retracted") and not p.get("protocol") and p.get("abstract"):
-                offered[p["pmid"]] = {"title": p["title"][:160], "text": qs.snippet(p["abstract"], 900), "label": f"PMID {p['pmid']} ({p['cite'].split(' [')[0]})", "url": "", "kind": "paper"}
-        for w in state["web"][:qs.DRUG_WEB_PAGES]:
-            if w.get("url") and qs.source_family(w.get("source") or "") != "regulator" and w.get("snippet"):
-                offered[w["url"]] = {"title": (w.get("title") or "web page")[:160], "text": w["snippet"], "label": f"[{(w.get('title') or 'web page')[:70]}]({w['url']})", "url": w["url"], "kind": "web"}
-        for g in state.get("guidelines", []):
-            offered[g["url"]] = {"title": g["title"][:160], "text": g.get("text") or g.get("excerpt") or "", "label": f"[{g['organisation']}: {g['title'][:60]}]({g['url']})", "url": g["url"], "kind": "guideline"}
+
+        def build_sources(src_papers: dict, src_web: list, src_guidelines: list) -> list:
+            """Entries of `offered` for these sources; a source that is already offered is kept as it is. Returns the keys that were added."""
+            built: dict = {}
+            for p in sorted((p for p in list(src_papers.values()) if not p.get("retracted")), key=lambda p: not str(p.get("origin", "")).startswith("pubmed_drugs"))[:qs.DRUG_PAPERS]:
+                if not p.get("retracted") and not p.get("protocol") and p.get("abstract"):
+                    built[p["pmid"]] = {"title": p["title"][:160], "text": qs.snippet(p["abstract"], 900), "label": f"PMID {p['pmid']} ({p['cite'].split(' [')[0]})", "url": "", "kind": "paper", "study_type": p.get("study_type")}
+            for w in src_web[:qs.DRUG_WEB_PAGES]:
+                if w.get("url") and qs.source_family(w.get("source") or "") != "regulator" and w.get("snippet"):
+                    built[w["url"]] = {"title": (w.get("title") or "web page")[:160], "text": w["snippet"], "label": f"[{(w.get('title') or 'web page')[:70]}]({w['url']})", "url": w["url"], "kind": "web"}
+            for g in src_guidelines:
+                built[g["url"]] = {"title": g["title"][:160], "text": g.get("text") or g.get("excerpt") or "", "label": f"[{g['organisation']}: {g['title'][:60]}]({g['url']})", "url": g["url"], "kind": "guideline"}
+            added = []
+            for key, entry in built.items():
+                if key not in offered:
+                    entry["sentences"] = qs.numbered_sentences(entry["text"], complete_only=entry["kind"] != "paper")
+                    offered[key] = entry
+                    added.append(key)
+            return added
+
+        build_sources((agent_box.get("papers") or {}) if agent_mode else papers,
+                      (list(agent_box.get("web") or []) + list(state["web"])) if agent_mode else state["web"],
+                      [] if agent_mode else state.get("guidelines", []))
         offered_reg: dict = {}
-        for w in state["web"]:
-            page = (w.get("url") or "").split("#", 1)[0].split("?", 1)[0].rstrip("/").lower()
-            host = (urlparse(w.get("url") or "").hostname or "").lower()
-            if qs.source_family(w.get("source") or "") == "regulator" and w.get("snippet") and any(host == h or host.endswith("." + h) for h in qs.REGULATOR_HOSTS) \
-                    and not any(v["url"].split("#", 1)[0].split("?", 1)[0].rstrip("/").lower() == page for v in offered_reg.values()) and len(offered_reg) < 8:
-                offered_reg[f"reg:{len(offered_reg) + 1}"] = {"title": re.sub(r"\s*/\s*FDA\s*$", "", re.sub(r"\s+", " ", w.get("title") or w["url"]).strip()), "url": w["url"], "text": w["snippet"][:1200]}
-        for v in offered.values():
-            v["sentences"] = qs.numbered_sentences(v["text"], complete_only=v["kind"] != "paper")
-        for v in offered_reg.values():
-            v["text"] = v["text"][:1200]
-            head = v["title"][:40].lower()
-            v["sentences"] = [x for x in qs.numbered_sentences(v["text"], 1200, complete_only=True) if not x.lower().startswith(head)]
+
+        def build_offered_reg() -> None:
+            for w in state["web"]:
+                page = (w.get("url") or "").split("#", 1)[0].split("?", 1)[0].rstrip("/").lower()
+                host = (urlparse(w.get("url") or "").hostname or "").lower()
+                if qs.source_family(w.get("source") or "") == "regulator" and w.get("snippet") and any(host == h or host.endswith("." + h) for h in qs.REGULATOR_HOSTS) \
+                        and not any(v["url"].split("#", 1)[0].split("?", 1)[0].rstrip("/").lower() == page for v in offered_reg.values()) and len(offered_reg) < 8:
+                    offered_reg[f"reg:{len(offered_reg) + 1}"] = {"title": re.sub(r"\s*/\s*FDA\s*$", "", re.sub(r"\s+", " ", w.get("title") or w["url"]).strip()), "url": w["url"], "text": w["snippet"][:1200]}
+            for v in offered_reg.values():
+                v["text"] = v["text"][:1200]
+                head = v["title"][:40].lower()
+                v["sentences"] = [x for x in qs.numbered_sentences(v["text"], 1200, complete_only=True) if not x.lower().startswith(head)]
+
+        if not agent_mode:      # in agent mode the regulator pages are read after the main pipeline's groups are merged (they come from its searches)
+            build_offered_reg()
         condition = (state.get("entities") or {}).get("condition") or question
         dose_prefetch: dict = {}      # drug -> its dose web search, started as soon as the drug interpretation has named the drug (not after the other interpretation calls)
         label_prefetch: dict = {}      # drug -> its own DailyMed label lookup, started at the same moment
@@ -264,8 +322,32 @@ class DrugStages:
                     return await interpret_part(part, second)
                 except Exception as error:
                     return {"_error": f"{type(error).__name__}: {str(error)[:80]}"}
+            async def topup_read() -> dict:
+                """Runs BESIDE the first reading (no added wait): web pages that name the specific medicines for the condition, read by the same reader; every drug is verified against its own sentence like the rest."""
+                try:
+                    found = await asyncio.gather(*(async_web.aweb_search(q, 1200) for q in (f"medications used to treat {condition}: names of the specific drugs", f"{condition} pharmacological treatment drug options guideline")), return_exceptions=True)
+                    new_keys = []
+                    for raw in found:
+                        pages = json.loads(raw) if isinstance(raw, str) else []
+                        for w in pages if isinstance(pages, list) else []:
+                            url, text = w.get("url"), w.get("snippet")
+                            if url and text and url not in offered and len(new_keys) < 8:
+                                offered[url] = {"title": (w.get("title") or "web page")[:160], "text": text, "label": f"[{(w.get('title') or 'web page')[:70]}]({url})", "url": url, "kind": "web"}
+                                offered[url]["sentences"] = qs.numbered_sentences(text, complete_only=True)
+                                new_keys.append(url)
+                    return await asyncio.wait_for(interpret_part(new_keys, False), timeout=float(os.getenv("DRUG_TOPUP_S", "16"))) if new_keys else {}
+                except Exception:
+                    return {}      # the extra sources only add
             for attempt in ((1,) if light else (1, 2)):
-                answers = await asyncio.gather(*(safe(p, attempt == 2) for p in parts))
+                topup = asyncio.ensure_future(topup_read()) if (attempt == 1 and not light and not agent_mode and os.getenv("DRUG_TOPUP", "on") != "off") else None
+                answers = list(await asyncio.gather(*(safe(p, attempt == 2) for p in parts)))
+                if topup is not None:      # the extra web sources only add: they run beside the first reading and, with a deadline, get only the time that is left
+                    left = time_left()
+                    await asyncio.wait([topup], timeout=None if left is None else max(0.5, left))
+                    if topup.done() and not topup.cancelled():
+                        answers.append(topup.result())
+                    else:
+                        topup.cancel()
                 if answers and all("_error" in a for a in answers):
                     result["error"] = answers[0]["_error"]
                     break
@@ -273,23 +355,25 @@ class DrugStages:
                 result["items"] += [d for a in answers for d in (a.get("drugs") or []) if (str(d.get("drug", "")).lower(), str(d.get("source_id", ""))) not in seen_items]
                 result["rows"], result["rejected"] = qs.verify_drug_decisions(result["items"], offered, state, limit=qs.MAX_USED_DRUGS)
                 prefetch(result["rows"])
-                if len(result["rows"]) >= int(os.getenv("DRUG_RETRY_BELOW", "4")) or not offered or clock.now() > 50.0:      # fewer than 4 drugs: the sources are read a second time, with a stronger instruction
+                if len(result["rows"]) >= int(os.getenv("DRUG_RETRY_BELOW", "4")) or not offered or clock.now() > 50.0 or (time_left() is not None and time_left() < 0):      # fewer than 4 drugs: the sources are read a second time, with a stronger instruction
                     break
             max_classes = int(os.getenv("DRUG_CLASS_EXPAND", "6"))
-            if max_classes and not light and not result["error"]:
+            left = time_left()
+            if max_classes and not light and not result["error"] and (left is None or left > 2.0):
                 try:
-                    await asyncio.wait_for(expand_classes(result, max_classes), timeout=float(os.getenv("DRUG_CLASS_EXPAND_S", "14")))
+                    expand_s = float(os.getenv("DRUG_CLASS_EXPAND_S", "14"))
+                    await asyncio.wait_for(expand_classes(result, max_classes), timeout=expand_s if left is None else min(expand_s, left))
                 except Exception:
                     pass      # the drugs found so far stay: the expansion only adds
             return result
 
-        async def expand_classes(result: dict, max_classes: int) -> None:
+        async def expand_classes(result: dict, max_classes: int, skip: frozenset = frozenset()) -> None:
             """Class-to-specific expansion (drug-intelligence skill, Pass 1 item 5). The sources named drug CLASSES (penicillins, macrolides, corticosteroids ...) that cannot be a row: each class is searched on the web
             for its specific medicines, the pages found are offered as new sources, the model reads them for sentences that name a specific drug of the class used for the condition, and every drug is verified
             against its sentence exactly like the others. Nothing is added from memory."""
             classes = []
             for name, why in result["rejected"]:
-                if ("not one specific drug" in why or why == "not a drug name") and name.lower() not in {c.lower() for c in classes} and not re.search(r"(?i)\btherap(y|ies)\b|\bphage\b", name):
+                if ("not one specific drug" in why or why == "not a drug name") and name.lower() not in {c.lower() for c in classes} and name.lower() not in skip and not re.search(r"(?i)\btherap(y|ies)\b|\bphage\b", name):
                     classes.append(name)
             classes = classes[:max_classes]
             if not classes:
@@ -333,6 +417,12 @@ class DrugStages:
 
         async def interpret_regulator() -> dict:
             result = {"items": [], "rejected": [], "error": None}
+            if merge_task is not None:      # agent mode: the regulator pages come from the main pipeline's searches, merged after its ranking
+                try:
+                    await merge_task
+                    build_offered_reg()
+                except Exception:
+                    pass
             if not offered_reg:
                 return result
             try:
@@ -349,6 +439,11 @@ class DrugStages:
             return result
 
         async def interpret_fda() -> dict:
+            if merge_task is not None:      # agent mode: the labels come from the groups that are merged after the main pipeline's ranking
+                try:
+                    await merge_task
+                except Exception:
+                    pass
             try:
                 if handoff_task is not None:
                     await asyncio.shield(handoff_task)
@@ -360,11 +455,57 @@ class DrugStages:
                 return {"confirmed": [], "excluded": [], "unreviewed": [r["generic"] for r in state["regulatory"] if r.get("model_relevant") is None], "reviewer_rejected": [],
                         "error": f"{type(error).__name__}: {str(error)[:80]}"}
 
+        async def interpret_drugs_agent() -> dict:
+            """Agent mode: the agent's own sources are read first (reading, second reading and class expansion all run while the main pipeline is still searching and ranking); the sources the main pipeline
+            found are then read as a top-up and everything is verified together, so no drug the old stage found is left out."""
+            result = await interpret_drugs()
+            marks["agent_read"] = round(clock.now(), 1)
+            try:
+                await merge_task
+                fresh = build_sources(papers, state["web"], state.get("guidelines", []))
+                cap = int(os.getenv("DRUG_FRESH_MAX", "40"))
+                for key in fresh[cap:]:
+                    offered.pop(key, None)
+                fresh = fresh[:cap]
+                marks["fresh_sources"] = len(fresh)
+
+                async def safe_part(part: list) -> dict:
+                    try:
+                        return await interpret_part(part)
+                    except Exception as error:
+                        return {"_error": f"{type(error).__name__}: {str(error)[:80]}"}
+                if fresh:
+                    answers = await asyncio.gather(*(safe_part(fresh[i:i + qs.DRUG_PART_SIZE]) for i in range(0, len(fresh), qs.DRUG_PART_SIZE)))
+                    seen_items = {(str(d.get("drug", "")).lower(), str(d.get("source_id", ""))) for d in result["items"]}
+                    for a in answers:
+                        for d in a.get("drugs") or []:
+                            key = (str(d.get("drug", "")).lower(), str(d.get("source_id", "")))
+                            if key not in seen_items:
+                                seen_items.add(key)
+                                result["items"].append(d)
+                    if any("_error" not in a for a in answers):
+                        result["error"] = None
+                    result["rows"], result["rejected"] = qs.verify_drug_decisions(result["items"], offered, state, limit=qs.MAX_USED_DRUGS)
+                    prefetch(result["rows"])
+                    max_classes, left = int(os.getenv("DRUG_CLASS_EXPAND", "6")), time_left()
+                    if max_classes and not result["error"] and (left is None or left > 2.0):
+                        expand_s = float(os.getenv("DRUG_CLASS_EXPAND_S", "14"))
+                        await asyncio.wait_for(expand_classes(result, max_classes, frozenset(c.lower() for c in result.get("expanded_from") or [])), timeout=expand_s if left is None else min(expand_s, left))
+            except Exception as error:
+                skipped.append(f"the top-up reading of the main pipeline's sources did not complete ({type(error).__name__}); the drugs of the drug agent's sources are listed")
+            marks["topped_up"] = round(clock.now(), 1)
+            return result
+
         # the drug call (itself several calls), the FDA-label call, the regulator call and the medication-statement call run together
-        coroutines = [interpret_drugs(), interpret_regulator(), interpret_fda()]
+        coroutines = [interpret_drugs_agent() if agent_mode else interpret_drugs(), interpret_regulator(), interpret_fda()]
         if qs.SHOW_MEDICATION_ASSESSMENT:
             coroutines.append(apick_statements(question, state))
         results = await asyncio.gather(*coroutines)
+        if merge_task is not None:
+            try:
+                await merge_task
+            except Exception as error:
+                skipped.append(f"the retrieved groups could not be merged ({type(error).__name__})")
         if handoff_task is not None:
             try:
                 await handoff_task
@@ -400,7 +541,9 @@ class DrugStages:
         label_jobs = {r["drug"]: (label_prefetch.get(r["drug"]) or asyncio.ensure_future(at.afda_label_link(r["drug"]))) for r in used_rows}      # each listed drug's OWN DailyMed page, looked up while the dose searches run
         try:
             if not light:
-                await alookup_doses(used_rows, condition, question, stems=[x for x in (state.get("core_stems") or []) if len(x) >= 4], prefetched=dose_prefetch)
+                doses_call = alookup_doses(used_rows, condition, question, stems=[x for x in (state.get("core_stems") or []) if len(x) >= 4], prefetched=dose_prefetch)
+                left = time_left()
+                await (doses_call if left is None else asyncio.wait_for(doses_call, timeout=max(3.0, left)))      # a late dose lookup leaves the doses the sources already gave
         except Exception as error:
             skipped.append(f"dose lookup for the listed drugs did not complete ({type(error).__name__}); doses are shown only where a source gave one")
         known_urls = {w.get("url") for w in state["web"]}
@@ -428,7 +571,8 @@ class DrugStages:
         listed = used_rows + trial_rows
         waiting = list(label_jobs.values()) + fda_label_tasks + dose_tasks
         if waiting:      # the label links and dose summaries get a few seconds at most: the answer is never held up by a slow lookup
-            await asyncio.wait(waiting, timeout=float(os.getenv("LABEL_WAIT_S", "15")))
+            left = time_left()
+            await asyncio.wait(waiting, timeout=float(os.getenv("LABEL_WAIT_S", "15")) if left is None else min(float(os.getenv("LABEL_WAIT_S", "15")), max(2.0, left)))
         listed_labels = [_finished(label_jobs[r["drug"]]) for r in listed]
         fda_labels = [_finished(t) for t in fda_label_tasks]
         for row, found in zip(listed, listed_labels):
@@ -436,6 +580,10 @@ class DrugStages:
             generic = ((found or {}).get("generic_name") or "").lower()
             if generic and generic != row["drug"].lower():
                 row["drug"] = f"{row['drug']} ({generic})"
+        used_rows[:], listed_labels = landscape.reconcile_used_rows(state, used_rows, listed_labels[:len(used_rows)])      # brand and generic of one drug are one row; a drug an FDA row already shows is not listed again; 'off-label' only from a retrieved label
+        listed = used_rows + trial_rows
+        state["used_drugs"] = [r["drug"] for r in used_rows]
+        state["used_rows_final"] = list(used_rows)
         shown_fda = [(n, f) for n, f, rec in zip(fda_names, fda_labels, fda_recs) if qs.fda_relevant(rec)]
         safety_labels = [{"drug": n, "url": f["url"], "boxed_warning": f.get("boxed_warning")} for n, f in list(zip([r["drug"] for r in listed], listed_labels)) + shown_fda if f]
         state["drug_labels"] = [{"drug": x["drug"], "url": x["url"], "boxed_warning": x.get("boxed_warning")} for x in safety_labels]
@@ -468,16 +616,31 @@ class DrugStages:
 
     async def _run_prepare(self) -> None:
         try:
-            gate = self.papers_ranked if qs.DRUG_STAGE_EARLY else self.evidence_ready      # early: starts when the papers are merged and ranked
-            try:
-                await asyncio.wait_for(gate.wait(), timeout=self.T.escalation + 10)
-            except asyncio.TimeoutError:
-                pass
+            ready = getattr(self, "drug_agent_ready", None)
+            self.drug_agent_active = False
+            if ready is not None:      # the drug agent runs beside the main pipeline: its sources are read as soon as it is done
+                try:
+                    await asyncio.wait_for(ready.wait(), timeout=float(os.getenv("DRUG_AGENT_WAIT_S", "30")))
+                except asyncio.TimeoutError:
+                    pass
+                self.drug_agent_active = bool((getattr(self, "drug_agent_box", None) or {}).get("ok")) and self.state.get("medicines_needed") is not False
+            if not self.drug_agent_active:      # no agent (or it failed): the drug stage starts when the main pipeline's papers are ranked, as before
+                gate = self.papers_ranked if qs.DRUG_STAGE_EARLY else self.evidence_ready      # early: starts when the papers are merged and ranked
+                try:
+                    await asyncio.wait_for(gate.wait(), timeout=self.T.escalation + 10)
+                except asyncio.TimeoutError:
+                    pass
             self.landscape_box["md"] = await self.aprepare_landscape()
         except Exception as error:
             self.landscape_box["error"] = f"{type(error).__name__}: {str(error)[:120]}"
         finally:
             self.guidelines_ready.set()
+
+    def start_drug_agent(self) -> None:
+        """Called by the fast-search stage: the drug agent (async_drug_agent) starts beside the plan and the deep search when DRUG_AGENT=on."""
+        import async_drug_agent
+        if async_drug_agent.enabled() and not self.focused:
+            async_drug_agent.start(self)
 
     def start_landscape(self) -> None:
         if self.landscape_task is None:

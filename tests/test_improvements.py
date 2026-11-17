@@ -688,7 +688,8 @@ class FollowsTheSpecification(unittest.TestCase):
         trial = [{"drug": "NTI164", "nct": "NCT07", "phase": "Phase 3", "status": "Recruiting", "updated": "2026-09-30", "url": "https://clinicaltrials.gov/study/NCT07", "conditions": "Autism", "primary": "Score", "ages": "6+"}]
         md = landscape.landscape_markdown(st, used, trial)
         header = "| Drug | Indication | Dose / route (if sourced) | Key evidence |"
-        self.assertEqual(md.count(header), 2)      # the same four columns in the treatment table and the other-drugs table
+        self.assertEqual(md.count(header), 1)      # the other-drugs table keeps its four columns
+        self.assertEqual(md.count("| Drug | Class | Indication (type; population) | Dose / route (if sourced) | Regulatory status | Evidence and source |"), 1)      # the treatment table: class, use type, status by regulator
         first_heading = "### Drugs used for treatment of this condition"
         second_heading = "### Other drugs: used for symptoms (not established treatments of this condition)"
         self.assertLess(md.index(first_heading), md.index(second_heading))
@@ -900,7 +901,7 @@ class ModelInterpretationIsVerifiedAgainstTheSource(unittest.TestCase):
         self.assertEqual(rows[0]["drug"], "Melatonin")
         self.assertEqual(rows[0]["purpose"], "sleep problems")
         self.assertEqual(rows[0]["excerpt"], "melatonin is commonly prescribed for sleep problems in children with condition X")
-        self.assertEqual(rows[0]["category"], "Off-label (described as used in practice)")
+        self.assertEqual(rows[0]["category"], landscape.USED_CATEGORIES["off-label"])      # a source that describes use is not an off-label claim
         self.assertEqual(rows[0]["population"], "children with condition X")
 
     def test_every_check_rejects_what_the_source_does_not_support(self):
@@ -928,7 +929,7 @@ class ModelInterpretationIsVerifiedAgainstTheSource(unittest.TestCase):
         guide = drug_item(source_id="https://www.aap.org/x", category="Guideline-recommended", quote="The AAP recommends melatonin for sleep problems in children with condition X")
         blog = drug_item(source_id="https://blog.example.com/y", category="Guideline-recommended", quote="melatonin is recommended for sleep problems in children with condition X")
         self.assertEqual(landscape.verify_drug_decisions([guide], OFFERED, s)[0][0]["category"], "Guideline-recommended")
-        self.assertEqual(landscape.verify_drug_decisions([blog], OFFERED, s)[0][0]["category"], "Off-label (described as used in practice)")      # downgraded, not trusted
+        self.assertEqual(landscape.verify_drug_decisions([blog], OFFERED, s)[0][0]["category"], landscape.USED_CATEGORIES["off-label"])      # downgraded, not trusted
 
     def test_a_drug_with_its_own_fda_row_is_not_repeated(self):
         item = drug_item(drug="Risperidone", quote="risperidone is widely used", indication="irritability")
@@ -1317,7 +1318,11 @@ class OnlyUseInPracticeAndOnlyTheConditionItselfGoInTheTreatmentTable(unittest.T
         s = make_state()
         rows, rejected = landscape.verify_drug_decisions([study, self.item(drug="Zzzzol", statement_type=None)], self.SRC, s)
         self.assertEqual([r["drug"] for r in rows], ["Atomoxetine"])
-        self.assertTrue(rows[0]["category"].startswith("Studied"))
+        self.assertTrue(rows[0]["category"].startswith("Evidence-supported"))      # a study sentence that reports an improvement is evidence for the drug, never "used in practice"
+        self.assertNotIn("used in practice", rows[0]["category"].split(";")[0].lower())
+        src = {"u": dict(self.SRC["u"], text="Atomoxetine showed no significant difference from placebo in children.")}
+        none, _ = landscape.verify_drug_decisions([self.item(drug="Atomoxetine", sentence=1, statement_type="study_result", category="Off-label")], src, s)
+        self.assertTrue(none[0]["category"].startswith("Studied"))      # a study that reports no benefit only shows the drug was studied
         self.assertIn("neither a statement of use", rejected[0][1])
         md = landscape.landscape_markdown(s, rows, [])
         self.assertNotIn("Atomoxetine", md.split("### Other drugs")[0])      # a studied drug is never in the table of drugs used for treatment

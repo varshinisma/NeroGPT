@@ -133,6 +133,36 @@ def model_call(fn):
     return inner
 
 
+def amodel_call(fn):
+    """Async twin of model_call, for an async generator that streams model text (async_core.astream_llm): the same span (purpose, time to first token, generation time, sizes). Without it the async
+    pipeline recorded only the orchestrator's call, so the writers, the relevance reading and the drug reading did not show in the spans."""
+    @functools.wraps(fn)
+    async def inner(*args, **kwargs):
+        if not enabled():
+            async for chunk in fn(*args, **kwargs):
+                yield chunk
+            return
+        began, first, out_chars, chunks, error = now(), None, 0, 0, None
+        in_chars = sum(len(str(a)) for a in args[:2])
+        purpose = kwargs.get("purpose") or "writer"
+        try:
+            async for chunk in fn(*args, **kwargs):
+                if first is None:
+                    first = now()
+                chunks += 1
+                out_chars += len(chunk)
+                yield chunk
+        except BaseException as exc:
+            error = f"{type(exc).__name__}: {str(exc)[:120]}"
+            count("model_errors")
+            raise
+        finally:
+            end = now()
+            record("model", purpose, began, end, ttft=round(first - began, 3) if first else None, gen_s=round(end - first, 3) if first else None, in_chars=in_chars, out_chars=out_chars, chunks=chunks, error=error)
+            count("model_calls")
+    return inner
+
+
 def tool(name: str):
     """Context manager for one tool or retrieval execution."""
     return span("tool", name)

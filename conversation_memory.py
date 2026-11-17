@@ -23,6 +23,25 @@ REFERS_BACK = re.compile(r"(?i)\b(?:above|previous(?:ly)?|earlier|before|former|
                          r"all (?:of )?the (?:drugs?|medicines?|medications?)|it|its|they|their)\b")
 
 
+GENERIC_WORDS = set("""what which whose when where whom does should would could about with from have into than then also best good more most some any many much very there their other another this that these those them they your you for and the are was were been being its has had not but can will may might use used using need needs needed give gave tell show list find provide describe explain compare current currently latest recent newest new old evidence evidences data study studies trial trials review reviews guideline guidelines treatment treatments treat treating therapy therapies option options drug drugs medicine medicines medication medications dose doses dosage dosing effect effects side safety risk risks outcome outcomes year years month months update updates people patient patients person case cases help helps works work""".split())
+
+
+def _topic_words(text: str) -> set:
+    return {w for w in re.findall(r"[a-z]{5,}", (text or "").lower()) if w not in GENERIC_WORDS}
+
+
+def stands_alone(question: str, memory: list) -> bool:
+    """A code check on the agent's reading: the message names a topic of its own (two or more subject words that appear nowhere in the earlier questions, conditions or drugs) and points back at nothing.
+    Such a message is a NEW question; a terse topic ('Migraine prophylaxis 2026 evidence') must not inherit the earlier conversation. Fails safe: one new word, or any back-reference, keeps the agent's reading."""
+    if not memory or looks_like_follow_up(question):
+        return False
+    seen = set()
+    for t in memory:
+        seen |= _topic_words(" ".join(str(x) for x in [t.get("question"), t.get("saved_question"), t.get("condition"), " ".join(t.get("drugs") or [])]))
+    own = _topic_words(question)
+    return len(own) >= 2 and not (own & seen)
+
+
 def looks_like_follow_up(question: str) -> bool:
     """A cheap check before any model call: does the question point back at something said earlier?"""
     return bool(REFERS_BACK.search(question or ""))

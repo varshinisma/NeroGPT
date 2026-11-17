@@ -74,6 +74,18 @@ async def aprimary_with_fallback(primary, fallback, grace: float = 3.0) -> str:
                 task.cancel()
 
 
+def _fast_source(name: str):
+    """The function the FAST pass calls for a source. With SOURCES_VIA_TAVILY=on the module attributes of async_tools are the Tavily versions; the fast pass sends a Boolean PubMed query and has only a few seconds,
+    so (FAST_VIA_TAVILY=off, the default) it uses the source's own API, kept in async_tavily_sources.DIRECT. The deep search keeps the Tavily versions. FAST_VIA_TAVILY=on: the fast pass uses Tavily too."""
+    import os, sys
+    via = sys.modules.get("async_tavily_sources")
+    if via is not None and os.getenv("FAST_VIA_TAVILY", "off").strip().lower() not in ("on", "1", "true", "yes"):
+        direct = getattr(via, "DIRECT", {}).get(name)
+        if direct is not None:
+            return direct
+    return getattr(at, name)
+
+
 def afast_jobs(question: str, grace: float = 3.0) -> dict:
     """Async twin of qa_stream.fast_jobs: {name: async function}, one retry with backoff for every source of the fast pass."""
     query, years = qs.pubmed_query_from_question(question)
@@ -82,21 +94,21 @@ def afast_jobs(question: str, grace: float = 3.0) -> dict:
 
     async def pubmed_fast():
         return await acached("pm", f"{query}|{years}", 900, lambda: aprimary_with_fallback(
-            lambda: at.asearch_europepmc_quick(query, max_results=6, years_back=years, sort="relevance"), lambda: at.asearch_pubmed_quick(query, 4, years, "relevance"), grace=grace))
+            lambda: _fast_source("asearch_europepmc_quick")(query, max_results=6, years_back=years, sort="relevance"), lambda: _fast_source("asearch_pubmed_quick")(query, 4, years, "relevance"), grace=grace))
 
     async def pubmed_fast_q():
-        return await acached("pm", f"{query}|{years}|q", 900, lambda: at.asearch_europepmc_quick(
+        return await acached("pm", f"{query}|{years}|q", 900, lambda: _fast_source("asearch_europepmc_quick")(
             f"({query}) AND (PUB_TYPE:\"Systematic Review\" OR PUB_TYPE:\"Meta-Analysis\" OR PUB_TYPE:\"Randomized Controlled Trial\" OR PUB_TYPE:\"Practice Guideline\")",
             max_results=4, years_back=years + 1, sort="relevance"))
 
     async def trials_fast():
-        return await acached("ct", cond, 300, lambda: at.asearch_clinical_trials(cond, "", "", 4))
+        return await acached("ct", cond, 300, lambda: _fast_source("asearch_clinical_trials")(cond, "", "", 4))
 
     async def trials_drugs_fast():
-        return await acached("ct", f"{cond}|drug-fast", 300, lambda: at.asearch_clinical_trials(cond, "", "", 4, drug_only=True))
+        return await acached("ct", f"{cond}|drug-fast", 300, lambda: _fast_source("asearch_clinical_trials")(cond, "", "", 4, drug_only=True))
 
     async def fda_fast():
-        return await acached("fda", cond, 3600, lambda: at.asearch_fda_labels(kw, None, 4))
+        return await acached("fda", cond, 3600, lambda: _fast_source("asearch_fda_labels")(kw, None, 4))
 
     async def web_fast():
         return await acached("web", cond, 300, lambda: async_web.aweb_search(f"{cond} FDA approved treatment drugs"))
@@ -214,6 +226,8 @@ class AsyncRun:
     async def stage_fast_search(self) -> AsyncIterator[dict]:
         if hasattr(self, "start_deep"):
             self.start_deep()      # the deep retrieval groups start now, beside the fast pass
+        if hasattr(self, "start_drug_agent"):
+            self.start_drug_agent()      # the drug agent (DRUG_AGENT=on) starts now too: it waits for the plan, then searches, ranks and hands its sources to the drug stage
         if not self.focused:
             self.start_plan()
         if self.focused:      # a follow-up searches exactly as before

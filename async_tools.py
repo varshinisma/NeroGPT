@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import drug_reconcile as dr
 import xml.etree.ElementTree as ET
 from datetime import date
 
@@ -149,25 +150,48 @@ async def asimilar_articles(pmids: list, per_seed: int = 4, max_results: int = 1
     ids = sorted(best, key=best.get, reverse=True)[:max(1, min(int(max_results), 15))]
     if not ids:
         return json.dumps({"results": [], "note": "no similar articles", "searched_at": ct._now()})
-    return await asearch_pubmed_quick(" OR ".join(f"{i}[uid]" for i in ids), max_results=len(ids), years_back=years_back, sort="relevance")
+    return await _direct_pubmed_quick(" OR ".join(f"{i}[uid]" for i in ids), max_results=len(ids), years_back=years_back, sort="relevance")      # a lookup by PMID: always PubMed's own API (a web search of bare numbers finds nothing)
 
 
 # ------------------------------------------------------------------ FDA drug labels
-async def _fda_get(params: dict) -> dict | None:
-    """One openFDA call. 404 means 'nothing matched' (a normal answer), not an error."""
+import async_cache
+
+
+def _fda_ttl() -> float:
     try:
-        return await async_core.aget_json(ct.FDA_LABEL_API, params)
-    except httpx.HTTPStatusError as error:
-        if error.response.status_code == 404:
-            return None
-        raise
+        return float(_os.getenv("FDA_CACHE_TTL_S", "0") or 0)      # seconds a label answer is kept (and shared by calls that ask at the same moment); 0 = off
+    except ValueError:
+        return 0.0
+
+
+async def _fda_get(params: dict) -> dict | None:
+    """One openFDA call. 404 means 'nothing matched' (a normal answer), not an error. With FDA_CACHE_TTL_S set the same call is made once and its answer kept (labels change rarely); errors are never kept."""
+    async def fetch():
+        try:
+            return await async_core.aget_json(ct.FDA_LABEL_API, params)
+        except httpx.HTTPStatusError as error:
+            if error.response.status_code == 404:
+                return None
+            raise
+    return await async_cache.cached_call("fda|" + json.dumps(params, sort_keys=True, default=str), _fda_ttl(), fetch)
 
 
 async def _fda_records(generic: str, stems: list[str], limit: int = 1) -> list[dict]:
-    data = await _fda_get({"search": f'openfda.generic_name.exact:"{generic}"', "limit": limit})
+    """The label records of ONE named drug. The exact generic name first (as before); when that finds nothing, the generic name as a phrase, then the brand name ('Aimovig' is a brand, not a generic name).
+    The name is cleaned of marks and brackets first: '(R)' and '(...)' made the label API refuse the whole search."""
+    data, found_by = None, "generic"
+    for name in dr.search_names(generic) or [generic]:
+        for field, kind in ((f"openfda.generic_name.exact", "generic"), ("openfda.generic_name", "generic_phrase"), ("openfda.brand_name", "brand")):
+            data = await _fda_get({"search": f'{field}:"{name.upper() if kind == "generic" else name}"', "limit": limit})
+            if (data or {}).get("results"):
+                found_by = kind
+                break
+        if (data or {}).get("results"):
+            break
     out, seen = [], set()
     for label in (data or {}).get("results", []):
-        record = ct._record_from_label(label, generic, stems)
+        own = (label.get("openfda", {}).get("generic_name") or [""])[0]
+        record = ct._record_from_label(label, generic if found_by == "generic" or not own else own, stems)
         key = (record["indication_excerpt"][:120], tuple(record["brands"]))
         if key not in seen:
             seen.add(key)
@@ -198,7 +222,7 @@ async def afda_label_link(generic: str) -> dict | None:
     return {"generic": name, "generic_name": (label.get("openfda", {}).get("generic_name") or [None])[0] if via_brand else None, "set_id": set_id,
             "url": f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={set_id}",
             "brand": (label.get("openfda", {}).get("brand_name") or [None])[0], "boxed_warning": boxed or None,
-            "label_date": f"{when[:4]}-{when[4:6]}-{when[6:8]}" if len(when) == 8 else None}
+            "label_date": f"{when[:4]}-{when[4:6]}-{when[6:8]}" if len(when) == 8 else None, **dr.label_facts(label)}
 
 
 async def asearch_fda_labels(condition_terms: list[str], drug_names: list[str] | None = None, max_drugs: int = 8) -> str:
@@ -237,9 +261,13 @@ async def asearch_fda_labels(condition_terms: list[str], drug_names: list[str] |
                        "searched_at": ct._now(), "note": "empty results = searched, none found"}, ensure_ascii=False)
 
 
+_direct_pubmed_quick = asearch_pubmed_quick      # PubMed's own search, kept under a name that is never replaced (the similar-articles lookup above, and the Tavily fallback, use it)
+
 import os as _os      # SOURCES_VIA_TAVILY=on: PubMed, Europe PMC, ClinicalTrials.gov and the DailyMed labels are searched through Tavily (async_tavily_sources) instead of their own APIs
 if _os.getenv("SOURCES_VIA_TAVILY", "off").strip().lower() in ("on", "1", "true", "yes"):
     import async_tavily_sources as _via
+    _via.DIRECT.update(asearch_pubmed=asearch_pubmed, asearch_pubmed_quick=asearch_pubmed_quick, asearch_europepmc_quick=asearch_europepmc_quick,
+                       asearch_clinical_trials=asearch_clinical_trials, afda_label_link=afda_label_link, asearch_fda_labels=asearch_fda_labels)      # the source's own searches: the fallback when Tavily gives nothing usable
     asearch_pubmed, asearch_pubmed_quick, asearch_europepmc_quick = _via.asearch_pubmed, _via.asearch_pubmed_quick, _via.asearch_europepmc_quick
     asearch_clinical_trials, afda_label_link, asearch_fda_labels = _via.asearch_clinical_trials, _via.afda_label_link, _via.asearch_fda_labels
     print("[sources] PubMed, Europe PMC, ClinicalTrials.gov and DailyMed are searched through Tavily", flush=True)

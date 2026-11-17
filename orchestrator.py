@@ -20,6 +20,7 @@ SKILL_FILE = Path(__file__).resolve().parent / "skills" / "clinical-research-orc
 AGENT_ENABLED = os.getenv("ORCHESTRATOR_AGENT", "on").strip().lower() not in {"off", "0", "false", "no"}
 PLAN_BY_AGENT = os.getenv("ORCHESTRATOR_PLANS", "on").strip().lower() not in {"off", "0", "false", "no"}      # the agent writes the plan (off: the planner call of old)
 DECISION_TIMEOUT_S = float(os.getenv("ORCHESTRATOR_TIMEOUT_S", "20"))
+TRIM = os.getenv("ORCHESTRATOR_TRIM", "off").strip().lower() in {"on", "1", "true", "yes"}      # a NEW question (no conversation yet) gets a shorter prompt: the follow-up parts of the skill, of the guide and of the tool text are left out
 PLAN_TOKENS = 1400
 FOCUS_OF = {"dosing": "drugs", "safety": "safety", "drug_interaction": "safety", "regulatory_status": "drugs", "trial_status": "trials",
             "efficacy": "evidence", "guideline_recommendation": "evidence", "mechanism": "evidence", "prognosis": "evidence", "diagnosis": "evidence",
@@ -85,24 +86,40 @@ writing; follow the order the skill describes unless the question gives a reason
 {STAGES}"""
 
 
-def skill_excerpt() -> str:
-    """The whole orchestrator skill (the agent's script)."""
+TOOL_GUIDE_NEW = """
+YOU ARE THE ORCHESTRATOR. The skill above is your script. The research stages (fast answer, deep search, drug and trial stages, writing, verification) are run by the program after you choose; you decide what the
+research is about. The message is a NEW question: make ONE decision by calling the tool `research` and fill in the plan as the skill's Steps 2 to 4 describe (classify, understand, choose skills, extract entities).
+For a message that can be understood alone fill `drugs` only with medicines the message itself names.
+Never name a drug or a condition that the question did not state. Never answer the question yourself.
+
+THE STAGES OF A RESEARCH RUN (the skill's Steps 5 to 8). With `research` you also choose their ORDER (the `stages` list). Code starts fast_search and fast_answer itself (the skill's fast path comes before any plan),
+then runs the rest in YOUR order, moving a stage later only when it must wait for the stages it reads. Stages that start background work (read_evidence, drugs, figures) are best started early so they run beside the
+writing; follow the order the skill describes unless the question gives a reason to change it. Every stage is required, `figures` included: the doctor wants the figures of the relevant papers for every question.
+{STAGES}"""
+
+
+def skill_excerpt(slim: bool = False) -> str:
+    """The whole orchestrator skill (the agent's script). slim: for a NEW question the follow-up section (Step 2d) and the follow-up examples are left out (they only describe messages that depend on earlier answers)."""
     try:
-        return SKILL_FILE.read_text(encoding="utf-8").split("---", 2)[-1].strip()
+        text = SKILL_FILE.read_text(encoding="utf-8").split("---", 2)[-1].strip()
     except OSError:
         return ""
+    if slim:
+        text = re.sub(r"## Step 2d.*?(?=\n## Step 3)", "", text, flags=re.S)
+        text = re.sub(r"### Follow-up examples.*?(?=\n## )", "", text, flags=re.S)
+    return text
 
 
-def instructions() -> str:
+def instructions(slim: bool = False) -> str:
     import stages
-    return "=== SKILL: clinical-research-orchestrator ===\n" + skill_excerpt() + "\n" + TOOL_GUIDE.replace("{STAGES}", stages.describe())
+    return "=== SKILL: clinical-research-orchestrator ===\n" + skill_excerpt(slim) + "\n" + (TOOL_GUIDE_NEW if slim else TOOL_GUIDE).replace("{STAGES}", stages.describe())
 
 
 PLAN_KEYS = ("is_clinical", "intent", "secondary_intents", "condition", "conditions", "drugs", "pubmed_query", "main_problem", "associated_findings", "related_topics", "trial_condition",
              "trial_intervention", "asked", "purpose", "info_needed", "medicines_needed", "answer_format", "case_facts", "semantic_variants", "skills", "skip_stages", "stages")
 
 
-def make_tools(record: dict, with_conversation: bool = True) -> list:
+def make_tools(record: dict, with_conversation: bool = True, slim: bool = False) -> list:
     """The agent's choices, as tools. Each only records what the agent chose (the program does the work afterwards), and stops the agent after the call."""
     try:
         from agno.tools import tool
@@ -136,6 +153,21 @@ def make_tools(record: dict, with_conversation: bool = True) -> list:
         record.update(tool="ask_for_clarification", question=question)
         return "chosen"
 
+    @stop
+    def research_new(is_clinical: bool = True, intent: str = "", secondary_intents: list[str] | None = None, condition: str = "", conditions: list[dict] | None = None,
+                     drugs: list[str] | None = None, pubmed_query: str = "", main_problem: str = "", associated_findings: list[str] | None = None, related_topics: list[str] | None = None,
+                     trial_condition: str = "", trial_intervention: str = "", asked: str = "", purpose: str = "", info_needed: list[str] | None = None, medicines_needed: bool | None = None,
+                     answer_format: str = "", case_facts: list[str] | None = None, semantic_variants: list[str] | None = None, skills: list[str] | None = None, skip_stages: list[str] | None = None, stages: list[str] | None = None) -> str:
+        """Research the message and give the plan (the message is a NEW question that can be understood alone). The plan follows the skill: is_clinical; intent (disease_research|latest_findings|drug_treatment|clinical_trial|comparison|mechanism|diagnosis|safety|case_evaluation|comprehensive_research); secondary_intents; condition; conditions (ONLY when the message asks about two or more separate conditions: objects {name, aliases}, each written in the message; else empty); drugs (medicines the message names); pubmed_query; main_problem; associated_findings (copied word for word); related_topics (3 to 5 phrases, only for a diagnosis, work-up, case or management question); trial_condition; trial_intervention; asked; purpose; info_needed (treatment_options|efficacy|safety|dosing|diagnosis|prognosis|mechanism|guideline_recommendation|trial_status|regulatory_status|drug_interaction); medicines_needed; answer_format (options_comparison|stepwise_plan|summary|table|yes_no_with_evidence); case_facts (word for word); semantic_variants (3 to 5 phrases); skills (exact names from the SKILL CATALOG); stages (the order in which the run's stages are done, written as the skill's Steps 5 to 8 describe, from the STAGES list in your instructions; code checks it, so a stage never runs before the stages it reads; leave it empty for the order the skill describes); skip_stages (normally empty; 'full_text' only when the question plainly has no use for the free full text of papers)."""
+        given = dict(intent=intent, secondary_intents=secondary_intents, condition=condition, conditions=conditions, drugs=drugs, pubmed_query=pubmed_query, main_problem=main_problem,
+                     associated_findings=associated_findings, related_topics=related_topics, trial_condition=trial_condition, trial_intervention=trial_intervention, asked=asked, purpose=purpose,
+                     info_needed=info_needed, medicines_needed=medicines_needed, answer_format=answer_format, case_facts=case_facts, semantic_variants=semantic_variants, skills=skills, skip_stages=skip_stages, stages=stages, is_clinical=is_clinical)
+        record.update(attributes=None, relation="", tool="research", kind="new", turns="", ask="", needs_drugs=False, own_condition="", scope="",
+                      plan={k: v for k, v in given.items() if v not in (None, "", [], {})} | ({"medicines_needed": medicines_needed} if medicines_needed is not None else {}))
+        return "chosen"
+
+    if slim and not with_conversation:      # a new question: the only choice is `research`, with the plan's fields alone (the follow-up fields of the full tool are not needed)
+        return [research_new]
     return [answer_from_conversation, research, ask_for_clarification] if with_conversation else [research]
 
 
@@ -227,7 +259,8 @@ def follow_up_plan(plan: dict, memory: list[dict], resolved: dict, record: dict)
 def run_once(prompt: str, memory: list[dict], run_agent=None) -> dict:
     record: dict = {}
     try:
-        (run_agent or default_run_agent)(instructions(), prompt, make_tools(record, with_conversation=bool(memory)))
+        slim = TRIM and not memory      # a new question: the shorter prompt and the plan-only tool
+        (run_agent or default_run_agent)(instructions(slim), prompt, make_tools(record, with_conversation=bool(memory), slim=slim))
     except Exception:
         record = {}
     return record

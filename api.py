@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field
 import conversation_memory
 import observability
 import orchestrator
+import social_gate
 import quick_check
 
 OUTPUT_DIR = ROOT / "demo_output"
@@ -58,11 +59,10 @@ def warm() -> None:
         import server  # noqa: F401
         hybrid_search.load_cross_encoder()
         qa_stream.warm_up()
-        if os.getenv("ASYNC_PIPELINE", "0").strip().lower() in {"1", "true", "yes", "on"}:      # the async pipeline has its own HTTP and model connections: opened here too
-            import asyncio
-            from async_runner import get_loop
-            from async_warm import awarm
-            asyncio.run_coroutine_threadsafe(awarm(), get_loop()).result(timeout=40)
+        import asyncio      # the agent runs on the async pipeline, which has its own HTTP and model connections: opened here too
+        from async_runner import get_loop
+        from async_warm import awarm
+        asyncio.run_coroutine_threadsafe(awarm(), get_loop()).result(timeout=40)
     except Exception:
         pass
     finally:
@@ -143,6 +143,25 @@ def ask_events(body: AskBody, get_pipeline=None, ask_model=None, chat_stream=Non
     yield line({"type": "scrubbed", "text": clean})
     observability.begin_run(clean)      # the routing decision belongs to the run
     memory = conversation_memory.load(body.conversation_id) or conversation_memory.turns_from_history(body.history)      # what this conversation has already answered
+    earlier = [{"role": m.get("role", "user"), "content": str(m.get("content", ""))} for m in body.history if isinstance(m, dict)]
+
+    def chat_only(text: str, why: str):
+        """A reply the model wrote to a message that is not a clinical question: no report, nothing added to the conversation's memory."""
+        yield line({"type": "understood", "text": "Conversation", "mode": "chat", "turns": []})
+        yield line({"type": "token", "stage": "FINAL", "text": text})
+        observability.end_run({"mode": "not_clinical"})
+        print(f"[routing] not a clinical question ({why}): answered in conversation, no report", flush=True)
+        yield line({"type": "final", "mode": "chat", "markdown": text, "timings": {"final_s": 0}})
+        try:
+            server.save_conversation(earlier + [{"role": "user", "content": clean}], text, body.conversation_id)
+        except Exception:
+            pass
+
+    if not memory and social_gate.needs_early(clean):      # a very short first message ('hi', 'how are you'): read before anything starts, so no plan and no search is made for it
+        reply = social_gate.converse(clean)
+        if reply:
+            yield from chat_only(reply, "read before the run")
+            return
     if memory:      # a follow-up waits for the routing decision before any search starts: the page is told at once what is happening
         yield line({"type": "stage", "stage": "UNDERSTANDING"})
     if run_agent is None and ask_model is not None:      # a caller that supplies its own JSON reader (tests): no agent
@@ -150,7 +169,7 @@ def ask_events(body: AskBody, get_pipeline=None, ask_model=None, chat_stream=Non
     elif orchestrator.AGENT_ENABLED:      # the orchestrator agent chooses the path; its fallback is the JSON router
         import time as _t; _t0 = _t.time()
         resolved = orchestrator.decide(clean, memory, run_agent, ask_model or default_ask_model)
-        print(f"[latency] follow-up decision {_t.time() - _t0:.1f}s (mode={resolved.get('mode')}, turns={resolved.get('turns')})", flush=True)
+        print(f"[latency] follow-up decision {_t.time() - _t0:.1f}s (mode={resolved.get('mode')}, turns={resolved.get('turns')}{', ' + resolved['routing_note'] if resolved.get('routing_note') else ''})", flush=True)
     else:
         resolved = conversation_memory.resolve(clean, memory, ask_model or default_ask_model)
     asked = resolved["question"]
@@ -211,16 +230,29 @@ def ask_events(body: AskBody, get_pipeline=None, ask_model=None, chat_stream=Non
             except Exception:
                 pass
         runner = stream_answer
-        if get_pipeline is None and os.getenv("ASYNC_PIPELINE", "0").strip().lower() in {"1", "true", "yes", "on"}:
-            try:      # new questions and follow-ups run on the asyncio pipeline; the threaded one answers only if it fails to start
+        if get_pipeline is None:
+            try:      # every question runs on the agent (asyncio pipeline); the old threaded pipeline answers only if the agent run cannot even start
                 from async_runner import stream_answer_auto
                 runner = stream_answer_auto
             except Exception:
                 runner = stream_answer
-        for event in (runner(asked, plan=plan) if plan else runner(asked)):      # the plan the agent wrote in its decision goes with the question
+        gated = None
+        if plan and plan.get("is_clinical") is False and not resolved.get("follow_up"):      # the routing call already wrote a plan and marked the message as not clinical: no run is started at all
+            print("[gate] the plan says the message is not clinical", flush=True)
+            gated = social_gate.Rejected(social_gate.converse(asked))
+            events = gated
+        else:
+            events = runner(asked, plan=plan) if plan else runner(asked)      # the plan the agent wrote in its decision goes with the question
+            if not plan and not resolved.get("follow_up") and social_gate.needs_gate(asked):      # a short message that is not a plain greeting: the model says whether it is a clinical question while the run starts
+                gated = social_gate.Gated(events, lambda: social_gate.converse(asked))
+                events = gated
+        for event in events:
             if event.get("type") == "final":
                 final = event
             yield line(public(event))
+        if gated is not None and gated.rejected:      # not a clinical question: the model's own short reply, no report, nothing remembered
+            yield from chat_only(gated.reply, "the run was dropped before any event was shown")
+            return
         if final:
             try:
                 remembered = conversation_memory.turn_from_final(clean, asked, final, follow_up=bool(resolved.get("follow_up")))

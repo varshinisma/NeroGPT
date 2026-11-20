@@ -294,6 +294,9 @@ LIVE_TEXT = {"deep_search": "Searching PubMed, Europe PMC, trials, guidelines an
 STREAM_EVERY_S = 0.15      # the report text is redrawn at most this often: one redraw per token made the page flicker and shift
 
 
+PRE_SLOTS = 14      # more than the sections of any report; more are made when needed
+
+
 def run_question(question: str, index: int) -> dict:
     """Run the pipeline for one question, updating the page as events arrive. Returns the finished turn (kept in the session so the page can be redrawn).
     The layout is fixed from the first moment (question, status, report, notes, figures, PDF), and everything that arrives later is added BELOW what is already there, so the text the reader is on never moves."""
@@ -309,6 +312,9 @@ def run_question(question: str, index: int) -> dict:
         turn = {"question": question, "saved_question": "[question not processed: the backend did not answer]", "markdown": "", "figures": [], "pdf": None, "warnings": [], "status": "", "figures_note": ""}
         report_area = st.container()      # the report: one slot per `##` section, each with a slot after it for its figures
         slots: list[dict] = []
+        with report_area:      # the slots are made NOW, empty, so each one replaces what the last answer left at the same place (Streamlit keeps an old element on screen until the new run draws something there: the last answer's text showed again under the new question's status)
+            for _ in range(PRE_SLOTS):
+                slots.append({"text": st.empty(), "figs": st.empty(), "shown": None, "heading": ""})
         warning_box = st.container()
         figures_box = st.empty()
         figures_note = st.empty()

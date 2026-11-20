@@ -82,6 +82,13 @@ async def adrug_handoff_stage(state: dict, question: str, ask=None, search=None)
         model_s = round(time.time() - began, 1)
         known = {" ".join(rr._words(r.get("generic") or "")) for r in state.get("regulatory") or []} | {" ".join(rr._words(d)) for d in (state.get("entities") or {}).get("drugs") or []}
         names = drug_handoff.verified(answer.get("drugs"), read["text"], {k for k in known if k})
+        kept_keys = {n["name"].lower() for n in names}
+        dropped = []      # why each listed name did not get a label search (kept in the saved state, so a short drug table can be explained)
+        for item in answer.get("drugs") or []:
+            name = " ".join(str((item or {}).get("name") if isinstance(item, dict) else item or "").split()).strip(" .,;")
+            if name and name.lower() not in kept_keys:
+                key = " ".join(rr._words(name))
+                dropped.append({"name": name, "why": "a label for it was already found" if key in known else "no retrieved source writes this name" if name.lower() not in read["text"] else "length or repeat"})
         search_began = time.time()
         raw: dict = {}
         if names:
@@ -100,7 +107,7 @@ async def adrug_handoff_stage(state: dict, question: str, ask=None, search=None)
         before = len(state.get("regulatory") or [])
         qs.ingest_regulatory(state, raw)
         qs.record_source_status(state, raw)
-        state["drug_handoff"] = {"listed": len(answer.get("drugs") or []), "kept": [n["name"] for n in names], "labels_added": len(state.get("regulatory") or []) - before, "seconds": round(time.time() - began, 1), "model_s": model_s, "search_s": round(time.time() - search_began, 1)}
+        state["drug_handoff"] = {"listed": len(answer.get("drugs") or []), "kept": [n["name"] for n in names], "dropped": dropped[:30], "labels_added": len(state.get("regulatory") or []) - before, "seconds": round(time.time() - began, 1), "model_s": model_s, "search_s": round(time.time() - search_began, 1)}
     except Exception as error:
         state["drug_handoff"] = {"error": f"{type(error).__name__}: {str(error)[:80]}"}
 

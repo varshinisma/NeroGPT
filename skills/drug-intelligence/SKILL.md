@@ -52,7 +52,7 @@ The question's words never decide whether drugs are retrieved. Read the understa
 - **Do not stop at the first list.** Expand classes to specific medicines (Pass 1, item 5), include off-label, emerging and restricted drugs under their own categories, and keep the patient group in every query.
 - A search that finds nothing is not proof that no medicine exists. If, after the full discovery, the condition has no drug treatment, say so with a source (see the rules above).
 
-## Step 3: Two-pass search plan
+## Query transformation by intent (Step 3: Two-pass search plan)
 
 You are given the doctor's question, its intent and what was understood from it. Write searches for needs about medicines: which are used for the condition and for its associated problems in THIS patient group, their doses, their safety, approvals and label changes, interactions. Write the Pass 1 discovery searches for the question's condition whatever its intent (Step 2); the intent changes the priority of the needs, not whether the drugs are discovered.
 

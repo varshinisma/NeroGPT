@@ -17,6 +17,8 @@ import retrieval_routing as rr
 from async_deep import arouted_pubmed, asearch_fda_labels_wide
 from async_pipeline import acached
 
+_MODE = "-" + at._sources_mode()      # the search mode is part of the cache key: a result from one mode is never served in another
+
 
 async def aask_queries(question: str, task: str, payload: dict, max_tokens: int, skill: str = "drug-intelligence") -> dict:
     """Twin of qa_stream.ask_queries: the call that writes searches, with its own model setting."""
@@ -51,13 +53,13 @@ def areal_adapters(anchors) -> dict:
         if op.args.get("open_access"):
             form = f"({form}) AND {rr.OPEN_ACCESS_FILTER}"
         sort, years = op.args.get("sort", "relevance"), op.args.get("years_back", 5)
-        return await acached("pm", f"{form}|{sort}|{years}|routing", 900, lambda: arouted_pubmed(form, max_results=8 if sort == "date" else 6, years_back=years, sort=sort))
+        return await acached("pm" + _MODE, f"{form}|{sort}|{years}|routing", 900, lambda: arouted_pubmed(form, max_results=8 if sort == "date" else 6, years_back=years, sort=sort))
 
     async def europepmc(op):
         form = rr.boolean_form(op.query, anchors, expand=await expansion("europepmc"))
         sort, years = op.args.get("sort", "relevance"), op.args.get("years_back", 5)
         full = bool(op.args.get("fulltext"))
-        return await acached("pm", f"{form}|{sort}|{years}|epmc|{full}", 900,
+        return await acached("pm" + _MODE, f"{form}|{sort}|{years}|epmc|{full}", 900,
                              lambda: at.asearch_europepmc_quick(form, max_results=8 if full else 6, years_back=years, sort=sort, **({"fulltext": True} if full else {})))
 
     async def trials(op):
@@ -65,7 +67,7 @@ def areal_adapters(anchors) -> dict:
         status, drug_only = rr.TRIAL_STATUS_FILTER.get(op.args.get("status", "any"), ""), bool(op.args.get("drug_only"))
 
         async def search(with_intervention: str):
-            return await acached("ct", f"{condition}|{with_intervention}|{status}|{drug_only}|routing", 300,
+            return await acached("ct" + _MODE, f"{condition}|{with_intervention}|{status}|{drug_only}|routing", 300,
                                  lambda: at.asearch_clinical_trials(condition, with_intervention, status, 12 if drug_only else 10, drug_only))
         raw = await search(intervention)
         if intervention and rr.classify_raw(raw)[0] == "completed_empty":
@@ -75,7 +77,7 @@ def areal_adapters(anchors) -> dict:
         words = condition.split()
         if rr.classify_raw(raw)[0] == "completed_empty" and len(words) > 3 and " OR " not in condition:
             chunks = [" ".join(words[i:i + 3]) for i in range(0, len(words), 3)]
-            alternatives = await acached("ct", f"{condition}|any-concept|{status}|{drug_only}|routing", 300,
+            alternatives = await acached("ct" + _MODE, f"{condition}|any-concept|{status}|{drug_only}|routing", 300,
                                          lambda: at.asearch_clinical_trials(" OR ".join(chunks), "", status, 10, drug_only))
             if rr.classify_raw(alternatives)[0] == "completed_found":
                 return alternatives

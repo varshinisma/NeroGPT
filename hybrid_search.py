@@ -74,6 +74,9 @@ def cosine(a: list[float], b: list[float]) -> float:
 @traced("embed", "chain")
 def embed(texts: list[str], timeout: float | None = None) -> list[list[float]] | None:
     """One embedding vector per text (the embedding model, one request for all texts not seen before); None when the key is missing or the call fails."""
+    import local_embed
+    if local_embed.enabled():      # EMBED_PROVIDER=local: the embeddings are made on this computer
+        return local_embed.embed(texts)
     use_openai = os.getenv("EMBED_PROVIDER", "").strip().lower() == "openai"      # EMBED_PROVIDER=openai: OpenAI embeddings (same request/response format as Mistral's)
     key = os.getenv("OPENAI_API_KEY" if use_openai else "MISTRAL_API_KEY")
     if not key or not texts:

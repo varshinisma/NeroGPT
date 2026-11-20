@@ -25,6 +25,9 @@ from datetime import date
 import async_core
 import async_web
 import clinical_tools as ct
+import contextvars
+
+NO_FALLBACK: contextvars.ContextVar = contextvars.ContextVar("tavily_no_fallback", default=False)      # set while SOURCES_MODE=both runs a Tavily leg: the direct API is already running
 
 PUBMED = ["pubmed.ncbi.nlm.nih.gov"]
 EUROPEPMC = ["europepmc.org", "pubmed.ncbi.nlm.nih.gov"]
@@ -67,7 +70,7 @@ def _focus(query: str, limit: int = 110) -> str:
 async def _direct(name: str, *args, **kwargs):
     """The source's own API answer for the same call, or None when the fallback is off or the direct twin is not registered."""
     function = DIRECT.get(name)
-    if function is None or not _on("TAVILY_SOURCES_FALLBACK"):
+    if function is None or NO_FALLBACK.get() or not _on("TAVILY_SOURCES_FALLBACK"):
         return None
     print(f"[tavily-sources] {name}: nothing usable from Tavily, the source's own API answers", flush=True)
     return await function(*args, **kwargs)

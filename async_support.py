@@ -84,7 +84,15 @@ def aprefetch(terms: list[str]) -> None:
 
 # ------------------------------------------------------------------ embeddings and ranking
 async def aembed(texts: list[str], timeout: float | None = None) -> list[list[float]] | None:
-    """Async twin of hybrid_search.embed: the batches are requested at the same time and stored in hybrid_search's cache; None when the key is missing or a batch fails."""
+    """Async twin of hybrid_search.embed: the batches are requested at the same time and stored in hybrid_search's cache; None when the key is missing or a batch fails.
+    EMBED_PROVIDER=local: the vectors come from the local model (local_embed), in a worker thread, within the same time limit (a late model keeps working and fills the cache for the next call)."""
+    import local_embed
+    if local_embed.enabled():
+        wait_local = timeout if timeout is not None else float(os.getenv("EMBED_LOCAL_TIMEOUT_S", "20"))
+        try:
+            return await asyncio.wait_for(asyncio.shield(asyncio.ensure_future(asyncio.to_thread(local_embed.embed, texts))), timeout=wait_local)
+        except Exception:
+            return None
     use_openai = os.getenv("EMBED_PROVIDER", "").strip().lower() == "openai"
     key = os.getenv("OPENAI_API_KEY" if use_openai else "MISTRAL_API_KEY")
     if not key or not texts:

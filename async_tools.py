@@ -264,10 +264,38 @@ async def asearch_fda_labels(condition_terms: list[str], drug_names: list[str] |
 _direct_pubmed_quick = asearch_pubmed_quick      # PubMed's own search, kept under a name that is never replaced (the similar-articles lookup above, and the Tavily fallback, use it)
 
 import os as _os      # SOURCES_VIA_TAVILY=on: PubMed, Europe PMC, ClinicalTrials.gov and the DailyMed labels are searched through Tavily (async_tavily_sources) instead of their own APIs
-if _os.getenv("SOURCES_VIA_TAVILY", "off").strip().lower() in ("on", "1", "true", "yes"):
+def _sources_mode() -> str:
+    """SOURCES_MODE=direct|tavily|both; when it is empty the old switch SOURCES_VIA_TAVILY decides (on = tavily)."""
+    mode = _os.getenv("SOURCES_MODE", "").strip().lower()
+    if mode in ("direct", "tavily", "both"):
+        return mode
+    return "tavily" if _os.getenv("SOURCES_VIA_TAVILY", "off").strip().lower() in ("on", "1", "true", "yes") else "direct"
+
+
+if _sources_mode() != "direct":
     import async_tavily_sources as _via
     _via.DIRECT.update(asearch_pubmed=asearch_pubmed, asearch_pubmed_quick=asearch_pubmed_quick, asearch_europepmc_quick=asearch_europepmc_quick,
                        asearch_clinical_trials=asearch_clinical_trials, afda_label_link=afda_label_link, asearch_fda_labels=asearch_fda_labels)      # the source's own searches: the fallback when Tavily gives nothing usable
-    asearch_pubmed, asearch_pubmed_quick, asearch_europepmc_quick = _via.asearch_pubmed, _via.asearch_pubmed_quick, _via.asearch_europepmc_quick
-    asearch_clinical_trials, afda_label_link, asearch_fda_labels = _via.asearch_clinical_trials, _via.afda_label_link, _via.asearch_fda_labels
-    print("[sources] PubMed, Europe PMC, ClinicalTrials.gov and DailyMed are searched through Tavily", flush=True)
+    if _sources_mode() == "tavily":
+        asearch_pubmed, asearch_pubmed_quick, asearch_europepmc_quick = _via.asearch_pubmed, _via.asearch_pubmed_quick, _via.asearch_europepmc_quick
+        asearch_clinical_trials, afda_label_link, asearch_fda_labels = _via.asearch_clinical_trials, _via.afda_label_link, _via.asearch_fda_labels
+        print("[sources] PubMed, Europe PMC, ClinicalTrials.gov and DailyMed are searched through Tavily", flush=True)
+    else:      # both: the own API and Tavily at the same time, merged (async_both); FDA labels stay on their own API
+        import async_both as _b
+        _d = dict(_via.DIRECT)
+        _pool = lambda n: int(n * 1.5)      # the merged list that goes on to the hybrid ranking
+
+        async def asearch_pubmed(query, max_results=8, years_back=2, sort="date"):
+            return await _b.both("pubmed", _d["asearch_pubmed"], _via.asearch_pubmed, _pool(max_results), query, max_results, years_back, sort)
+
+        async def asearch_pubmed_quick(query, max_results=6, years_back=3, sort="relevance"):
+            return await _b.both("pubmed_quick", _d["asearch_pubmed_quick"], _via.asearch_pubmed_quick, _pool(max_results), query, max_results, years_back, sort)
+
+        async def asearch_europepmc_quick(query, max_results=6, years_back=3, sort="relevance", fulltext=False):
+            if fulltext:      # a search in the body of open-access papers is Europe PMC's own feature
+                return await _d["asearch_europepmc_quick"](query, max_results, years_back, sort, fulltext=True)
+            return await _b.both("europepmc", _d["asearch_europepmc_quick"], _via.asearch_europepmc_quick, _pool(max_results), query, max_results, years_back, sort)
+
+        async def asearch_clinical_trials(condition, intervention="", status="", max_results=8, drug_only=False):
+            return await _b.both("trials", _d["asearch_clinical_trials"], _via.asearch_clinical_trials, _pool(max_results), condition, intervention, status, max_results, drug_only)
+        print("[sources] both: own APIs and Tavily searched together, merged; FDA labels direct", flush=True)

@@ -7,9 +7,11 @@ the async run lives on one long-lived event loop and each event is handed over w
 from __future__ import annotations
 
 import asyncio
+import os
 import threading
 from typing import AsyncIterator, Iterator
 
+import async_agent_run
 import async_core
 import observability
 import qa_stream as qs
@@ -21,6 +23,13 @@ from async_stages_evidence import EvidenceStages
 from async_stages_final import FinalStages
 from async_stages_writers import WriterStages
 
+OVERLAPPED = ("deep_search", "rank")      # run beside fast_answer (their events are held until it ends)
+
+
+def overlap_enabled() -> bool:
+    return os.getenv("OVERLAP_FAST_ANSWER", "on").strip().lower() not in {"off", "0", "false", "no"}
+
+
 STAGE_NAMES = ("fast_search", "fast_answer", "deep_search", "rank", "read_evidence", "drugs", "escalate", "write_start", "figures", "write_stream", "assemble", "limitations", "verify", "finalize")
 
 
@@ -29,6 +38,7 @@ class AsyncPipeline(AsyncRun, DeepStages, EvidenceStages, DrugStages, WriterStag
 
     def __init__(self, question: str, plan: dict | None = None):
         super().__init__(question, plan)
+        self.prefetched: set[str] = set()      # stages that finished beside the fast answer
         self.init_deep()
         self.init_evidence()
         self.init_drugs()
@@ -71,24 +81,51 @@ class AsyncPipeline(AsyncRun, DeepStages, EvidenceStages, DrugStages, WriterStag
         if not self.halted and "finalize" not in self.ran:      # the final event stays the last event of the run
             yield self.event("progress", stage_name=name, took=seconds[name], papers=len(self.papers), trials=len(self.trials))
 
+    async def _prefetch(self, held: list) -> None:
+        """deep_search and rank only read the searches (not the fast answer's text), so they run WHILE the fast answer is written. Their events are held (heartbeats dropped) and sent after the fast answer's
+        own events, so the page sees the same order as before. A stage that fails here is taken out of `ran` and left undone: the agent (or the guard) runs it normally afterwards."""
+        for name in OVERLAPPED:
+            if self.halted:
+                return
+            try:
+                async for event in self.run_stage(name):
+                    if event.get("type") != "heartbeat":
+                        held.append(event)
+                self.prefetched.add(name)
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                if name in self.ran:
+                    self.ran.remove(name)
+                self.state.setdefault("overlap_errors", {})[name] = f"{type(error).__name__}: {str(error)[:100]}"
+                return      # the later stage needs this one: nothing more is overlapped
+
     async def run(self) -> AsyncIterator[dict]:
         yield self.event("stage", stage="INITIAL")
-        if self.scrubbed.changed:
-            yield self.event("warning", category="privacy", message=qs.phi.notice(self.scrubbed))
+        held: list = []
+        overlap: asyncio.Future | None = None
         for name in stages_mod.FIRST:      # the fast path starts before any plan exists
+            if name == "fast_answer" and overlap_enabled() and not self.focused:      # the deep searches are already running: merge and rank them beside the fast answer
+                overlap = asyncio.ensure_future(self._prefetch(held))
             async for event in self.run_stage(name):
                 yield event
             if self.halted:
+                if overlap is not None and not overlap.done():
+                    overlap.cancel()
                 return
-        asked_order = (self.plan_box.get("plan") or {}).get("stages")
-        order = [n for n in stages_mod.clean_order(asked_order) if n not in stages_mod.FIRST]      # the agent's order, checked: prerequisites first, required stages present
-        self.state["stage_order"] = {"chosen_by": "agent" if asked_order else "default", "requested": list(asked_order) if isinstance(asked_order, list) else [],
-                                     "order": list(stages_mod.FIRST) + order, "ran": self.ran}
-        for name in order:
-            async for event in self.run_stage(name):
+        if overlap is not None:
+            try:
+                await overlap
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                pass
+            for event in held:
                 yield event
             if self.halted:
                 return
+        async for event in async_agent_run.drive(self):      # every run, new question or follow-up: the agent chooses the next stage (its tools are the stages); code enforces the rules and completes what it leaves
+            yield event
 
 
 async def astream_answer(question: str, plan: dict | None = None) -> AsyncIterator[dict]:

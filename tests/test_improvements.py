@@ -491,10 +491,10 @@ class SafetyAndRegulatorUpdates(unittest.TestCase):
         self.assertIn("not a complete safety review", md)
 
 
-    def test_no_announcement_is_stated_honestly(self):
+    def test_no_announcement_leaves_the_section_out(self):
         s = make_state()
         s["core_stems"] = ["autis"]
-        self.assertIn("This does not mean none exists", landscape.regulatory_updates_markdown(s))
+        self.assertEqual(landscape.regulatory_updates_markdown(s), "")
 
     def test_the_verifier_keeps_label_links_and_does_not_rejudge_code_built_tables(self):
         s = make_state()
@@ -689,7 +689,7 @@ class FollowsTheSpecification(unittest.TestCase):
         md = landscape.landscape_markdown(st, used, trial)
         header = "| Drug | Indication | Dose / route (if sourced) | Key evidence |"
         self.assertEqual(md.count(header), 1)      # the other-drugs table keeps its four columns
-        self.assertEqual(md.count("| Drug | Class | Indication (type; population) | Dose / route (if sourced) | Regulatory status | Evidence and source |"), 1)      # the treatment table: class, use type, status by regulator
+        self.assertEqual(md.count("| Drug | Dose / route (if sourced) | Evidence and source |"), 1)      # the treatment table: class, use type, status by regulator
         first_heading = "### Drugs used for treatment of this condition"
         second_heading = "### Other drugs: used for symptoms (not established treatments of this condition)"
         self.assertLess(md.index(first_heading), md.index(second_heading))
@@ -1270,10 +1270,12 @@ class TheAnnouncementsTableIsRecentDatedAndReadable(unittest.TestCase):
         self.assertEqual([r.split("|")[1].strip() for r in rows], ["March 3, 2026", "September 22, 2025"])
         self.assertIn("2 further regulator page(s) were read but are not listed", md)
 
-    def test_with_no_dated_action_the_section_says_so_instead_of_listing_undated_pages(self):
-        md = landscape.regulatory_updates_markdown(self.state("date not stated"))
-        self.assertIn("No FDA, EMA or CDSCO announcement dated within the last 3 years", md)
-        self.assertNotIn("| Page 0", md)      # the undated page is not listed as recent
+    def test_with_no_dated_action_the_section_is_left_out_and_undated_pages_are_not_listed(self):
+        self.assertEqual(landscape.regulatory_updates_markdown(self.state("date not stated")), "")
+        self.assertEqual(landscape.regulatory_updates_markdown({"regulator_items": []}), "")
+        md = landscape.landscape_markdown(make_state(), [], [])
+        self.assertNotIn("Recently approved or updated", md)
+        self.assertNotIn("No FDA, EMA or CDSCO announcement", md)
 
     def test_square_brackets_in_a_title_cannot_break_the_link(self):
         s = self.state("September 22, 2025")

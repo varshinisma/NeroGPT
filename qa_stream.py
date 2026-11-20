@@ -761,6 +761,9 @@ def warm_up() -> None:
     from agno.agent import Agent
     import clinical_tools
     threading.Thread(target=phi.warm_up, daemon=True).start()  # local name detector
+    if os.getenv("EMBED_PROVIDER", "").strip().lower() == "local":
+        import local_embed
+        local_embed.load_in_background()      # the local embedding model (downloaded once, then loaded from disk)
     threading.Thread(target=hybrid_search.load_cross_encoder, daemon=True).start()      # the cross-encoder model (downloaded once, then loaded from disk)
     threading.Thread(target=clinical_tools.warm_connections, daemon=True).start()  # PubMed / Europe PMC / registry connections
     warm_models = ((FAST_TOKENS, None, "writer"), (DEEP_TOKENS, None, "writer"),
@@ -3057,8 +3060,6 @@ def stream_answer(question: str, plan: dict | None = None):
         return {"type": kind, "t": clock.now(), **data}
 
     yield event("stage", stage="INITIAL")
-    if scrubbed.changed:
-        yield event("warning", category="privacy", message=phi.notice(scrubbed))
 
     # --- FAST retrieval now. The orchestrator plan (a second model call) starts only AFTER the first token of the fast answer,
     #     so the two model calls do not compete; the plan then triggers DEEP retrieval in the background.

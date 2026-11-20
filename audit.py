@@ -124,7 +124,7 @@ s_bad = [ln for ln in claims.splitlines() if re.search(r"NCT\d{8}", ln) and not 
 check("S", "no trial is described as effective", not s_bad, "; ".join(s_bad)[:150])
 # T. categories are separate
 check("T", "the Treatment Drug Landscape has two tables with the specification's columns: drugs used for treatment, then symptom-directed drugs",
-      (text.count("| Drug | Indication | Dose / route (if sourced) | Key evidence |") >= 1 or text.count("| Drug | Class | Indication (type; population) | Dose / route (if sourced) | Regulatory status | Evidence and source |") >= 1)
+      (text.count("| Drug | Indication | Dose / route (if sourced) | Key evidence |") >= 1 or text.count("| Drug | Dose / route (if sourced) | Evidence and source |") >= 1)
       and 0 <= text.find("### Drugs used for treatment of this condition")
       and (text.find("### Other drugs: used for symptoms") < 0 or text.find("### Drugs used for treatment of this condition") < text.find("### Other drugs: used for symptoms")))
 check("AG", "no symptom-directed (off-label) or investigational drug sits in the treatment table",

@@ -53,6 +53,54 @@ def worth_routing(question: str) -> bool:
     return bool((question or "").strip())      # no word list or length rule decides this: with an earlier conversation, the orchestrator agent reads every message and decides whether it is a follow-up
 
 
+# --- Is the message a follow-up or a new question? Two checks of code that stand beside the orchestrator agent's choice (no disease or drug is named here).
+BACK_REF = re.compile(r"\b(?:above|previous|previously|earlier|prior|mentioned|listed|this|these|those|them|they|their|it|its|he|she|her|him|his|same|both|such|again|further|instead)\b", re.I)      # words that lean on earlier answers
+STRONG_BACK_REF = re.compile(r"\b(?:above|previous|previously|earlier|mentioned|listed|these|those)\b", re.I)      # words that almost always do
+GENERIC_WORDS = set("""what which when where does with that this from have about than then there their they your into over used uses using give tell show list please some more most best good current currently latest recent newest
+evidence study studies treatment treatments treat treating therapy therapies medication medications medicine medicines drug drugs option options management manage approach guidelines guideline children child pediatric paediatric
+adolescent adolescents adults adult patients patient people kids infants help need work effective safe first line years year condition disease disorder syndrome their other others also very much many often usually
+common commonly how why can could should would will needed needs required take taken taking given long short much""".split())
+ASKED_ABOUT = set("""dose doses dosage dosages dosing side effect effects adverse harm harms risk risks safety contraindication contraindications interaction interactions monitoring duration cost price mechanism
+pregnancy pregnant breastfeeding elderly women men older younger weight prognosis outcome outcomes diagnosis diagnose diagnostic symptoms trial trials alternative alternatives newer compare comparison difference
+works""".split())      # what a message can ask ABOUT a subject: on their own these words are a fragment ('dosage?', 'what about in pregnancy?'), not a subject
+
+
+def refers_back(question: str) -> bool:
+    """Does the message use a word that points back at the earlier answers ('the above drugs', 'these', 'those', 'mentioned')? Only a hint: the agent is asked again, it is not overruled."""
+    return bool(STRONG_BACK_REF.search(question or ""))
+
+
+def _stems(text: str, drop=GENERIC_WORDS) -> set[str]:
+    return {w[:5] for w in re.findall(r"[a-z]{4,}", str(text or "").lower()) if w not in drop}
+
+
+def standalone(question: str, memory: list[dict]) -> bool:
+    """True when the message can be researched on its own and has nothing to do with the earlier answers: it points back at nothing, it names a subject of its own (a bare
+    'dosage?' or 'what about in pregnancy?' only says what is asked, so it is never judged here), and none of the subject words occurs in any earlier question, condition or drug list of the conversation. The agent called such a message a
+    follow-up now and then and the earlier subject was merged into the new question (for example a question about migraine rewritten as 'migraine for insomnia in children')."""
+    if not memory:
+        return True
+    if BACK_REF.search(question or ""):
+        return False
+    mine = _stems(question, GENERIC_WORDS | ASKED_ABOUT)
+    if not mine:
+        return False
+    earlier: set[str] = set()
+    for t in memory:
+        earlier |= _stems(" ".join([str(t.get("question") or ""), str(t.get("asked_as") or ""), str(t.get("condition") or ""), " ".join(map(str, t.get("drugs") or [])), " ".join(map(str, t.get("asked_drugs") or []))]))
+    return not (mine & earlier)
+
+
+ACTS_ON_ANSWER = re.compile(r"\b(?:explain|simplif\w*|summar\w*|rephrase|reword|shorten|shorter|longer|translate|rewrite|draft|handout|table|compare|rank|thanks?|thank|elaborate|clarify|continue|expand|bullet\w*|format)\b", re.I)
+
+
+def clearly_new(question: str, memory: list[dict]) -> bool:
+    """True when code can decide, with no model call, that the message is a NEW question: it is standalone (a subject of its own, nothing shared with the earlier answers, no pointing word), it is not an instruction to
+    rework the earlier answer (explain, summarise, put in a table, draft a handout, thank), and it is long enough to be a question of its own. Everything else goes to the agent."""
+    q = question or ""
+    return bool(memory) and len(q.split()) >= 4 and not ACTS_ON_ANSWER.search(q) and not BACK_REF.search(q) and standalone(q, memory)
+
+
 def _path(conversation_id: str) -> Path:
     safe = re.sub(r"[^a-zA-Z0-9_-]", "", str(conversation_id or ""))[:64]
     return MEMORY_DIR / f"{safe}.json" if safe else MEMORY_DIR / "_none.json"

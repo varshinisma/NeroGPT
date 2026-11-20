@@ -80,6 +80,11 @@ message is handled and what the research is about. Make ONE decision by calling 
 - ask_for_clarification: the message cannot be understood even with the conversation. Use rarely; ask one short question.
 Never name a drug or a condition that the question and the earlier answers did not state. Never answer the question yourself.
 
+NEW QUESTION OR FOLLOW-UP? The default is a NEW question (kind=new). Choose kind=follow_up or answer_from_conversation only when the message cannot be researched or answered without the earlier answers: it points back
+at them, or it leaves out its own subject. A message that names its own condition, drug or patient AND says what is wanted is a NEW question, even in the middle of a conversation, and even when the earlier answers were about
+a related field, the same age group, or the same kind of question (both about children, both about treatment). Never merge two questions because they sound alike. Example: after a conversation about a tic disorder, "migraine
+prophylaxis evidence" is new; "and the side effects?" is a follow-up.
+
 THE STAGES OF A RESEARCH RUN (the skill's Steps 5 to 8). With `research` you also choose their ORDER (the `stages` list). Code starts fast_search and fast_answer itself (the skill's fast path comes before any plan),
 then runs the rest in YOUR order, moving a stage later only when it must wait for the stages it reads. Stages that start background work (read_evidence, drugs, figures) are best started early so they run beside the
 writing; follow the order the skill describes unless the question gives a reason to change it. Every stage is required, `figures` included: the doctor wants the figures of the relevant papers for every question.
@@ -171,21 +176,10 @@ def make_tools(record: dict, with_conversation: bool = True, slim: bool = False)
     return [answer_from_conversation, research, ask_for_clarification] if with_conversation else [research]
 
 
-_routing_model = None
-
-
 def routing_model():
-    """The model of the routing decision. By default the plan model of the other calls. ORCHESTRATOR_MODEL (and ORCHESTRATOR_PROVIDER: openai, groq or mistral) give this one call its own, faster model, for example
-    OPENAI_MODEL's smaller sibling; the plan model of a NEW question (written beside the fast answer) is not affected."""
-    global _routing_model
+    """The follow-up / new-question decision uses the MAIN model (the same one as the agent and the writers). There is no separate smaller routing model."""
     from qa_stream import model_for
-    name, provider = os.getenv("ORCHESTRATOR_MODEL", "").strip(), os.getenv("ORCHESTRATOR_PROVIDER", "").strip().lower()
-    if not name and not provider:
-        return model_for(PLAN_TOKENS, 0.0, "planning")
-    if _routing_model is None:
-        import server
-        _routing_model = server.build_model(max_tokens=PLAN_TOKENS, temperature=0.0, model_id=name or None, provider=provider or None)
-    return _routing_model
+    return model_for(PLAN_TOKENS, 0.0, "planning")
 
 
 def default_run_agent(system: str, prompt: str, tools: list, limit: int = 1) -> None:
@@ -276,14 +270,23 @@ def decide(question: str, memory: list[dict], run_agent=None, fallback_ask=None)
     unchanged = {"follow_up": False, "mode": "new", "question": question, "turns": []}
     if not memory or not memory_mod.worth_routing(question):
         return unchanged      # nothing to decide: the agent writes the plan in its own call, beside the fast answer
+    if memory_mod.clearly_new(question, memory):      # it names its own subject, shares none of the earlier subject words and points at nothing: a new question, decided by code at once (no routing call, no wait; its plan is written beside the fast answer)
+        return {**unchanged, "routing_note": "standalone: new question decided by code, no routing call"}
     try:
         extra = catalog()
     except Exception:
         extra = ""
-    record = run_once(memory_mod.resolve_payload(question, memory) + extra, memory, run_agent)
+    payload = memory_mod.resolve_payload(question, memory) + extra
+    record = run_once(payload, memory, run_agent)
+    if to_reply(record) == {"mode": "new"} and memory_mod.refers_back(question):      # the message points back at the earlier answers but was called a new question: the agent looks once more
+        again = run_once(payload + BACK_REF_HINT, memory, run_agent)
+        if to_reply(again) not in (None, {"mode": "new"}) or again.get("tool") == "ask_for_clarification":
+            record = again
     if record.get("tool") == "ask_for_clarification" and str(record.get("question") or "").strip():
         return {"follow_up": False, "mode": "clarify", "question": question, "turns": [], "clarification": " ".join(str(record["question"]).split())[:300]}
     reply = to_reply(record)
+    if reply and reply.get("mode") == "research" and memory_mod.standalone(question, memory):      # called a follow-up (research), but it names its own subject and shares nothing with the earlier answers: a new question
+        return {**unchanged, "routing_note": "standalone: the message names its own subject and shares none of the earlier subject words, so it is researched as a new question"}
     if reply and reply.get("mode") == "research" and not 3 <= len(" ".join(str(reply.get("ask") or "").split()).strip(" .?")) <= 200:
         reply["ask"] = " ".join(question.split()).strip(" .?")[:200]      # the agent left out what is asked: the person's own message says it (the drugs and conditions are added by code from the stored answers)
     if reply is None:
@@ -300,6 +303,10 @@ def plan_only(question: str, run_agent=None) -> dict | None:
     record = run_once(f"NEW QUESTION: {question}" + catalog(), [], run_agent)
     plan = record.get("plan") if record.get("tool") == "research" else None
     return plan or None
+
+
+BACK_REF_HINT = ("\nCHECK: this message points back at the earlier answers (it uses a word such as 'above', 'these', 'those' or 'mentioned'). A message that depends on them is NOT a new question: decide again, "
+                 "and call research with kind=follow_up (or answer_from_conversation, or ask_for_clarification if you cannot tell which earlier answer it means).")
 
 
 RECOVERY_GUIDE = """

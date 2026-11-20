@@ -99,13 +99,13 @@ class Tables(unittest.TestCase):
         self.assertNotIn("Zolmitriptan", main)
         self.assertIn("Rimegepant", main)      # labelled for both: it stays
         self.assertIn("Preventive and acute", main)
-        self.assertIn("Calcitonin Gene-related Peptide Receptor Antagonist", main)      # the label's own class
-        self.assertIn("EMA (EU): not verified", main)
-        self.assertIn("CDSCO (India): not verified", main)
+        self.assertNotIn("| Class |", main)      # the Class and Indication columns are no longer shown
+        self.assertNotIn("Regulatory status", main)      # the column was removed: approval is stated in the evidence cell
+        self.assertNotIn("EMA (EU)", main)
         for line in main.splitlines():      # every table row is one line with the same number of cells as its header
-            if line.startswith("| Drug | Class"):
+            if line.startswith("| Drug | Dose"):
                 cells = line.count("|")
-            elif line.startswith("| ") and "---" not in line and "| Drug | Class" not in line and line.count("|") > 3:
+            elif line.startswith("| ") and "---" not in line and "| Drug | Dose" not in line and line.count("|") > 3:
                 self.assertEqual(line.count("|"), cells, line[:80])
 
     def test_without_an_intent_nothing_is_separated(self):
@@ -206,9 +206,9 @@ class LabelVerification(unittest.TestCase):
         self.assertEqual(kept[0]["drug_class"], "CGRP receptor antagonist")
         state["used_rows_final"] = kept
         md = landscape.landscape_markdown(state, kept, [])
-        self.assertIn("FDA (US): approved for the use shown (label 2025-04-01)", md)
-        self.assertIn("EMA (EU): not verified", md)
-        self.assertIn("CGRP receptor antagonist", md)
+        self.assertIn("FDA-approved for this indication (verified in the drug's own FDA label)", md)      # the approval is in the evidence cell
+        self.assertNotIn("Regulatory status", md)
+        self.assertNotIn("| Class |", md)      # the Class column is no longer shown
 
     def test_a_label_that_does_not_name_the_condition_is_off_label_and_a_guideline_stays_a_guideline(self):
         state = base_state([])

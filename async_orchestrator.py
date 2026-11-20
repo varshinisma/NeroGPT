@@ -33,14 +33,23 @@ async def adecide(question: str, memory: list[dict], run_agent=None, fallback_as
     unchanged = {"follow_up": False, "mode": "new", "question": question, "turns": []}
     if not memory or not memory_mod.worth_routing(question):
         return unchanged
+    if memory_mod.clearly_new(question, memory):      # it names its own subject, shares none of the earlier subject words and points at nothing: a new question, decided by code at once (no routing call, no wait; its plan is written beside the fast answer)
+        return {**unchanged, "routing_note": "standalone: new question decided by code, no routing call"}
     try:
         extra = orch.catalog()
     except Exception:
         extra = ""
-    record = await arun_once(memory_mod.resolve_payload(question, memory) + extra, memory, run_agent)
+    payload = memory_mod.resolve_payload(question, memory) + extra
+    record = await arun_once(payload, memory, run_agent)
+    if orch.to_reply(record) == {"mode": "new"} and memory_mod.refers_back(question):      # the message points back but was called a new question: the agent looks once more
+        again = await arun_once(payload + orch.BACK_REF_HINT, memory, run_agent)
+        if orch.to_reply(again) not in (None, {"mode": "new"}) or again.get("tool") == "ask_for_clarification":
+            record = again
     if record.get("tool") == "ask_for_clarification" and str(record.get("question") or "").strip():
         return {"follow_up": False, "mode": "clarify", "question": question, "turns": [], "clarification": " ".join(str(record["question"]).split())[:300]}
     reply = orch.to_reply(record)
+    if reply and reply.get("mode") == "research" and memory_mod.standalone(question, memory):      # called a follow-up (research), but it names its own subject and shares nothing with the earlier answers: a new question
+        return {**unchanged, "routing_note": "standalone: the message names its own subject and shares none of the earlier subject words, so it is researched as a new question"}
     if reply and reply.get("mode") == "research" and not 3 <= len(" ".join(str(reply.get("ask") or "").split()).strip(" .?")) <= 200:
         reply["ask"] = " ".join(question.split()).strip(" .?")[:200]
     if reply is None:

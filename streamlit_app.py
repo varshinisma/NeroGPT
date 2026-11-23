@@ -286,10 +286,10 @@ def scroll_script(box, template: str, *args) -> None:
 
 
 STEP_TEXT = {"fast_search": "Searched PubMed, trials and FDA labels", "fast_answer": "Fast answer written", "deep_search": "Deep search finished", "rank": "Papers ranked", "read_evidence": "Evidence read",
-             "drugs": "Drug landscape started", "escalate": "Gaps checked", "write_start": "Writing the report", "figures": "Looking for figures", "write_stream": "Report written",
+             "drugs": "Drug landscape started", "escalate": "Evidence read", "write_start": "Writing the report", "figures": "Looking for figures", "write_stream": "Report written",
              "assemble": "Report assembled", "limitations": "Limitations written", "verify": "Verified", "finalize": "Finished"}
 LIVE_TEXT = {"deep_search": "Searching PubMed, Europe PMC, trials, guidelines and FDA labels", "rank": "Ranking papers by relevance", "read_evidence": "Reading the evidence", "drugs": "Building the drug landscape",
-             "escalate": "Checking for gaps in the evidence", "write_start": "Starting the report", "figures": "Looking for figures", "write_stream": "Writing the sections", "assemble": "Assembling the report",
+             "escalate": "Reading the evidence", "write_start": "Starting the report", "figures": "Looking for figures", "write_stream": "Writing the sections", "assemble": "Assembling the report",
              "limitations": "Writing the limitations", "verify": "Verifying citations and trials"}
 STREAM_EVERY_S = 0.15      # the report text is redrawn at most this often: one redraw per token made the page flicker and shift
 

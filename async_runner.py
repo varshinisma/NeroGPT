@@ -69,12 +69,45 @@ class AsyncPipeline(AsyncRun, DeepStages, EvidenceStages, DrugStages, WriterStag
             except Exception:
                 pass
 
+    def _early_figures(self, event: dict) -> dict | None:
+        """FIGURES_EARLY=on (default): as soon as the figure job has finished, each figure whose paper is cited in a section already streamed is sent at once, so the page draws it under that section
+        while the rest of the answer is still being written (the same `figures` event as the final one, cumulative; the final event later places every figure again)."""
+        if event.get("type") == "token":
+            self._streamed = getattr(self, "_streamed", "") + str(event.get("text") or "")
+        task = getattr(self, "figures_task", None)
+        if task is None or not task.done() or "finalize" in self.ran or os.getenv("FIGURES_EARLY", "on").strip().lower() in ("off", "0", "false", "no"):
+            return None
+        figures = list((getattr(self, "figure_box", None) or {}).get("figures") or [])
+        text = getattr(self, "_streamed", "")
+        if not figures or "## " not in text:
+            return None
+        import re
+        from source_figures import display_records
+        sections = {part.splitlines()[0][3:].strip(): part for part in re.split(r"(?m)^(?=## )", text) if part.startswith("## ")}
+        records = []
+        for rec in display_records(figures, {}, text):
+            pmid = str(rec.get("pmid") or "")
+            home = next((n for n, body in sections.items() if pmid and re.search(r"PMID[:\s]*" + re.escape(pmid) + r"\b", body) and n.lower() not in ("sources", "references", "clinical summary")), None)
+            rec["section"] = home or rec.get("section")
+            if rec["section"] and rec["section"] in sections:
+                records.append({k: v for k, v in rec.items() if k != "pdf_path"})
+        key = tuple(sorted(str(r.get("sha256") or r.get("url")) for r in records))
+        if not records or key == getattr(self, "_early_sent", None):
+            return None
+        self._early_sent = key
+        self.state["figures_sent_early"] = len(records)
+        self.state.setdefault("figures_sent_early_at_s", round(self.clock.now(), 1))      # when the first figures were sent, in seconds from the start (compare with final_s)
+        return self.event("figures", items=records, early=True)
+
     async def run_stage(self, name: str) -> AsyncIterator[dict]:
         self.ran.append(name)
         began, began_abs = self.clock.now(), observability.now()
         stream = getattr(self, f"stage_{name}")()
         async for event in (stream if self.focused else self.with_heartbeat(stream, name)):      # a follow-up streams without heartbeats, as before
             yield event
+            early = self._early_figures(event)
+            if early is not None:
+                yield early
         observability.record("stage", name, began_abs, observability.now())
         seconds = self.state.setdefault("stage_seconds", {})
         seconds[name] = round(self.clock.now() - began, 1)

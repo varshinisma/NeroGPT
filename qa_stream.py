@@ -4091,11 +4091,16 @@ def stream_answer(question: str, plan: dict | None = None):
             notes = [n for n in notes if n.startswith("Excluded retracted")]
             real = [x for x in skipped if not str(x).lower().startswith(("trials", "the opening summary"))]      # trials were not asked for in this answer
             limits_md = limitations_markdown(state, real, notes) if (real or notes) else ""
+            if limits_md and os.getenv("SHOW_LIMITATIONS", "off").strip().lower() in ("off", "0", "false", "no"):
+                state["limitations_hidden"], limits_md = limits_md, ""      # kept in the saved record, not in the report or the answer
             if limits_md:
                 yield event("token", stage="TRIALS_ENRICHING", text="\n\n" + limits_md)
             return
         limits_md = limitations_markdown(state, skipped, notes)
-        yield event("token", stage="TRIALS_ENRICHING", text="\n\n" + limits_md)
+        if os.getenv("SHOW_LIMITATIONS", "off").strip().lower() in ("off", "0", "false", "no"):
+            state["limitations_hidden"], limits_md = limits_md, ""      # kept in the saved record, not in the report or the answer
+        else:
+            yield event("token", stage="TRIALS_ENRICHING", text="\n\n" + limits_md)
 
 
     def stage_verify():

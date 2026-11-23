@@ -4,6 +4,7 @@ the model reads of the evidence parts run at the same time as tasks, a wave of a
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from datetime import datetime
 from typing import AsyncIterator
@@ -46,7 +47,7 @@ async def apropose_alternates(question: str, plan: dict, wanted: list, anchors, 
     return out
 
 
-async def atriage_evidence(state: dict, question: str, skipped: list[str], only: set[str] | None = None) -> None:
+async def atriage_evidence(state: dict, question: str, skipped: list[str], only: set[str] | None = None, head_done: asyncio.Event | None = None, head_n: int = 16) -> None:
     """Twin of qa_stream.triage_evidence: evidence-synthesis reads ALL retrieved papers and trials and decides relevance, role and population; code verifies every decision against the record's own text."""
     from landscape import numbered_sentences
     today = f"{datetime.now():%Y-%m-%d}"
@@ -76,6 +77,17 @@ async def atriage_evidence(state: dict, question: str, skipped: list[str], only:
         jobs.append(("trials", list(offered_t), {"clinical_profile": clinical_profile,
                                                    "trials": [{"id": k, "sentences": [f"{n}. {t}" for n, t in enumerate(v["sentences"], 1)]} for k, v in offered_t.items()]}, qs.TRIAL_TRIAGE_TASK))
     trace: list = []
+    head_keys = set(keys[:-(-head_n // 6) * 6]) if head_done is not None else set()      # the best-ranked papers (whole parts of 6): the ones the writers read
+    head_waiting = {"trials"} if (head_done is not None and offered_t) else set()
+    judged: set = set()
+
+    def check_head() -> None:
+        """head_done is set as soon as the best-ranked papers (and the trials) are judged AND at least `head_n` of those are direct: the writers read the best `head_n` papers, so the rest can be read behind them.
+        With fewer direct papers in the head the writers wait for the whole reading, as before."""
+        if head_done is None or head_done.is_set() or head_waiting or not head_keys <= judged:
+            return
+        if sum(1 for k in head_keys if (state["papers"][k].get("triage") or {}).get("relevance") == "direct") >= head_n:
+            head_done.set()
 
     def apply_decisions(kind, part, items):
         decisions = (qs.verify_paper_triage(items, offered_p, information_needs=information_needs, broad_question=len(information_needs) > 1) if kind == "papers"
@@ -96,6 +108,11 @@ async def atriage_evidence(state: dict, question: str, skipped: list[str], only:
                       "sent": len(payload.get("papers") or payload.get("trials") or [])})
         items = answer.get(kind) or []
         apply_decisions(kind, part, items)      # applied as soon as this part is back: the writer is not held up by the slowest part
+        if kind == "papers":
+            judged.update(part)
+        else:
+            head_waiting.discard("trials")
+        check_head()
         return kind, part, items
     results = await asyncio.gather(*[run(j) for j in jobs])
     state["triage_trace"] = trace if only is None else list(state.get("triage_trace") or []) + trace
@@ -154,6 +171,8 @@ async def arun_escalation_phase(state: dict, question: str, plan: dict, stage: d
         return job
 
     async def plan_wave(needs: dict, wave: int) -> list:
+        if os.getenv("ESCALATION_SEARCH", "off").strip().lower() not in ("on", "1", "true", "yes"):
+            return []      # no extra gap-search rounds (no model call, no alternate-source searches): the coverage of each need is still recorded below, and the reading is still waited for
         room = rr.MAX_ESCALATIONS - len(escalated)
         new_ops, missing, skips = rr.plan_escalations(needs, all_ops, executed, already=escalated, max_escalations=max(0, room))
         record["skipped"] += [{**s, "wave": wave} for s in skips]
@@ -213,7 +232,7 @@ async def arun_escalation_phase(state: dict, question: str, plan: dict, stage: d
     new_ids = await finish(job1, remaining()) if job1 else set()
     await read_new(new_ids)
     # ---- wave 2: needs whose records were all judged irrelevant (needs the finished reading)
-    if triage_done and remaining() > qs.ESCALATION_MIN_S:
+    if triage_done and remaining() > qs.ESCALATION_MIN_S and os.getenv("ESCALATION_SEARCH", "off").strip().lower() in ("on", "1", "true", "yes"):      # wave 2 only plans gap searches: with those off it would only load the local scoring model and score every need for nothing
         scorer = scorer if scorer is not None else await asyncio.to_thread(hybrid_search.cross_scorer)      # CPU: the local model
         needs = await asyncio.to_thread(rr.evaluate_needs, all_ops, results, qs.relevance_counter(state, question, scorer))      # CPU: the screen scores web results with the local model
         wave2 = await plan_wave(needs, 2)
@@ -236,6 +255,8 @@ class EvidenceStages:
     def init_evidence(self) -> None:
         self.fulltext_task: asyncio.Task | None = None
         self.triage_task: asyncio.Task | None = None
+        self.reading_head = asyncio.Event()      # set when the papers the writers read are judged (or when the whole reading ends)
+        self.reading_head_task: asyncio.Task | None = None
         self.early_latest: dict = {}
 
     async def _run_fulltext(self) -> None:
@@ -251,11 +272,15 @@ class EvidenceStages:
             pass
 
     async def _run_triage(self) -> None:
-        if self.light_focus:      # a follow-up about the earlier drugs: no relevance reading
+        try:
+            if self.light_focus:      # a follow-up about the earlier drugs: no relevance reading
+                self.clock.mark("triage_s")
+                return
+            head = self.reading_head if os.getenv("READING_HEAD_START", "on").strip().lower() not in ("off", "0", "false", "no") and not self.focused else None
+            await atriage_evidence(self.state, self.question, self.skipped, head_done=head, head_n=qs.MAX_CONTEXT_PAPERS)      # the prose waits for the best-ranked papers (reading_head), the drug landscape does not wait at all
             self.clock.mark("triage_s")
-            return
-        await atriage_evidence(self.state, self.question, self.skipped)      # the prose waits for it, the drug landscape does not
-        self.clock.mark("triage_s")
+        finally:
+            self.reading_head.set()
 
     async def stage_read_evidence(self) -> AsyncIterator[dict]:
         self.fulltext_task = asyncio.ensure_future(asyncio.sleep(0))      # a finished task stands in for a reading that is left out
@@ -268,13 +293,16 @@ class EvidenceStages:
         self.clock.mark("retrieval_deep_s")
         yield self.event("milestone", name="retrieval_complete", seconds=self.clock.marks["retrieval_deep_s"])
         self.triage_task = asyncio.ensure_future(self._run_triage())
+        self.reading_head_task = asyncio.ensure_future(self.reading_head.wait())
+        if not self.focused and not self.light_focus and hasattr(self, "start_figures"):
+            self.start_figures()      # the figure pages are fetched beside the relevance reading, not after the escalation
         if qs.EARLY_LATEST and not self.focused and hasattr(self, "launch_writer"):      # the Latest findings are written from the papers the relevance reading has judged, as soon as that reading is done, beside the escalation
             self.make_writing()
             self.early_latest["pending"] = True
 
             async def start_latest_when_judged():
                 try:
-                    if await _wait(self.triage_task, self.T.escalation + 5):
+                    if await _wait(self.reading_head_task, self.T.escalation + 5):
                         self.launch_writer("latest")
                         self.state["early_latest_started_s"] = round(self.clock.now(), 1)
                 except Exception as error:
@@ -288,7 +316,7 @@ class EvidenceStages:
             self.evidence_ready.set()
             return
         try:      # the relevance reading and the escalation finish BEFORE the evidence is written, under one hard deadline; unfinished work is reported in the limitations
-            escalation_task = asyncio.ensure_future(arun_escalation_phase(state, self.question, plan_box.get("plan") or {}, plan_box.get("routing") or {}, self.triage_task, self.skipped,
+            escalation_task = asyncio.ensure_future(arun_escalation_phase(state, self.question, plan_box.get("plan") or {}, plan_box.get("routing") or {}, self.reading_head_task, self.skipped,
                                                                          deadline_s=self.T.escalation))
             if self.early_latest.get("pending") and getattr(self, "writing", None) is not None:      # the Latest findings are shown as they are written, while the escalation runs
                 part = self.writing["latest"]

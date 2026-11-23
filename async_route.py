@@ -3,6 +3,8 @@ searches run under a time budget (async_routing.AsyncExecution). The validation,
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 import time
 
 import async_core
@@ -20,9 +22,23 @@ from async_pipeline import acached
 _MODE = "-" + at._sources_mode()      # the search mode is part of the cache key: a result from one mode is never served in another
 
 
-async def aask_queries(question: str, task: str, payload: dict, max_tokens: int, skill: str = "drug-intelligence") -> dict:
-    """Twin of qa_stream.ask_queries: the call that writes searches, with its own model setting."""
-    return await async_core.aask_json(question, task, payload, max_tokens, skill=skill, purpose="queries")
+async def aask_queries(question: str, task: str, payload: dict, max_tokens: int, skill: str = "drug-intelligence", on_item=None) -> dict:
+    """Twin of qa_stream.ask_queries: the call that writes searches, with its own model setting. With `on_item`, every search object is handed over the moment it is complete (while the rest of the
+    list is still being written), so it can start at once; the full reply is returned as before."""
+    if on_item is None:
+        return await async_core.aask_json(question, task, payload, max_tokens, skill=skill, purpose="queries")
+    import qa_stream
+    prompt = (f"TASK: {task} Write the JSON compactly on a single line, with no indentation or line breaks.\n\nQUESTION: {question}\nRETRIEVED DATA (JSON):\n"
+              + json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+    items, raw = rr.ItemStream(), ""
+    async for chunk in async_core.astream_llm(qa_stream.load_skill_text(skill), prompt, max_tokens, temperature=0.0, purpose="queries"):
+        raw += chunk
+        for item in items.feed(chunk):
+            try:
+                on_item(item)
+            except Exception:
+                pass      # starting a search early is an optimisation: the full reply is still parsed below
+    return async_core.parse_json_answer(raw)
 
 
 async def _routed_fda(terms, drugs=None, limit: int = 8) -> str:
@@ -99,7 +115,7 @@ def areal_adapters(anchors) -> dict:
     return {"pubmed": pubmed, "europepmc": europepmc, "trials": trials, "fda_label": fda_label, "guideline_sites": guideline_sites, "regulator": regulator, "web": web}
 
 
-async def awrite_queries(question: str, plan: dict, skill: str, anchors, ask, attempts: int = 2) -> dict:
+async def awrite_queries(question: str, plan: dict, skill: str, anchors, ask, attempts: int = 2, part: int = 0, early=None) -> dict:
     """Twin of qa_stream._write_queries: one retrieval skill writes its searches. Returns {'ops', 'rejected', 'outcome', 'seconds'}."""
     began = time.time()
     rules = qs.skill_section(skill, "Query transformation by intent")
@@ -109,24 +125,58 @@ async def awrite_queries(question: str, plan: dict, skill: str, anchors, ask, at
     if plan.get("conditions"):
         payload["conditions"] = cond_groups.names(plan["conditions"])
     task = (qs.EXPAND_TASK.format(skill=skill) + ("\n\nThe question names several conditions (`conditions`): write the searches for EACH condition separately, each search naming only one of them." if plan.get("conditions") else "")
-            + "\n\nSECTION (the " + skill + " skill):\n" + rules)
+            + ("\n\n" + PART_TASK[part] if part else "") + "\n\nSECTION (the " + skill + " skill):\n" + rules)
     outcome, rejected, error = "error", [], ""
+    started, seen = [], set()
+
+    def on_item(item) -> None:      # a search that is complete is started now (`early` runs it), the rest of the list is still being written
+        op, _ = rr._parse_one(item, skill, question, anchors, len(started))
+        if op is not None and op.key not in seen and len(started) < 8:
+            seen.add(op.key)
+            started.append(op)
+            early([op])
+    extra = {"on_item": on_item} if early is not None else {}
     for attempt in range(attempts):
         try:
-            reply = await ask(question, task, payload, 1500, skill=skill)
+            reply = await ask(question, task, payload, 1500, skill=skill, **extra)
         except Exception as exc:
             outcome, error = "error", f"{type(exc).__name__}: {str(exc)[:80]}"
             continue
         ops, rejected = rr.parse_operations(skill, reply, question, anchors)
         if ops:
             return {"ops": ops, "rejected": rejected, "outcome": "wrote", "seconds": round(time.time() - began, 1)}
-        if skill == "latest-evidence" and attempt < attempts - 1 and (rr.declined(reply) or (isinstance(reply, dict) and reply.get("queries") == [])):
+        if skill == "latest-evidence" and not part and attempt < attempts - 1 and (rr.declined(reply) or (isinstance(reply, dict) and reply.get("queries") == [])):
             outcome = "declined"
             continue
         if rr.declined(reply) or (isinstance(reply, dict) and reply.get("queries") == []):
             return {"ops": [], "rejected": [], "outcome": "declined", "seconds": round(time.time() - began, 1)}
         outcome = "all_rejected" if isinstance(reply, dict) and isinstance(reply.get("queries"), list) else "malformed"
     return {"ops": [], "rejected": rejected, "outcome": outcome, "seconds": round(time.time() - began, 1), "error": error}
+
+
+PART_TASK = {1: ("YOU WRITE ONLY PART 1 OF 2 of this skill's searches; another writer, at the same time, writes part 2. Part 1 is the needs about WHAT THE PROBLEM IS: its causes and differential, "
+                 "the diagnosis, the work-up and every kind of investigation, the mechanism, how common it is, and prognosis. Work out the needs as the section says, but write searches only for the needs of this part. "
+                 "If no need of this part applies, reply {\"queries\": []}."),
+             2: ("YOU WRITE ONLY PART 2 OF 2 of this skill's searches; another writer, at the same time, writes part 1. Part 2 is the needs about WHAT TO DO: treatment options and their outcomes, safety and harms, "
+                 "what guideline organisations recommend (`guideline_sites`), management, services and follow-up, what is new, comparisons, and the evidence that contradicts an intervention. Work out the needs "
+                 "as the section says, but write searches only for the needs of this part. If no need of this part applies, reply {\"queries\": []}.")}
+SPLIT_SKILLS = ("latest-evidence",)      # the skills whose search list is long: written by two writers at once (ROUTING_SPLIT=off: one writer, as before)
+
+
+async def awrite_queries_split(question: str, plan: dict, skill: str, anchors, ask, early=None) -> dict:
+    """One skill's searches written by two calls at the same time, each for half of the needs (part 1: what the problem is; part 2: what to do). The two lists are joined; if both parts had nothing,
+    the skill is asked once as a whole, as before."""
+    began = time.time()
+    one, two = await asyncio.gather(awrite_queries(question, plan, skill, anchors, ask, 2, 1, early), awrite_queries(question, plan, skill, anchors, ask, 2, 2, early))
+    ops, _ = rr.merge_operations(one["ops"], two["ops"], cap=rr.MAX_OPERATIONS)
+    rejected = one["rejected"] + two["rejected"]
+    if ops:
+        return {"ops": ops, "rejected": rejected, "outcome": "wrote", "seconds": round(time.time() - began, 1), "parts": [one["outcome"], two["outcome"]]}
+    if one["outcome"] in ("declined", "error") and two["outcome"] in ("declined", "error"):
+        whole = await awrite_queries(question, plan, skill, anchors, ask, early=early)      # nothing from either half: the skill decides for the whole question
+        whole["seconds"] = round(time.time() - began, 1)
+        return whole
+    return {"ops": [], "rejected": rejected, "outcome": one["outcome"] if one["outcome"] != "wrote" else two["outcome"], "seconds": round(time.time() - began, 1), "error": one.get("error") or two.get("error", "")}
 
 
 async def afill_coverage(question: str, plan: dict, gaps: list[dict], ops: list, anchors, ask=aask_queries, call_s: float | None = None) -> dict:
@@ -182,7 +232,10 @@ async def aroute_deep(question: str, plan: dict, ask=aask_queries, submit=None) 
         if submit and fresh:
             submit(fresh)
     written: dict = {}
-    pending = {asyncio.ensure_future(awrite_queries(question, plan, s, anchors, ask)): s for s in skills}
+    streaming = ask is aask_queries and os.getenv("ROUTING_STREAM", "on").strip().lower() not in ("off", "0", "false", "no")      # a search starts the moment its text is complete
+    split = os.getenv("ROUTING_SPLIT", "on").strip().lower() not in ("off", "0", "false", "no")
+    early = add if streaming else None
+    pending = {asyncio.ensure_future((awrite_queries_split if (split and s in SPLIT_SKILLS) else awrite_queries)(question, plan, s, anchors, ask, early=early)): s for s in skills}
     while pending:
         done, _ = await asyncio.wait(list(pending), return_when=asyncio.FIRST_COMPLETED)
         for task in done:

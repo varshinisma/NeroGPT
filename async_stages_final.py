@@ -126,26 +126,50 @@ class FinalStages:
             trace["skipped"] = "left out by the orchestrator plan"
             return
         try:
-            await _wait(self.triage_task, 25)      # the relevance judgement of every paper
             order = {"direct": 0, "indirect": 1, "uncertain": 2, "background": 3}
-            ranked = sorted((p for p in papers.values() if p.get("pmcid") and not p.get("retracted") and (p.get("triage") or {}).get("relevance") in order),
-                            key=lambda p: order.get((p.get("triage") or {}).get("relevance"), 2))
+            early = os.getenv("FIGURES_FROM_EVIDENCE", "on").strip().lower() not in ("off", "0", "false", "no")
+            if early:      # the figure pages are fetched NOW, for the best-ranked papers, while the relevance reading is still running; the reading is applied afterwards
+                try:
+                    pool = qs.ordered_papers(papers, set(state.get("core_stems") or []), allow_untriaged=True)
+                except Exception:
+                    pool = list(papers.values())
+                ranked = [p for p in pool if p.get("pmcid") and not p.get("retracted")]
+            else:
+                await _wait(self.triage_task, 25)      # the relevance judgement of every paper
+                ranked = sorted((p for p in papers.values() if p.get("pmcid") and not p.get("retracted") and (p.get("triage") or {}).get("relevance") in order),
+                                key=lambda p: order.get((p.get("triage") or {}).get("relevance"), 2))
             views = [{"pmid": p["pmid"], "pmcid": p["pmcid"], "doi": p.get("doi"), "title": p.get("title"), "cite": p.get("cite"),
                       "design": ", ".join(p.get("type") or p.get("study_type") or []) or None} for p in ranked[:30]]
             fetched = json.loads(await async_figures.asearch_paper_figures(json.dumps(views), want=24, batches=4))
             trace.setdefault("reading", {})["page_status"] = fetched.get("page_status", [])
             found = fetched.get("figures") or []
-            try:
-                await asyncio.wait_for(self.writing["current"]["done"].wait(), timeout=30)      # the relevance test compares a figure with what the report already says
-            except asyncio.TimeoutError:
-                pass
-            report = qs.cut_for_model(" ".join("".join(self.writing[n]["produced"]) for n in ("latest", "current")), 3500)
+            if early:
+                await _wait(self.triage_task, 25)      # the relevance judgement of every paper: figures of papers judged not relevant are left out
+                ranked = [p for p in ranked if (p.get("triage") or {}).get("relevance") in order]
+                keep = {str(p["pmid"]) for p in ranked}
+                found = [f for f in found if str(f.get("pmid")) in keep]
+            if os.getenv("FIGURES_FROM_EVIDENCE", "on").strip().lower() not in ("off", "0", "false", "no"):      # the relevance test reads the evidence (the screened papers), not the written report: figures are ready while the sections are still being written
+                lines = [f"{p.get('title') or ''}. {str(p.get('abstract') or '')[:350]}" for p in ranked[:12]]
+                report = qs.cut_for_model(" ".join(lines), 3500)
+                trace["relevance_basis"] = "evidence"
+            else:
+                try:
+                    await asyncio.wait_for(self.writing["current"]["done"].wait(), timeout=30)      # the relevance test compares a figure with what the report already says
+                except asyncio.TimeoutError:
+                    pass
+                report = qs.cut_for_model(" ".join("".join(self.writing[n]["produced"]) for n in ("latest", "current")), 3500)
+                trace["relevance_basis"] = "report"
             self.figure_box["figures"] = await async_figures.afind_figures(question, papers, report, found, trace, (state.get("entities") or {}).get("condition") or "")
         except Exception as error:
             trace["error"] = f"{type(error).__name__}: {str(error)[:80]}"
 
+    def start_figures(self) -> None:
+        """The figure job starts once: as early as the relevance reading starts (stage read_evidence), or here at the figures stage if that did not happen."""
+        if self.figures_task is None:
+            self.figures_task = asyncio.ensure_future(self._run_figures())
+
     async def stage_figures(self) -> AsyncIterator[dict]:
-        self.figures_task = asyncio.ensure_future(self._run_figures())      # the figures are found while the parts are written
+        self.start_figures()      # the figures are found while the parts are written
         return
         yield
 
@@ -225,7 +249,14 @@ class FinalStages:
         self.sections.extend(parts[k] for k in ("head", "landscape", "medication", "trials", "tail") if parts.get(k))      # the document's order
 
     # ---- stage: limitations
+    @staticmethod
+    def _show_limits() -> bool:
+        """SHOW_LIMITATIONS=off: the 'Evidence limitations' section is not written into the report or the answer (the text stays in state['limitations_hidden'])."""
+        return os.getenv("SHOW_LIMITATIONS", "off").strip().lower() not in ("off", "0", "false", "no")
+
     async def stage_limitations(self) -> AsyncIterator[dict]:
+        if self.triage_task is not None:
+            await _wait(self.triage_task, 8.0)      # the rest of the relevance reading (behind the writers) is counted here
         state, papers, skipped, stems = self.state, self.papers, self.skipped, self.stems
         retracted = [p for p in papers.values() if p.get("retracted")]
         excluded_after_screen = [p for p in papers.values() if not p.get("retracted") and p.get("triage") and not qs.usable(p, stems)]
@@ -252,10 +283,17 @@ class FinalStages:
             notes = [n for n in notes if n.startswith("Excluded retracted")]
             real = [x for x in skipped if not str(x).lower().startswith(("trials", "the opening summary"))]
             self.limits_md = qs.limitations_markdown(state, real, notes) if (real or notes) else ""
+            if self.limits_md and not self._show_limits():
+                state["limitations_hidden"] = self.limits_md      # kept in the saved record, not in the report or the answer
+                self.limits_md = ""
             if self.limits_md:
                 yield self.event("token", stage="TRIALS_ENRICHING", text="\n\n" + self.limits_md)
             return
         self.limits_md = qs.limitations_markdown(state, skipped, notes)
+        if not self._show_limits():
+            state["limitations_hidden"] = self.limits_md      # kept in the saved record, not in the report or the answer
+            self.limits_md = ""
+            return
         yield self.event("token", stage="TRIALS_ENRICHING", text="\n\n" + self.limits_md)
 
     # ---- stage: verify

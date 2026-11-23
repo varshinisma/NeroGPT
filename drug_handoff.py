@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 import re
 
-MAX_NAMES = 18
+MAX_NAMES = max(1, int(os.getenv("DRUG_HANDOFF_MAX_NAMES", "10") or 10))      # names looked up at most (the first listed are kept); each costs 1-3 openFDA calls and openFDA is limited to 4 calls a second
 MAX_PAPERS = 25
 MAX_WEB = 10
 

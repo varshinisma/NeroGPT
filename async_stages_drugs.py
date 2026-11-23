@@ -40,6 +40,16 @@ async def apage_date(url: str) -> str | None:
     return found.group(1) if found else None
 
 
+def join_fda_decisions(first: dict | None, second: dict) -> dict:
+    """The decisions of two passes over the labels (the labels in hand, then the ones the handoff added). Each record carries its own decision, so the lists are added; what is still undecided is what the LAST pass says."""
+    if not first:
+        return second
+    out = dict(second)
+    for key in ("confirmed", "excluded", "reviewer_rejected", "removed"):
+        out[key] = list(first.get(key) or []) + list(second.get(key) or [])
+    return out
+
+
 async def ainterpret_fda_labels(question: str, records: list[dict], groups: list[dict] | None = None) -> dict:
     """Async twin of qa_stream.interpret_fda_labels."""
     out = {"confirmed": [], "excluded": [], "unreviewed": [], "reviewer_rejected": []}
@@ -98,7 +108,7 @@ async def adrug_handoff_stage(state: dict, question: str, ask=None, search=None)
 
             async def one(key: str, chunk: list):
                 try:
-                    return key, await asyncio.wait_for(find(terms, chunk, 8), timeout=20)
+                    return key, await asyncio.wait_for(find(terms, chunk, 8), timeout=float(os.getenv("DRUG_HANDOFF_SEARCH_S", "10") or 10))
                 except Exception:
                     return key, None
             for key, value in await asyncio.gather(*(one(f"fda_handoff_{i}", c) for i, c in enumerate(chunks))):
@@ -451,16 +461,23 @@ class DrugStages:
                     await merge_task
                 except Exception:
                     pass
+            early = None
+            if handoff_task is not None and os.getenv("FDA_INTERPRET_OVERLAP", "on").strip().lower() not in ("off", "0", "false", "no"):
+                try:      # the labels already in hand are judged WHILE the handoff still looks up the others; a label keeps its own decision, so the second pass reads only what has none
+                    early = await ainterpret_fda_labels(question, state["regulatory"], cond_groups.groups_of(state))
+                    marks["fda_first_pass"] = round(clock.now(), 1)
+                except Exception:
+                    early = None      # the second pass reads everything that has no decision
             try:
                 if handoff_task is not None:
                     await asyncio.shield(handoff_task)
             except Exception:
                 pass      # a failed handoff is already recorded by the stage itself; the labels in hand are read
             try:
-                return await ainterpret_fda_labels(question, state["regulatory"], cond_groups.groups_of(state))
+                return join_fda_decisions(early, await ainterpret_fda_labels(question, state["regulatory"], cond_groups.groups_of(state)))
             except Exception as error:
-                return {"confirmed": [], "excluded": [], "unreviewed": [r["generic"] for r in state["regulatory"] if r.get("model_relevant") is None], "reviewer_rejected": [],
-                        "error": f"{type(error).__name__}: {str(error)[:80]}"}
+                return join_fda_decisions(early, {"confirmed": [], "excluded": [], "unreviewed": [r["generic"] for r in state["regulatory"] if r.get("model_relevant") is None], "reviewer_rejected": [],
+                                                  "error": f"{type(error).__name__}: {str(error)[:80]}"})
 
         async def interpret_drugs_agent() -> dict:
             """Agent mode: the agent's own sources are read first (reading, second reading and class expansion all run while the main pipeline is still searching and ranking); the sources the main pipeline

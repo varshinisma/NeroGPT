@@ -284,6 +284,7 @@ def landscape_markdown(state: dict, used_rows: list[dict], trial_rows: list[dict
     if not treatment:
         labels = ["Not specified"]
         treatment = [state_row(sec, "drug").replace("| | |", "| |", 1) if (sec in STATE_LINES and not reg and not used_rows) else "| None retrieved | | No FDA label or guideline page naming a drug for this condition was retrieved in this run. This does not mean none exists; non-drug treatments the sources support are in Current evidence. |"]
+    has_other = bool(other)      # real rows for the symptom-drug table: without them the table is left out altogether (no heading, no 'none retrieved' line)
     if not other:
         other = [state_row(sec, "drug") if (sec in STATE_LINES and not reg and not used_rows) else "| None retrieved | | No symptom-directed drug for this condition was retrieved in this run. This does not mean none exists. |"]
     dose_note = ("Doses appear only where an FDA label or source gives them for the use shown" + ("; each dose entry is a short summary of the label's dosing section for this condition, "
@@ -301,7 +302,7 @@ def landscape_markdown(state: dict, used_rows: list[dict], trial_rows: list[dict
     if background:
         first += (("\n\n### Other use of these drugs: " + ("acute treatment" if intent == "preventive" else "preventive treatment") + " (background; not the use the question asks about)\n\n"
                    "*These drugs are labelled or described for the other kind of use, so they are not part of the list above.*\n\n") + "\n".join(columns + (with_condition_column(background, [e[4] for e in entries if e[0] <= 1 and not e[5]]) if groups else background)))
-    second = "" if not SHOW_SYMPTOM_DRUGS else ("### Other drugs: used for symptoms (not established treatments of this condition)\n\n"
+    second = "" if (not SHOW_SYMPTOM_DRUGS or not has_other) else ("### Other drugs: used for symptoms (not established treatments of this condition)\n\n"
               "*Drugs that a retrieved review, guideline or web page describes as used for the condition, its symptoms or co-occurring conditions, for which no FDA label for this use was retrieved. "
               "Drugs still being tested in trials are listed in the Clinical trials section below.*\n\n" + "\n".join(short_columns + other))
     return (head + intro + first + "\n\n" + (second + "\n\n" if second else "") + (regulatory_updates_markdown(state) + "\n\n" if regulatory_updates_markdown(state) else "") + safety_alerts_markdown(state.get("drug_labels", []), state.get("listed_drugs"), label_condition_tags(state)))

@@ -183,6 +183,54 @@ def _parse_one(item, skill: str, question: str, anchors: set[str], n: int, *, ne
     return op, ""
 
 
+class ItemStream:
+    """Reads the objects of the `"queries": [...]` list out of a model answer WHILE it is being written: feed() takes the next piece of text and returns every search object that is now complete,
+    so it can be started before the rest of the list exists. Strings and escapes are respected; anything that is not a complete object is waited for."""
+
+    def __init__(self) -> None:
+        self.text, self.pos, self.in_list = "", 0, False
+        self.depth, self.start, self.in_str, self.escape = 0, -1, False, False
+
+    def feed(self, piece: str) -> list[dict]:
+        self.text += piece
+        found = []
+        if not self.in_list:
+            m = re.search(r'"queries"\s*:\s*\[', self.text)
+            if not m:
+                return found
+            self.in_list, self.pos = True, m.end()
+        while self.pos < len(self.text):
+            ch = self.text[self.pos]
+            if self.in_str:
+                if self.escape:
+                    self.escape = False
+                elif ch == "\\":
+                    self.escape = True
+                elif ch == '"':
+                    self.in_str = False
+            elif ch == '"':
+                self.in_str = True
+            elif ch == "{":
+                if self.depth == 0:
+                    self.start = self.pos
+                self.depth += 1
+            elif ch == "}" and self.depth:
+                self.depth -= 1
+                if self.depth == 0 and self.start >= 0:
+                    try:
+                        item = json.loads(self.text[self.start:self.pos + 1])
+                        if isinstance(item, dict):
+                            found.append(item)
+                    except ValueError:
+                        pass
+                    self.start = -1
+            elif ch == "]" and self.depth == 0:
+                self.pos = len(self.text)
+                break
+            self.pos += 1
+        return found
+
+
 def declined(reply) -> bool:
     """True when the skill's own raw answer was an empty JSON object (it had nothing to add). A reply that could not be read at all is NOT a decline."""
     raw = reply.get("_raw") if isinstance(reply, dict) else None
